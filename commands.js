@@ -1,6 +1,6 @@
-import 'dotenv/config';
-import { getRPSChoices } from './game.js';
-import { capitalize, InstallGlobalCommands } from './utils.js';
+import "dotenv/config";
+import { getRPSChoices } from "./game.js";
+import { capitalize, InstallGlobalCommands } from "./utils.js";
 
 // Get the game choices from game.js
 function createCommandChoices() {
@@ -19,8 +19,8 @@ function createCommandChoices() {
 
 // Simple test command
 const TEST_COMMAND = {
-  name: 'test',
-  description: 'Basic command',
+  name: "test",
+  description: "Basic command",
   type: 1,
   integration_types: [0, 1],
   contexts: [0, 1, 2],
@@ -28,13 +28,13 @@ const TEST_COMMAND = {
 
 // Command containing options
 const CHALLENGE_COMMAND = {
-  name: 'challenge',
-  description: 'Challenge to a match of rock paper scissors',
+  name: "challenge",
+  description: "Challenge to a match of rock paper scissors",
   options: [
     {
       type: 3,
-      name: 'object',
-      description: 'Pick your object',
+      name: "object",
+      description: "Pick your object",
       required: true,
       choices: createCommandChoices(),
     },
@@ -44,6 +44,22 @@ const CHALLENGE_COMMAND = {
   contexts: [0, 2],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND];
+const HOTDOG_COMMAND = {
+  name: "hotdog",
+  description: "Add or remove hot dogs (use negative numbers to remove)",
+  options: [
+    {
+      type: 4, // integer
+      name: "amount",
+      description: "Number of hot dogs to add (negative to remove)",
+      required: true,
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1],
+};
+
+const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, HOTDOG_COMMAND];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
