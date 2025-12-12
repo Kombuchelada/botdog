@@ -33,6 +33,29 @@ const HOTDOG_COMMAND = {
   contexts: [0, 1],
 };
 
-const ALL_COMMANDS = [HOTDOG_COMMAND];
+// Protest command: target a user and specify an amount to deduct if seconded
+const PROTEST_COMMAND = {
+  name: 'protest',
+  description: "Protest another user's hotdog claim",
+  options: [
+    {
+      type: 6, // USER
+      name: 'user',
+      description: 'User to protest',
+      required: true,
+    },
+    {
+      type: 4, // INTEGER
+      name: 'amount',
+      description: 'Amount to deduct if seconded',
+      required: true,
+    },
+  ],
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const ALL_COMMANDS = [HOTDOG_COMMAND, PROTEST_COMMAND];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
