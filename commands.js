@@ -17,41 +17,14 @@ function createCommandChoices() {
   return commandChoices;
 }
 
-// Simple test command
-const TEST_COMMAND = {
-  name: "test",
-  description: "Basic command",
-  type: 1,
-  integration_types: [0, 1],
-  contexts: [0, 1, 2],
-};
-
-// Command containing options
-const CHALLENGE_COMMAND = {
-  name: "challenge",
-  description: "Challenge to a match of rock paper scissors",
-  options: [
-    {
-      type: 3,
-      name: "object",
-      description: "Pick your object",
-      required: true,
-      choices: createCommandChoices(),
-    },
-  ],
-  type: 1,
-  integration_types: [0, 1],
-  contexts: [0, 2],
-};
-
 const HOTDOG_COMMAND = {
   name: "hotdog",
-  description: "Add or remove hot dogs (use negative numbers to remove)",
+  description: "Add hot dogs",
   options: [
     {
       type: 4, // integer
       name: "amount",
-      description: "Number of hot dogs to add (negative to remove)",
+      description: "Number of hot dogs to add",
       required: true,
     },
   ],
@@ -60,6 +33,6 @@ const HOTDOG_COMMAND = {
   contexts: [0, 1],
 };
 
-const ALL_COMMANDS = [TEST_COMMAND, CHALLENGE_COMMAND, HOTDOG_COMMAND];
+const ALL_COMMANDS = [HOTDOG_COMMAND];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
