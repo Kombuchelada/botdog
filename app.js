@@ -50,6 +50,9 @@ const insertHotdogEventStmt = db.prepare(
 const getUserTotalStmt = db.prepare(
   "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?"
 );
+const getLeaderboardStmt = db.prepare(
+  "SELECT user_id, username, total_count FROM hotdog_totals ORDER BY total_count DESC"
+);
 
 // To keep track of active protests waiting for a second (still in memory)
 const activeProtests = {};
@@ -120,6 +123,39 @@ function handleHotDogCommand(res, req, id) {
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
           content: `You now have ${newCount} hot dogs, ${username}! 🌭`,
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Handle leaderboard command
+ * Returns all users and their hot dog counts in descending order
+ */
+function handleLeaderboardCommand(res) {
+  const rows = getLeaderboardStmt.all();
+
+  let leaderboardText = "";
+  if (rows.length === 0) {
+    leaderboardText = "No hot dog counts yet!";
+  } else {
+    leaderboardText = rows
+      .map(
+        (row, index) =>
+          `${index + 1}. <@${row.user_id}> - ${row.total_count} hot dogs`
+      )
+      .join("\n");
+  }
+
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Hot Dog Leaderboard** 🌭\n\n${leaderboardText}`,
         },
       ],
     },
@@ -331,6 +367,8 @@ app.post(
             return handleHotDogCommand(res, req, id);
           case "protest":
             return handleProtestCommand(res, req, id);
+          case "leaderboard":
+            return handleLeaderboardCommand(res);
           default:
             console.error(`unknown command: ${name}`);
             return res.status(400).json({ error: "unknown command" });
