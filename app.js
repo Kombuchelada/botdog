@@ -10,14 +10,35 @@ import {
 } from "discord-interactions";
 import { getRandomEmoji, DiscordRequest } from "./utils.js";
 import { getShuffledOptions, getResult } from "./game.js";
+import Database from "better-sqlite3";
 
 // Create an express app
 const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
-// To keep track of our active games
-const activeGames = {};
-// To keep track of active protests waiting for a second
+// Initialize SQLite database for persistent hotdog counts
+const db = new Database("data.db");
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    username TEXT,
+    count INTEGER DEFAULT 0
+  )`
+).run();
+
+// Prepared statements
+const getUserStmt = db.prepare(
+  "SELECT user_id, username, count FROM users WHERE user_id = ?"
+);
+const upsertUserStmt = db.prepare(
+  `INSERT INTO users (user_id, username, count) VALUES (?, ?, ?)
+   ON CONFLICT(user_id) DO UPDATE SET username = excluded.username, count = excluded.count`
+);
+const updateCountStmt = db.prepare(
+  "UPDATE users SET count = ? WHERE user_id = ?"
+);
+
+// To keep track of active protests waiting for a second (still in memory)
 const activeProtests = {};
 
 /**
@@ -72,13 +93,12 @@ function handleHotDogCommand(res, req, id) {
       },
     });
   }
-  if (!activeGames[userId]) {
-    activeGames[userId] = {
-      count: 0,
-      username: username,
-    };
-  }
-  activeGames[userId].count += amount;
+  // Read current count from DB
+  const row = getUserStmt.get(userId);
+  const newCount = (row ? row.count : 0) + amount;
+  // Upsert with new count and username (use global name when set)
+  upsertUserStmt.run(userId, username, newCount);
+
   return res.send({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
@@ -86,7 +106,7 @@ function handleHotDogCommand(res, req, id) {
       components: [
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
-          content: `You now have ${activeGames[userId].count} hot dogs, ${activeGames[userId].username}! 🌭`,
+          content: `You now have ${newCount} hot dogs, ${username}! 🌭`,
         },
       ],
     },
@@ -197,15 +217,14 @@ async function handleSecondProtest(res, req, protestId) {
 
   const { targetId, amount } = protest;
 
-  if (!activeGames[targetId]) {
-    // initialize target with zero if not present
-    activeGames[targetId] = { count: 0, username: `<@${targetId}>` };
-  }
+  // Read target user's current count from DB
+  const targetRow = getUserStmt.get(targetId);
+  const oldCount = targetRow ? targetRow.count : 0;
+  const newCount = Math.max(0, oldCount - amount);
 
-  activeGames[targetId].count = Math.max(
-    0,
-    activeGames[targetId].count - amount
-  );
+  // Upsert the user's new count (use mention as username if no known username)
+  const targetUsername = targetRow ? targetRow.username : `<@${targetId}>`;
+  upsertUserStmt.run(targetId, targetUsername, newCount);
 
   // respond to the seconder and update the original message
   const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
@@ -232,7 +251,7 @@ async function handleSecondProtest(res, req, protestId) {
         components: [
           {
             type: MessageComponentTypes.TEXT_DISPLAY,
-            content: `Protest resolved: <@${seconderId}> seconded; <@${targetId}> now has ${activeGames[targetId].count} hot dogs.`,
+            content: `Protest resolved: <@${seconderId}> seconded; <@${targetId}> now has ${newCount} hot dogs.`,
           },
         ],
       },
