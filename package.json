@@ -9,9 +9,10 @@
     "node": ">=18.x"
   },
   "scripts": {
-    "start": "nodemon app.js",
+    "start": "node app.js",
     "register": "node commands.js",
-    "dev": "nodemon app.js"
+    "dev": "nodemon app.js",
+    "postinstall": "npm run register"
   },
   "author": "Shay DeWael",
   "license": "MIT",
