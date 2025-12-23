@@ -17,7 +17,7 @@ const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
 // Initialize SQLite database for persistent hotdog counts
-const db = new Database("data.db");
+const db = new Database("/database/data.db");
 db.prepare(
   `CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
