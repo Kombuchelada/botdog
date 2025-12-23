@@ -166,6 +166,24 @@ function handleProtestCommand(res, req, id) {
     });
   }
 
+  // Check if protest would make target's count go negative
+  const targetRow = getUserTotalStmt.get(targetId);
+  const currentCount = targetRow ? targetRow.total_count : 0;
+  if (currentCount - amount < 0) {
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: `Cannot protest ${amount} hot dogs from <@${targetId}> (current total: ${currentCount}). This would result in a negative count.`,
+          },
+        ],
+      },
+    });
+  }
+
   // store protest state keyed by interaction id
   activeProtests[id] = {
     targetId,
@@ -246,32 +264,13 @@ async function handleSecondProtest(res, req, protestId) {
 
   const { targetId, amount } = protest;
 
-  // Get the target's current total
-  const targetRow = getUserTotalStmt.get(targetId);
-  const currentCount = targetRow ? targetRow.total_count : 0;
-  const newCount = currentCount - amount;
-
-  // Prevent count from going negative
-  if (newCount < 0) {
-    return res.send({
-      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: {
-        flags:
-          InteractionResponseFlags.EPHEMERAL |
-          InteractionResponseFlags.IS_COMPONENTS_V2,
-        components: [
-          {
-            type: MessageComponentTypes.TEXT_DISPLAY,
-            content: `Cannot deduct ${amount} hot dogs from <@${targetId}> (current total: ${currentCount}). This would result in a negative count.`,
-          },
-        ],
-      },
-    });
-  }
-
   // Insert a negative amount event to record the protest
   // This creates an audit trail while reducing the target's total
   insertHotdogEventStmt.run(targetId, `<@${targetId}>`, -amount);
+
+  // Get the target's updated total from the view
+  const targetRow = getUserTotalStmt.get(targetId);
+  const newCount = targetRow ? targetRow.total_count : 0;
 
   // respond to the seconder and update the original message
   const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
