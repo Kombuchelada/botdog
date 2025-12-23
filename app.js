@@ -52,8 +52,7 @@ const getUserTotalStmt = db.prepare(
 );
 
 // To keep track of active protests waiting for a second (still in memory)
-// TODO: Remove once protest functionality is re-implemented
-// const activeProtests = {};
+const activeProtests = {};
 
 /**
  * this function handles the hotdog command.
@@ -134,149 +133,147 @@ function handlePing(res) {
   return res.send({ type: InteractionResponseType.PONG });
 }
 
-// TODO: Re-implement protest functionality with hotdog_events tracking
-// /**
-//  * Handle protest command
-//  * Options: user (target), amount (integer)
-//  */
-// function handleProtestCommand(res, req, id) {
-//   const context = req.body.context;
-//   let protestor;
-//   if (context === 0) {
-//     protestor = req.body.member.user;
-//   } else {
-//     protestor = req.body.user;
-//   }
-//   const protestorId = protestor.id;
-//
-//   const targetId = req.body.data.options[0].value;
-//   const amount = parseInt(req.body.data.options[1].value, 10);
-//
-//   // store protest state keyed by interaction id
-//   activeProtests[id] = {
-//     targetId,
-//     amount,
-//     protestorId,
-//   };
-//
-//   return res.send({
-//     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-//     data: {
-//       flags: InteractionResponseFlags.IS_COMPONENTS_V2,
-//       components: [
-//         {
-//           type: MessageComponentTypes.TEXT_DISPLAY,
-//           content: `<@${protestorId}> protests <@${targetId}> for ${amount} hot dogs. Second to confirm.`,
-//         },
-//         {
-//           type: MessageComponentTypes.ACTION_ROW,
-//           components: [
-//             {
-//               type: MessageComponentTypes.BUTTON,
-//               custom_id: `second_protest_${id}`,
-//               label: "Second",
-//               style: ButtonStyleTypes.DANGER,
-//             },
-//           ],
-//         },
-//       ],
-//     },
-//   });
-// }
-//
-// /**
-//  * Handle message component interactions
-//  */
-// async function handleMessageComponent(res, req, data) {
-//   const componentId = data.custom_id;
-//
-//   if (componentId.startsWith("second_protest_")) {
-//     const protestId = componentId.replace("second_protest_", "");
-//     return await handleSecondProtest(res, req, protestId);
-//   }
-// }
-//
-// /**
-//  * Handle a second on a protest: deduct amount from target if valid
-//  */
-// async function handleSecondProtest(res, req, protestId) {
-//   const protest = activeProtests[protestId];
-//   if (!protest) return;
-//
-//   const context = req.body.context;
-//   let seconder;
-//   if (context === 0) {
-//     seconder = req.body.member.user;
-//   } else {
-//     seconder = req.body.user;
-//   }
-//   const seconderId = seconder.id;
-//
-//   // cannot second your own protest
-//   if (seconderId === protest.protestorId) {
-//     return res.send({
-//       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-//       data: {
-//         flags:
-//           InteractionResponseFlags.EPHEMERAL |
-//           InteractionResponseFlags.IS_COMPONENTS_V2,
-//         components: [
-//           {
-//             type: MessageComponentTypes.TEXT_DISPLAY,
-//             content: `You cannot second your own protest.`,
-//           },
-//         ],
-//       },
-//     });
-//   }
-//
-//   const { targetId, amount } = protest;
-//
-//   // Read target user's current count from DB
-//   const targetRow = getUserStmt.get(targetId);
-//   const oldCount = targetRow ? targetRow.count : 0;
-//   const newCount = Math.max(0, oldCount - amount);
-//
-//   // Upsert the user's new count (use mention as username if no known username)
-//   const targetUsername = targetRow ? targetRow.username : `<@${targetId}>`;
-//   upsertUserStmt.run(targetId, targetUsername, newCount);
-//
-//   // respond to the seconder and update the original message
-//   const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
-//
-//   try {
-//     await res.send({
-//       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-//       data: {
-//         flags:
-//           InteractionResponseFlags.EPHEMERAL |
-//           InteractionResponseFlags.IS_COMPONENTS_V2,
-//         components: [
-//           {
-//             type: MessageComponentTypes.TEXT_DISPLAY,
-//             content: `You seconded the protest — deducted ${amount} from <@${targetId}>.`,
-//           },
-//         ],
-//       },
-//     });
-//
-//     await DiscordRequest(endpoint, {
-//       method: "PATCH",
-//       body: {
-//         components: [
-//           {
-//             type: MessageComponentTypes.TEXT_DISPLAY,
-//             content: `Protest resolved: <@${seconderId}> seconded; <@${targetId}> now has ${newCount} hot dogs.`,
-//           },
-//         ],
-//       },
-//     });
-//   } catch (err) {
-//     console.error("Error resolving protest:", err);
-//   }
-//
-//   delete activeProtests[protestId];
-// }
+/**
+ * Handle protest command
+ * Options: user (target), amount (integer)
+ */
+function handleProtestCommand(res, req, id) {
+  const context = req.body.context;
+  let protestor;
+  if (context === 0) {
+    protestor = req.body.member.user;
+  } else {
+    protestor = req.body.user;
+  }
+  const protestorId = protestor.id;
+
+  const targetId = req.body.data.options[0].value;
+  const amount = parseInt(req.body.data.options[1].value, 10);
+
+  // store protest state keyed by interaction id
+  activeProtests[id] = {
+    targetId,
+    amount,
+    protestorId,
+  };
+
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `<@${protestorId}> protests <@${targetId}> for ${amount} hot dogs. Second to confirm.`,
+        },
+        {
+          type: MessageComponentTypes.ACTION_ROW,
+          components: [
+            {
+              type: MessageComponentTypes.BUTTON,
+              custom_id: `second_protest_${id}`,
+              label: "Second",
+              style: ButtonStyleTypes.DANGER,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Handle message component interactions
+ */
+async function handleMessageComponent(res, req, data) {
+  const componentId = data.custom_id;
+
+  if (componentId.startsWith("second_protest_")) {
+    const protestId = componentId.replace("second_protest_", "");
+    return await handleSecondProtest(res, req, protestId);
+  }
+}
+
+/**
+ * Handle a second on a protest: insert negative amount event to reduce target's count
+ */
+async function handleSecondProtest(res, req, protestId) {
+  const protest = activeProtests[protestId];
+  if (!protest) return;
+
+  const context = req.body.context;
+  let seconder;
+  if (context === 0) {
+    seconder = req.body.member.user;
+  } else {
+    seconder = req.body.user;
+  }
+  const seconderId = seconder.id;
+
+  // cannot second your own protest
+  if (seconderId === protest.protestorId) {
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags:
+          InteractionResponseFlags.EPHEMERAL |
+          InteractionResponseFlags.IS_COMPONENTS_V2,
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: `You cannot second your own protest.`,
+          },
+        ],
+      },
+    });
+  }
+
+  const { targetId, amount } = protest;
+
+  // Insert a negative amount event to record the protest
+  // This creates an audit trail while reducing the target's total
+  insertHotdogEventStmt.run(targetId, `<@${targetId}>`, -amount);
+
+  // Get the target's updated total from the view
+  const targetRow = getUserTotalStmt.get(targetId);
+  const newCount = targetRow ? targetRow.total_count : 0;
+
+  // respond to the seconder and update the original message
+  const endpoint = `webhooks/${process.env.APP_ID}/${req.body.token}/messages/${req.body.message.id}`;
+
+  try {
+    await res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        flags:
+          InteractionResponseFlags.EPHEMERAL |
+          InteractionResponseFlags.IS_COMPONENTS_V2,
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: `You seconded the protest — deducted ${amount} from <@${targetId}>.`,
+          },
+        ],
+      },
+    });
+
+    await DiscordRequest(endpoint, {
+      method: "PATCH",
+      body: {
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: `Protest resolved: <@${seconderId}> seconded; <@${targetId}> now has ${newCount} hot dogs.`,
+          },
+        ],
+      },
+    });
+  } catch (err) {
+    console.error("Error resolving protest:", err);
+  }
+
+  delete activeProtests[protestId];
+}
 
 /**
  * Interactions endpoint URL where Discord will send HTTP requests
@@ -298,19 +295,15 @@ app.post(
         switch (name) {
           case "hotdog":
             return handleHotDogCommand(res, req, id);
-          // case "protest":
-          //   return handleProtestCommand(res, req, id);
+          case "protest":
+            return handleProtestCommand(res, req, id);
           default:
             console.error(`unknown command: ${name}`);
             return res.status(400).json({ error: "unknown command" });
         }
 
       case InteractionType.MESSAGE_COMPONENT:
-        // TODO: Re-enable once protest functionality is re-implemented
-        // return await handleMessageComponent(res, req, data);
-        return res
-          .status(400)
-          .json({ error: "message components not yet supported" });
+        return await handleMessageComponent(res, req, data);
 
       default:
         console.error("unknown interaction type", type);
