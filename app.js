@@ -43,6 +43,13 @@ db.prepare(
    GROUP BY user_id`
 ).run();
 
+// Optional one-time reset controlled by env flag (useful before a deploy)
+const shouldResetDb = process.env.RESET_DB_ON_BOOT === "true";
+if (shouldResetDb) {
+  db.prepare("DELETE FROM hotdog_events").run();
+  console.log("RESET_DB_ON_BOOT=true: cleared hotdog_events table");
+}
+
 // Prepared statements
 const insertHotdogEventStmt = db.prepare(
   "INSERT INTO hotdog_events (user_id, username, amount) VALUES (?, ?, ?)"
