@@ -21,8 +21,8 @@ const db = new Database("/database/data.db");
 
 // Clean up old schema on startup
 // Drop old users table if it exists (migration from old hotdog tracking)
-db.prepare("DROP TABLE IF EXISTS users").run();
-db.prepare("DROP VIEW IF EXISTS hotdog_totals").run();
+// db.prepare("DROP TABLE IF EXISTS users").run();
+// db.prepare("DROP VIEW IF EXISTS hotdog_totals").run();
 
 // Create table to track each hotdog addition event
 db.prepare(
@@ -44,11 +44,11 @@ db.prepare(
 ).run();
 
 // Optional one-time reset controlled by env flag (useful before a deploy)
-const shouldResetDb = process.env.RESET_DB_ON_BOOT === "true";
-if (shouldResetDb) {
-  db.prepare("DELETE FROM hotdog_events").run();
-  console.log("RESET_DB_ON_BOOT=true: cleared hotdog_events table");
-}
+// const shouldResetDb = process.env.RESET_DB_ON_BOOT === "true";
+// if (shouldResetDb) {
+//   db.prepare("DELETE FROM hotdog_events").run();
+//   console.log("RESET_DB_ON_BOOT=true: cleared hotdog_events table");
+// }
 
 // Prepared statements
 const insertHotdogEventStmt = db.prepare(
@@ -59,6 +59,9 @@ const getUserTotalStmt = db.prepare(
 );
 const getLeaderboardStmt = db.prepare(
   "SELECT user_id, username, total_count FROM hotdog_totals ORDER BY total_count DESC"
+);
+const getTotalHotdogsStmt = db.prepare(
+  "SELECT SUM(total_count) as total_hotdogs FROM hotdog_totals"
 );
 
 // To keep track of active protests waiting for a second (still in memory)
@@ -142,6 +145,7 @@ function handleHotDogCommand(res, req, id) {
  */
 function handleLeaderboardCommand(res) {
   const rows = getLeaderboardStmt.all();
+  const total = getTotalHotdogsStmt.get().total_hotdogs || 0;
 
   let leaderboardText = "";
   if (rows.length === 0) {
@@ -162,7 +166,7 @@ function handleLeaderboardCommand(res) {
       components: [
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
-          content: `🌭 **Hot Dog Leaderboard** 🌭\n\n${leaderboardText}`,
+          content: `🌭 **Hot Dog Leaderboard** 🌭\n\n${leaderboardText}\n\nTotal glizzies guzzled: ${total}`,
         },
       ],
     },
