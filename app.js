@@ -395,6 +395,17 @@ app.post(
   }
 );
 
+// Simple API endpoint for external consumers to read the current hot dog totals
+app.get("/api/hotdog-totals", (req, res) => {
+  try {
+    const rows = getLeaderboardStmt.all();
+    return res.json(rows);
+  } catch (err) {
+    console.error("Error fetching hot dog totals:", err);
+    return res.status(500).json({ error: "failed to fetch hot dog totals" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Listening on port", PORT);
 });
