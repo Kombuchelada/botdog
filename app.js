@@ -63,6 +63,9 @@ const getLeaderboardStmt = db.prepare(
 const getTotalHotdogsStmt = db.prepare(
   "SELECT SUM(total_count) as total_hotdogs FROM hotdog_totals"
 );
+const getAllEventsStmt = db.prepare(
+  "SELECT * FROM hotdog_events ORDER BY timestamp DESC"
+);
 
 // To keep track of active protests waiting for a second (still in memory)
 const activeProtests = {};
@@ -403,6 +406,16 @@ app.get("/api/hotdog-totals", (req, res) => {
   } catch (err) {
     console.error("Error fetching hot dog totals:", err);
     return res.status(500).json({ error: "failed to fetch hot dog totals" });
+  }
+});
+
+app.get("/api/hotdog-events", (req, res) => {
+  try {
+    const rows = getAllEventsStmt.all();
+    return res.json(rows);
+  } catch (err) {
+    console.error("Error fetching hot dog events:", err);
+    return res.status(500).json({ error: "failed to fetch hot dog events" });
   }
 });
 
