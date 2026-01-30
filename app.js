@@ -184,6 +184,45 @@ function getLeaderboard() {
   return leaderboardText;
 }
 
+function getStats() {
+  const totalDogsConsumed = getTotalHotdogsStmt.get().total_hotdogs || 0;
+  const allEvents = getAllEventsStmt.all();
+  // calculate dogs per day since first event
+  let dogsPerDay = 0;
+  if (allEvents.length > 0) {
+    const firstEventTime = new Date(allEvents[allEvents.length - 1].timestamp);
+    const now = new Date();
+    const daysElapsed =
+      (now.getTime() - firstEventTime.getTime()) / (1000 * 60 * 60 * 24);
+    dogsPerDay = (totalDogsConsumed / daysElapsed).toFixed(2);
+  }
+
+  return {
+    totalDogsConsumed,
+    dogsPerDay,
+    dogsPerMonth: getDogsPerMonth(),
+  };
+}
+
+function getDogsPerMonth() {
+  const totalDogsConsumed = getTotalHotdogsStmt.get().total_hotdogs || 0;
+  const allEvents = getAllEventsStmt.all();
+  let dogsPerMonth = 0;
+  if (allEvents.length > 0) {
+    const firstEventTime = new Date(allEvents[allEvents.length - 1].timestamp);
+    const now = new Date();
+    const monthsElapsed =
+      (now.getFullYear() - firstEventTime.getFullYear()) * 12 +
+      (now.getMonth() - firstEventTime.getMonth());
+    if (monthsElapsed > 0) {
+      dogsPerMonth = (totalDogsConsumed / monthsElapsed).toFixed(2);
+    } else {
+      dogsPerMonth = totalDogsConsumed;
+    }
+  }
+  return dogsPerMonth;
+}
+
 /**
  * Handle ping interaction
  */
@@ -406,9 +445,9 @@ app.post(
   },
 );
 
-app.get("/api/test-leaderboard", (req, res) => {
-  const leaderboardText = getLeaderboard();
-  return res.send(leaderboardText);
+app.get("/api/test-stats", (req, res) => {
+  const stats = getStats();
+  return res.json(stats);
 });
 
 // Simple API endpoint for external consumers to read the current hot dog totals
