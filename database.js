@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 
 // Initialize SQLite database for persistent hotdog tracking
-const db = new Database("./database/data.db");
+const db = new Database("/database/data.db");
 
 // Create table to track each hotdog addition event
 db.prepare(
