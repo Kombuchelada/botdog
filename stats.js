@@ -79,7 +79,7 @@ function getLongestDailyStreak() {
   const userDates = new Map();
 
   for (const event of allEvents) {
-    const dateKey = toLocalDateKey(new Date(event.timestamp));
+    const dateKey = toPacificDateKey(new Date(event.timestamp));
     if (!userDates.has(event.user_id)) {
       userDates.set(event.user_id, {
         username: event.username,
@@ -89,11 +89,10 @@ function getLongestDailyStreak() {
     userDates.get(event.user_id).dates.add(dateKey);
   }
 
-  const today = new Date();
-  const todayKey = toLocalDateKey(today);
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = toLocalDateKey(yesterday);
+  const now = new Date();
+  const todayKey = toPacificDateKey(now);
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const yesterdayKey = toPacificDateKey(yesterday);
 
   let best = { userId: null, username: null, days: 0 };
 
@@ -103,11 +102,11 @@ function getLongestDailyStreak() {
     }
 
     let streak = 0;
-    const cursor = dates.has(todayKey) ? new Date(today) : new Date(yesterday);
+    let cursorTime = dates.has(todayKey) ? now.getTime() : yesterday.getTime();
 
-    while (dates.has(toLocalDateKey(cursor))) {
+    while (dates.has(toPacificDateKey(new Date(cursorTime)))) {
       streak += 1;
-      cursor.setDate(cursor.getDate() - 1);
+      cursorTime -= 24 * 60 * 60 * 1000;
     }
 
     if (streak > best.days) {
@@ -122,6 +121,19 @@ function toLocalDateKey(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function toPacificDateKey(date) {
+  // Convert UTC date to Pacific Time
+  const pacificDateString = date.toLocaleString("en-US", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  // Format is MM/DD/YYYY, convert to YYYY-MM-DD
+  const [month, day, year] = pacificDateString.split("/");
   return `${year}-${month}-${day}`;
 }
 
