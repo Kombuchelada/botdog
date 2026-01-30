@@ -272,9 +272,13 @@ function handleLeaderboardCommand(res) {
 function handleStatsCommand(res) {
   const stats = getStats();
 
-  const streakUser = stats.longestDailyStreak?.userId
-    ? `<@${stats.longestDailyStreak.userId}>`
-    : "None";
+  const streakUserIds = Array.isArray(stats.longestDailyStreak?.userIds)
+    ? stats.longestDailyStreak.userIds
+    : [];
+  const streakUsers =
+    streakUserIds.length > 0
+      ? streakUserIds.map((userId) => `<@${userId}>`).join(", ")
+      : "None";
   const streakDays = stats.longestDailyStreak?.days || 0;
 
   const largestUser = stats.largestSingleSessionSubmission?.userId
@@ -295,7 +299,7 @@ function handleStatsCommand(res) {
             `Total Glizzies Guzzled: ${stats.totalDogsConsumed}\n` +
             `Dogs Per Day (dpd): ${stats.dogsPerDay}\n` +
             `Dogs Per Month (dpm): ${stats.dogsPerMonth}\n` +
-            `Longest Active Streak: ${streakUser}: ${streakDays} days\n` +
+            `Longest Active Streak: ${streakUsers}: ${streakDays} days\n` +
             `Most Dogs In A Single Meal: ${largestUser} with ${largestAmount} dogs\n` +
             `Average Dogs Per Meal Server Wide: ${averageAmount} dogs`,
         },

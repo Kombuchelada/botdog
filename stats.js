@@ -73,20 +73,17 @@ function getDogsPerMonth() {
 function getLongestDailyStreak() {
   const allEvents = getAllEventsStmt.all();
   if (allEvents.length === 0) {
-    return { userId: null, username: null, days: 0 };
+    return { userIds: [], days: 0 };
   }
 
   const userDates = new Map();
 
   for (const event of allEvents) {
-    const dateKey = toPacificDateKey(new Date(event.timestamp));
+    const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
     if (!userDates.has(event.user_id)) {
-      userDates.set(event.user_id, {
-        username: event.username,
-        dates: new Set(),
-      });
+      userDates.set(event.user_id, new Set());
     }
-    userDates.get(event.user_id).dates.add(dateKey);
+    userDates.get(event.user_id).add(dateKey);
   }
 
   const now = new Date();
@@ -94,10 +91,12 @@ function getLongestDailyStreak() {
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayKey = toPacificDateKey(yesterday);
 
-  let best = { userId: null, username: null, days: 0 };
+  let maxDays = 0;
+  const streaksByUser = new Map();
 
-  for (const [userId, { username, dates }] of userDates.entries()) {
+  for (const [userId, dates] of userDates.entries()) {
     if (!dates.has(todayKey) && !dates.has(yesterdayKey)) {
+      streaksByUser.set(userId, 0);
       continue;
     }
 
@@ -109,19 +108,24 @@ function getLongestDailyStreak() {
       cursorTime -= 24 * 60 * 60 * 1000;
     }
 
-    if (streak > best.days) {
-      best = { userId, username, days: streak };
+    streaksByUser.set(userId, streak);
+    if (streak > maxDays) {
+      maxDays = streak;
     }
   }
 
-  return best;
-}
+  if (maxDays === 0) {
+    return { userIds: [], days: 0 };
+  }
 
-function toLocalDateKey(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  const userIds = [];
+  for (const [userId, streak] of streaksByUser.entries()) {
+    if (streak === maxDays) {
+      userIds.push(userId);
+    }
+  }
+
+  return { userIds, days: maxDays };
 }
 
 function toPacificDateKey(date) {
@@ -135,6 +139,19 @@ function toPacificDateKey(date) {
   // Format is MM/DD/YYYY, convert to YYYY-MM-DD
   const [month, day, year] = pacificDateString.split("/");
   return `${year}-${month}-${day}`;
+}
+
+function parseUtcTimestamp(timestamp) {
+  if (!timestamp) {
+    return new Date(NaN);
+  }
+  if (timestamp instanceof Date) {
+    return timestamp;
+  }
+  const normalized = String(timestamp).includes("T")
+    ? String(timestamp)
+    : String(timestamp).replace(" ", "T");
+  return new Date(`${normalized}Z`);
 }
 
 function getLargestSingleSessionSubmission() {
