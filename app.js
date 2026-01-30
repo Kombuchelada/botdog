@@ -17,7 +17,7 @@ const app = express();
 // Get port, or default to 3000
 const PORT = process.env.PORT || 3000;
 // Initialize SQLite database for persistent hotdog tracking
-const db = new Database("/database/data.db");
+const db = new Database("./database/data.db");
 
 // Clean up old schema on startup
 // Drop old users table if it exists (migration from old hotdog tracking)
@@ -32,7 +32,7 @@ db.prepare(
     username TEXT NOT NULL,
     amount INTEGER NOT NULL,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  )`
+  )`,
 ).run();
 
 // Create view to get current hotdog count per user
@@ -40,7 +40,7 @@ db.prepare(
   `CREATE VIEW IF NOT EXISTS hotdog_totals AS
    SELECT user_id, username, SUM(amount) as total_count
    FROM hotdog_events
-   GROUP BY user_id`
+   GROUP BY user_id`,
 ).run();
 
 // Optional one-time reset controlled by env flag (useful before a deploy)
@@ -52,19 +52,19 @@ db.prepare(
 
 // Prepared statements
 const insertHotdogEventStmt = db.prepare(
-  "INSERT INTO hotdog_events (user_id, username, amount) VALUES (?, ?, ?)"
+  "INSERT INTO hotdog_events (user_id, username, amount) VALUES (?, ?, ?)",
 );
 const getUserTotalStmt = db.prepare(
-  "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?"
+  "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?",
 );
 const getLeaderboardStmt = db.prepare(
-  "SELECT user_id, username, total_count FROM hotdog_totals ORDER BY total_count DESC"
+  "SELECT user_id, username, total_count FROM hotdog_totals ORDER BY total_count DESC",
 );
 const getTotalHotdogsStmt = db.prepare(
-  "SELECT SUM(total_count) as total_hotdogs FROM hotdog_totals"
+  "SELECT SUM(total_count) as total_hotdogs FROM hotdog_totals",
 );
 const getAllEventsStmt = db.prepare(
-  "SELECT * FROM hotdog_events ORDER BY timestamp DESC"
+  "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
 );
 
 // To keep track of active protests waiting for a second (still in memory)
@@ -147,21 +147,9 @@ function handleHotDogCommand(res, req, id) {
  * Returns all users and their hot dog counts in descending order
  */
 function handleLeaderboardCommand(res) {
-  const rows = getLeaderboardStmt.all();
+  let leaderboardText = getLeaderboard();
+
   const total = getTotalHotdogsStmt.get().total_hotdogs || 0;
-
-  let leaderboardText = "";
-  if (rows.length === 0) {
-    leaderboardText = "No hot dog counts yet!";
-  } else {
-    leaderboardText = rows
-      .map(
-        (row, index) =>
-          `${index + 1}. <@${row.user_id}> - ${row.total_count} hot dogs`
-      )
-      .join("\n");
-  }
-
   return res.send({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
     data: {
@@ -174,6 +162,26 @@ function handleLeaderboardCommand(res) {
       ],
     },
   });
+}
+
+function getLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  let leaderboardText = "";
+  if (rows.length === 0) {
+    leaderboardText = "No hot dog counts yet!";
+  } else {
+    let currentRank = 1;
+    leaderboardText = rows
+      .map((row, index) => {
+        // If this isn't the first row and the count is different from previous, update rank
+        if (index > 0 && rows[index - 1].total_count !== row.total_count) {
+          currentRank = index + 1;
+        }
+        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs`;
+      })
+      .join("\n");
+  }
+  return leaderboardText;
 }
 
 /**
@@ -395,8 +403,13 @@ app.post(
         console.error("unknown interaction type", type);
         return res.status(400).json({ error: "unknown interaction type" });
     }
-  }
+  },
 );
+
+app.get("/api/test-leaderboard", (req, res) => {
+  const leaderboardText = getLeaderboard();
+  return res.send(leaderboardText);
+});
 
 // Simple API endpoint for external consumers to read the current hot dog totals
 app.get("/api/hotdog-totals", (req, res) => {
