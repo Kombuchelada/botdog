@@ -38,3 +38,9 @@ export const getTotalHotdogsStmt = db.prepare(
 export const getAllEventsStmt = db.prepare(
   "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
 );
+export const getLargestSingleSubmissionStmt = db.prepare(
+  "SELECT * FROM hotdog_events ORDER BY amount DESC, timestamp DESC LIMIT 1",
+);
+export const getAverageAmountPerEventStmt = db.prepare(
+  "SELECT AVG(amount) as average_amount FROM hotdog_events",
+);
