@@ -419,6 +419,24 @@ app.get("/api/hotdog-events", (req, res) => {
   }
 });
 
+// Export database file endpoint
+app.get("/api/export-database", (req, res) => {
+  try {
+    const dbPath = "/database/data.db";
+    res.download(dbPath, "hotdog-data.db", (err) => {
+      if (err) {
+        console.error("Error downloading database:", err);
+        if (!res.headersSent) {
+          return res.status(500).json({ error: "failed to export database" });
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Error exporting database:", err);
+    return res.status(500).json({ error: "failed to export database" });
+  }
+});
+
 app.listen(PORT, () => {
   console.log("Listening on port", PORT);
 });
