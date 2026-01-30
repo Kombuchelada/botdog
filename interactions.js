@@ -7,7 +7,7 @@ import {
   verifyKeyMiddleware,
 } from "discord-interactions";
 import { DiscordRequest } from "./utils.js";
-import { getLeaderboard } from "./stats.js";
+import { getLeaderboard, getStats } from "./stats.js";
 import {
   insertHotdogEventStmt,
   getUserTotalStmt,
@@ -42,6 +42,8 @@ export function registerInteractions(app) {
               return handleProtestCommand(res, req, id);
             case "leaderboard":
               return handleLeaderboardCommand(res);
+            case "stats":
+              return handleStatsCommand(res);
             default:
               console.error(`unknown command: ${name}`);
               return res.status(400).json({ error: "unknown command" });
@@ -257,6 +259,45 @@ function handleLeaderboardCommand(res) {
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
           content: `🌭 **Hot Dog Leaderboard** 🌭\n\n${leaderboardText}\n\nTotal glizzies guzzled: ${total}`,
+        },
+      ],
+    },
+  });
+}
+
+/**
+ * Handle stats command
+ * Returns server-wide stats summary
+ */
+function handleStatsCommand(res) {
+  const stats = getStats();
+
+  const streakUser = stats.longestDailyStreak?.userId
+    ? `<@${stats.longestDailyStreak.userId}>`
+    : "None";
+  const streakDays = stats.longestDailyStreak?.days || 0;
+
+  const largestUser = stats.largestSingleSessionSubmission?.userId
+    ? `<@${stats.largestSingleSessionSubmission.userId}>`
+    : "None";
+  const largestAmount = stats.largestSingleSessionSubmission?.amount || 0;
+
+  const averageAmount = stats.averageAmountPerDbRow || 0;
+
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content:
+            `Total Glizzies Guzzled: ${stats.totalDogsConsumed}\n` +
+            `Dogs Per Day (dpd): ${stats.dogsPerDay}\n` +
+            `Dogs Per Month (dpm): ${stats.dogsPerMonth}\n` +
+            `Longest Active Streak: ${streakUser}: ${streakDays} days\n` +
+            `Most Dogs In A Single Meal: ${largestUser} with ${largestAmount} dogs\n` +
+            `Average Dogs Per Meal Server Wide: ${averageAmount} dogs`,
         },
       ],
     },

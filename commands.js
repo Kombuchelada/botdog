@@ -48,6 +48,19 @@ const LEADERBOARD_COMMAND = {
   contexts: [0, 1, 2],
 };
 
-const ALL_COMMANDS = [HOTDOG_COMMAND, PROTEST_COMMAND, LEADERBOARD_COMMAND];
+const STATS_COMMAND = {
+  name: "stats",
+  description: "View server hot dog stats",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const ALL_COMMANDS = [
+  HOTDOG_COMMAND,
+  PROTEST_COMMAND,
+  LEADERBOARD_COMMAND,
+  STATS_COMMAND,
+];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);
