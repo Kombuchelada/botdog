@@ -59,7 +59,7 @@ function getDogsPerMonth() {
   const millisecondsDifference = today - startDate;
   const dayDifference = millisecondsDifference / (1000 * 3600 * 24);
   const monthsElapsed = dayDifference / daysInAMonth;
-  return totalDogsConsumed / monthsElapsed;
+  return (totalDogsConsumed / monthsElapsed).toFixed();
 }
 
 function getLongestDailyStreak() {
