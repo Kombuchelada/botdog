@@ -53,21 +53,13 @@ function getDogsPerDay() {
 
 function getDogsPerMonth() {
   const totalDogsConsumed = getTotalHotdogsStmt.get().total_hotdogs || 0;
-  const allEvents = getAllEventsStmt.all();
-  let dogsPerMonth = 0;
-  if (allEvents.length > 0) {
-    const firstEventTime = new Date(allEvents[allEvents.length - 1].timestamp);
-    const now = new Date();
-    const monthsElapsed =
-      (now.getFullYear() - firstEventTime.getFullYear()) * 12 +
-      (now.getMonth() - firstEventTime.getMonth());
-    if (monthsElapsed > 0) {
-      dogsPerMonth = (totalDogsConsumed / monthsElapsed).toFixed(2);
-    } else {
-      dogsPerMonth = totalDogsConsumed;
-    }
-  }
-  return dogsPerMonth;
+  const daysInAMonth = 30.4;
+  const startDate = new Date(1767254400); // 1/1/2026 at midnight
+  const today = new Date();
+  const millisecondsDifference = today - startDate;
+  const dayDifference = millisecondsDifference / (1000 * 3600 * 24);
+  const monthsElapsed = dayDifference / daysInAMonth;
+  return totalDogsConsumed / monthsElapsed;
 }
 
 function getLongestDailyStreak() {
