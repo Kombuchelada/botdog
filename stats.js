@@ -54,7 +54,7 @@ function getDogsPerDay() {
 function getDogsPerMonth() {
   const totalDogsConsumed = getTotalHotdogsStmt.get().total_hotdogs || 0;
   const daysInAMonth = 30.4;
-  const startDate = new Date(1767254400); // 1/1/2026 at midnight
+  const startDate = new Date(1767254400000); // 1/1/2026 at midnight
   const today = new Date();
   const millisecondsDifference = today - startDate;
   const dayDifference = millisecondsDifference / (1000 * 3600 * 24);
