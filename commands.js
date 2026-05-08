@@ -56,11 +56,56 @@ const STATS_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+const LEADERBOARD_TOTAL_COMMAND = {
+  name: "leaderboard-total",
+  description: "Total Glizzies Guzzled leaderboard",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const LEADERBOARD_STREAK_COMMAND = {
+  name: "leaderboard-streak",
+  description: "Most Consecutive Days Gagging a Gagger leaderboard",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const LEADERBOARD_DAY_COMMAND = {
+  name: "leaderboard-day",
+  description: "Most Hoffies Huffed In A Single Day leaderboard",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const LEADERBOARD_ACTIVE_COMMAND = {
+  name: "leaderboard-active",
+  description: "Active Streak Swallowing Sausages leaderboard",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
+const LEADERBOARD_SITTING_COMMAND = {
+  name: "leaderboard-sitting",
+  description: "Single Sesh Sausage Supremacy leaderboard",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+};
+
 const ALL_COMMANDS = [
   HOTDOG_COMMAND,
   PROTEST_COMMAND,
   LEADERBOARD_COMMAND,
   STATS_COMMAND,
+  LEADERBOARD_TOTAL_COMMAND,
+  LEADERBOARD_STREAK_COMMAND,
+  LEADERBOARD_DAY_COMMAND,
+  LEADERBOARD_ACTIVE_COMMAND,
+  LEADERBOARD_SITTING_COMMAND,
 ];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);

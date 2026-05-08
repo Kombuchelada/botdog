@@ -4,6 +4,7 @@ import {
   getAllEventsStmt,
   getLargestSingleSubmissionStmt,
   getAverageAmountPerEventStmt,
+  getMaxSinglePerUserStmt,
 } from "./database.js";
 
 export function getLeaderboard() {
@@ -30,6 +31,83 @@ export function getLeaderboard() {
       .join("\n");
   }
   return leaderboardText;
+}
+
+export function getTotalLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  if (rows.length === 0) return "No hot dog counts yet!";
+  let currentRank = 1;
+  return rows
+    .map((row, index) => {
+      if (index > 0 && rows[index - 1].total_count !== row.total_count) {
+        currentRank = index + 1;
+      }
+      return `${currentRank}. <@${row.user_id}> - ${row.total_count} glizzy(ies)`;
+    })
+    .join("\n");
+}
+
+export function getLongestStreakLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  if (rows.length === 0) return "No hot dog counts yet!";
+  const userDates = buildUserDatesMap(getAllEventsStmt.all());
+  const entries = rows
+    .map((row) => ({
+      userId: row.user_id,
+      value: getLongestStreakEver(userDates.get(row.user_id) ?? new Set()),
+    }))
+    .sort((a, b) => b.value - a.value);
+  return formatRankedList(entries, (v) => `${v} day(s)`);
+}
+
+export function getMostInADayLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  if (rows.length === 0) return "No hot dog counts yet!";
+  const userMaxDaily = buildUserMaxDailyMap(getAllEventsStmt.all());
+  const entries = rows
+    .map((row) => ({
+      userId: row.user_id,
+      value: userMaxDaily.get(row.user_id) ?? 0,
+    }))
+    .sort((a, b) => b.value - a.value);
+  return formatRankedList(entries, (v) => `${v} dog(s)`);
+}
+
+export function getMostInASittingLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  if (rows.length === 0) return "No hot dog counts yet!";
+  const maxByUser = new Map(
+    getMaxSinglePerUserStmt.all().map((r) => [r.user_id, r.max_single]),
+  );
+  const entries = rows
+    .map((row) => ({ userId: row.user_id, value: maxByUser.get(row.user_id) ?? 0 }))
+    .sort((a, b) => b.value - a.value);
+  return formatRankedList(entries, (v) => `${v} dog(s)`);
+}
+
+export function getCurrentStreakLeaderboard() {
+  const rows = getLeaderboardStmt.all();
+  if (rows.length === 0) return "No hot dog counts yet!";
+  const userDates = buildUserDatesMap(getAllEventsStmt.all());
+  const entries = rows
+    .map((row) => ({
+      userId: row.user_id,
+      value: getCurrentStreak(userDates.get(row.user_id) ?? new Set()),
+    }))
+    .sort((a, b) => b.value - a.value);
+  return formatRankedList(entries, (v) => `${v} day(s)`);
+}
+
+function formatRankedList(entries, labelFn) {
+  let currentRank = 1;
+  return entries
+    .map((entry, index) => {
+      if (index > 0 && entries[index - 1].value !== entry.value) {
+        currentRank = index + 1;
+      }
+      return `${currentRank}. <@${entry.userId}> - ${labelFn(entry.value)}`;
+    })
+    .join("\n");
 }
 
 export function getStats() {

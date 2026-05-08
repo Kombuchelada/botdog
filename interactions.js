@@ -7,7 +7,15 @@ import {
   verifyKeyMiddleware,
 } from "discord-interactions";
 import { DiscordRequest } from "./utils.js";
-import { getLeaderboard, getStats } from "./stats.js";
+import {
+  getLeaderboard,
+  getStats,
+  getTotalLeaderboard,
+  getLongestStreakLeaderboard,
+  getMostInADayLeaderboard,
+  getMostInASittingLeaderboard,
+  getCurrentStreakLeaderboard,
+} from "./stats.js";
 import {
   insertHotdogEventStmt,
   getUserTotalStmt,
@@ -42,6 +50,16 @@ export function registerInteractions(app) {
               return handleProtestCommand(res, req, id);
             case "leaderboard":
               return handleLeaderboardCommand(res);
+            case "leaderboard-total":
+              return handleTotalLeaderboardCommand(res);
+            case "leaderboard-streak":
+              return handleLongestStreakLeaderboardCommand(res);
+            case "leaderboard-day":
+              return handleMostInADayLeaderboardCommand(res);
+            case "leaderboard-active":
+              return handleCurrentStreakLeaderboardCommand(res);
+            case "leaderboard-sitting":
+              return handleMostInASittingLeaderboardCommand(res);
             case "stats":
               return handleStatsCommand(res);
             default:
@@ -259,6 +277,81 @@ function handleLeaderboardCommand(res) {
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
           content: `🌭 **Hot Dog Leaderboard** 🌭\n\n${leaderboardText}\n\nTotal glizzies guzzled: ${total}`,
+        },
+      ],
+    },
+  });
+}
+
+function handleTotalLeaderboardCommand(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Total Glizzies Guzzled** 🌭\n\n${getTotalLeaderboard()}`,
+        },
+      ],
+    },
+  });
+}
+
+function handleLongestStreakLeaderboardCommand(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Most Consecutive Days Gagging a Gagger** 🌭\n\n${getLongestStreakLeaderboard()}`,
+        },
+      ],
+    },
+  });
+}
+
+function handleMostInADayLeaderboardCommand(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Most Hoffies Huffed In A Single Day** 🌭\n\n${getMostInADayLeaderboard()}`,
+        },
+      ],
+    },
+  });
+}
+
+function handleMostInASittingLeaderboardCommand(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Single Sesh Sausage Supremacy** 🌭\n\n${getMostInASittingLeaderboard()}`,
+        },
+      ],
+    },
+  });
+}
+
+function handleCurrentStreakLeaderboardCommand(res) {
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags: InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `🌭 **Active Streak Swallowing Sausages** 🌭\n\n${getCurrentStreakLeaderboard()}`,
         },
       ],
     },
