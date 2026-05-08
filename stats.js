@@ -12,7 +12,9 @@ export function getLeaderboard() {
   if (rows.length === 0) {
     leaderboardText = "No hot dog counts yet!";
   } else {
-    const userDates = buildUserDatesMap(getAllEventsStmt.all());
+    const allEvents = getAllEventsStmt.all();
+    const userDates = buildUserDatesMap(allEvents);
+    const userMaxDaily = buildUserMaxDailyMap(allEvents);
     let currentRank = 1;
     leaderboardText = rows
       .map((row, index) => {
@@ -22,7 +24,8 @@ export function getLeaderboard() {
         const dates = userDates.get(row.user_id) ?? new Set();
         const numDaysInStreak = getCurrentStreak(dates);
         const longestStreak = getLongestStreakEver(dates);
-        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s), Longest streak: ${longestStreak} day(s)`;
+        const maxInADay = userMaxDaily.get(row.user_id) ?? 0;
+        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s), Longest streak: ${longestStreak} day(s), Most in a day: ${maxInADay} dog(s)`;
       })
       .join("\n");
   }
@@ -63,6 +66,23 @@ function getDogsPerMonth() {
   const dayDifference = millisecondsDifference / (1000 * 3600 * 24);
   const monthsElapsed = dayDifference / daysInAMonth;
   return (totalDogsConsumed / monthsElapsed).toFixed();
+}
+
+function buildUserMaxDailyMap(allEvents) {
+  const userDailyTotals = new Map();
+  for (const event of allEvents) {
+    const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
+    if (!userDailyTotals.has(event.user_id)) {
+      userDailyTotals.set(event.user_id, new Map());
+    }
+    const dailyMap = userDailyTotals.get(event.user_id);
+    dailyMap.set(dateKey, (dailyMap.get(dateKey) ?? 0) + event.amount);
+  }
+  const userMaxDaily = new Map();
+  for (const [userId, dailyMap] of userDailyTotals.entries()) {
+    userMaxDaily.set(userId, Math.max(...dailyMap.values()));
+  }
+  return userMaxDaily;
 }
 
 function buildUserDatesMap(allEvents) {
