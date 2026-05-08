@@ -21,7 +21,8 @@ export function getLeaderboard() {
         }
         const dates = userDates.get(row.user_id) ?? new Set();
         const numDaysInStreak = getCurrentStreak(dates);
-        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s)`;
+        const longestStreak = getLongestStreakEver(dates);
+        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s), Longest streak: ${longestStreak} day(s)`;
       })
       .join("\n");
   }
@@ -74,6 +75,23 @@ function buildUserDatesMap(allEvents) {
     userDates.get(event.user_id).add(dateKey);
   }
   return userDates;
+}
+
+function getLongestStreakEver(dates) {
+  if (dates.size === 0) return 0;
+  const sorted = Array.from(dates).sort();
+  let maxStreak = 1;
+  let streak = 1;
+  for (let i = 1; i < sorted.length; i++) {
+    const diffMs = new Date(sorted[i]) - new Date(sorted[i - 1]);
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 1) {
+      maxStreak = Math.max(maxStreak, ++streak);
+    } else {
+      streak = 1;
+    }
+  }
+  return maxStreak;
 }
 
 function getCurrentStreak(dates) {
