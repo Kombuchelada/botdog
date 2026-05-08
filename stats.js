@@ -12,14 +12,16 @@ export function getLeaderboard() {
   if (rows.length === 0) {
     leaderboardText = "No hot dog counts yet!";
   } else {
+    const userDates = buildUserDatesMap(getAllEventsStmt.all());
     let currentRank = 1;
     leaderboardText = rows
       .map((row, index) => {
-        // If this isn't the first row and the count is different from previous, update rank
         if (index > 0 && rows[index - 1].total_count !== row.total_count) {
           currentRank = index + 1;
         }
-        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs`;
+        const dates = userDates.get(row.user_id) ?? new Set();
+        const numDaysInStreak = getCurrentStreak(dates);
+        return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s)`;
       })
       .join("\n");
   }
@@ -62,14 +64,8 @@ function getDogsPerMonth() {
   return (totalDogsConsumed / monthsElapsed).toFixed();
 }
 
-function getLongestDailyStreak() {
-  const allEvents = getAllEventsStmt.all();
-  if (allEvents.length === 0) {
-    return { userIds: [], days: 0 };
-  }
-
+function buildUserDatesMap(allEvents) {
   const userDates = new Map();
-
   for (const event of allEvents) {
     const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
     if (!userDates.has(event.user_id)) {
@@ -77,29 +73,43 @@ function getLongestDailyStreak() {
     }
     userDates.get(event.user_id).add(dateKey);
   }
+  return userDates;
+}
 
+function getCurrentStreak(dates) {
   const now = new Date();
   const todayKey = toPacificDateKey(now);
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayKey = toPacificDateKey(yesterday);
 
+  if (!dates.has(todayKey) && !dates.has(yesterdayKey)) {
+    return 0;
+  }
+
+  let streak = 0;
+  let cursorTime = dates.has(todayKey) ? now.getTime() : yesterday.getTime();
+
+  while (dates.has(toPacificDateKey(new Date(cursorTime)))) {
+    streak += 1;
+    cursorTime -= 24 * 60 * 60 * 1000;
+  }
+
+  return streak;
+}
+
+function getLongestDailyStreak() {
+  const allEvents = getAllEventsStmt.all();
+  if (allEvents.length === 0) {
+    return { userIds: [], days: 0 };
+  }
+
+  const userDates = buildUserDatesMap(allEvents);
+
   let maxDays = 0;
   const streaksByUser = new Map();
 
   for (const [userId, dates] of userDates.entries()) {
-    if (!dates.has(todayKey) && !dates.has(yesterdayKey)) {
-      streaksByUser.set(userId, 0);
-      continue;
-    }
-
-    let streak = 0;
-    let cursorTime = dates.has(todayKey) ? now.getTime() : yesterday.getTime();
-
-    while (dates.has(toPacificDateKey(new Date(cursorTime)))) {
-      streak += 1;
-      cursorTime -= 24 * 60 * 60 * 1000;
-    }
-
+    const streak = getCurrentStreak(dates);
     streaksByUser.set(userId, streak);
     if (streak > maxDays) {
       maxDays = streak;
