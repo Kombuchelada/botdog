@@ -42,7 +42,7 @@ export function getTotalLeaderboard() {
       if (index > 0 && rows[index - 1].total_count !== row.total_count) {
         currentRank = index + 1;
       }
-      return `${currentRank}. <@${row.user_id}> - ${row.total_count} glizzy(ies)`;
+      return `${currentRank}. <@${row.user_id}> - ${row.total_count} dogs`;
     })
     .join("\n");
 }
