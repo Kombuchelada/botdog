@@ -89,14 +89,31 @@ function fillRoundRect(ctx, x, y, w, h, r) {
   ctx.fill();
 }
 
+// Plasma — sequential, perceptually uniform, colorblind-safe (designed for
+// protan/deutan deficiencies). Same palette used by dashboard.js.
+const PLASMA_STOPS = [
+  [13, 8, 135],
+  [126, 3, 168],
+  [204, 71, 120],
+  [248, 148, 65],
+  [240, 249, 33],
+];
+
+function plasmaColor(t) {
+  if (t <= 0) return `rgb(${PLASMA_STOPS[0].join(",")})`;
+  if (t >= 1) return `rgb(${PLASMA_STOPS[4].join(",")})`;
+  const seg = t * (PLASMA_STOPS.length - 1);
+  const i = Math.floor(seg);
+  const f = seg - i;
+  const a = PLASMA_STOPS[i];
+  const b = PLASMA_STOPS[i + 1];
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * f)}, ${Math.round(a[1] + (b[1] - a[1]) * f)}, ${Math.round(a[2] + (b[2] - a[2]) * f)})`;
+}
+
 function heatColor(value, max) {
   if (value === 0 || max === 0) return "#23232b";
   const t = Math.min(1, value / max);
-  // green -> orange -> red. Skip beyond gluttony into deep red.
-  const hue = (1 - t) * 130; // 130 = green, 0 = red
-  const sat = 65;
-  const light = 30 + t * 20;
-  return `hsl(${hue}, ${sat}%, ${light}%)`;
+  return plasmaColor(t);
 }
 
 function aggregateDaily(events, userId) {
@@ -210,18 +227,25 @@ export function renderHeatmap({ userId } = {}) {
     }
   }
 
-  // Legend at bottom-left
+  // Continuous gradient legend at bottom-left
   const legendY = gridTop + gridHeight + 26;
+  const barLeft = gridLeft + 36;
+  const barWidth = 5 * stride;
   ctx.fillStyle = "#9aa3b0";
   ctx.font = "400 11px Inter";
   ctx.fillText("Less", gridLeft, legendY + 11);
-  for (let i = 0; i < 5; i++) {
-    const v = (i / 4) * max;
-    ctx.fillStyle = heatColor(v, max);
-    fillRoundRect(ctx, gridLeft + 36 + i * stride, legendY, cellSize, cellSize, 3);
-  }
+
+  const legendGrad = ctx.createLinearGradient(barLeft, 0, barLeft + barWidth, 0);
+  legendGrad.addColorStop(0.0, plasmaColor(0.0));
+  legendGrad.addColorStop(0.25, plasmaColor(0.25));
+  legendGrad.addColorStop(0.5, plasmaColor(0.5));
+  legendGrad.addColorStop(0.75, plasmaColor(0.75));
+  legendGrad.addColorStop(1.0, plasmaColor(1.0));
+  ctx.fillStyle = legendGrad;
+  fillRoundRect(ctx, barLeft, legendY, barWidth, cellSize, 3);
+
   ctx.fillStyle = "#9aa3b0";
-  ctx.fillText("More", gridLeft + 36 + 5 * stride + 6, legendY + 11);
+  ctx.fillText("More", barLeft + barWidth + 6, legendY + 11);
 
   // Total at right
   const total = Array.from(dailyMap.values()).reduce((a, b) => a + b, 0);
