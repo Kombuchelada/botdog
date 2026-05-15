@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import sharp from "sharp";
+import heicConvert from "heic-convert";
 
 const MODEL_ID = "claude-sonnet-4-6";
 const MAX_IMAGE_DIM = 1500;        // Anthropic enforces 2000px in many-image requests; stay safely under
@@ -80,10 +81,25 @@ const TOOL = {
  * @param {string} params.periodEnd - ISO timestamp
  * @returns {Promise<{stories: Array, modelId: string}>}
  */
+function looksLikeHeic(buf, url) {
+  if (/\.(heic|heif)(\?|$)/i.test(url)) return true;
+  // ISO BMFF brand at bytes 8-12: heic/heix/heif/mif1/msf1
+  if (buf.length < 12) return false;
+  const brand = buf.slice(8, 12).toString("ascii");
+  return ["heic", "heix", "heif", "mif1", "msf1"].includes(brand);
+}
+
 async function fetchAndResize(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetch ${res.status} from ${url}`);
-  const buf = Buffer.from(await res.arrayBuffer());
+  let buf = Buffer.from(await res.arrayBuffer());
+
+  // Pre-transcode HEIC to JPEG since sharp's prebuilt binary doesn't decode it.
+  // (This handles legacy files in Spaces from before ingest-time conversion was added.)
+  if (looksLikeHeic(buf, url)) {
+    buf = Buffer.from(await heicConvert({ buffer: buf, format: "JPEG", quality: 0.9 }));
+  }
+
   const out = await sharp(buf)
     .rotate() // honor EXIF orientation
     .resize({ width: MAX_IMAGE_DIM, height: MAX_IMAGE_DIM, fit: "inside", withoutEnlargement: true })

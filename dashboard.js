@@ -319,6 +319,52 @@ function renderLayout(title, body, data) {
   .accent { color:#ff6b35; }
   .heatmap-cell { stroke-width:0; }
   .glow { box-shadow: 0 0 60px rgba(255,107,53,0.15); }
+  /* Story media carousel */
+  .carousel { position:relative; background:#020617; }
+  .carousel-track {
+    display:flex; overflow-x:auto;
+    scroll-snap-type: x mandatory; scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .carousel-track::-webkit-scrollbar { display:none; }
+  .carousel-slide {
+    flex: 0 0 100%; scroll-snap-align: start;
+    aspect-ratio: 16/9;
+    display:flex; align-items:center; justify-content:center;
+    background:#020617;
+  }
+  .carousel-slide img, .carousel-slide video {
+    max-width:100%; max-height:100%; width:auto; height:auto; display:block;
+  }
+  .carousel-btn {
+    position:absolute; top:50%; transform:translateY(-50%);
+    background:rgba(0,0,0,0.55); color:#fff; border:0;
+    width:40px; height:40px; border-radius:50%; cursor:pointer;
+    font-size:22px; line-height:1; padding:0;
+    opacity:0; transition:opacity .15s ease, background .15s ease;
+  }
+  .carousel:hover .carousel-btn, .carousel:focus-within .carousel-btn { opacity:1; }
+  .carousel-btn:hover { background:rgba(0,0,0,0.85); }
+  .carousel-btn:disabled { opacity:0 !important; cursor:default; }
+  .carousel-prev { left:12px; }
+  .carousel-next { right:12px; }
+  .carousel-indicators {
+    position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+    display:flex; gap:6px;
+  }
+  .carousel-dot {
+    width:8px; height:8px; border-radius:50%;
+    background:rgba(255,255,255,0.4); cursor:pointer;
+    transition:background .15s, transform .15s;
+  }
+  .carousel-dot:hover { transform:scale(1.2); }
+  .carousel-dot.active { background:#fff; }
+  .carousel-counter {
+    position:absolute; top:12px; right:12px;
+    background:rgba(0,0,0,0.6); color:#fff;
+    font-size:11px; padding:3px 9px; border-radius:12px;
+    font-variant-numeric: tabular-nums;
+  }
 </style>
 </head>
 <body class="font-sans antialiased">
@@ -829,20 +875,59 @@ function formatStoryDate(iso) {
   }
 }
 
-function findHeroAttachment(story) {
-  if (story.hero_attachment_id) {
-    const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
-    if (a && a.content_type && a.content_type.startsWith("image/")) return a;
-  }
-  // Fallback: first image attachment among the source messages.
+function isDisplayableMedia(a) {
+  if (!a || !a.content_type) return false;
+  return a.content_type.startsWith("image/") || a.content_type.startsWith("video/");
+}
+
+function gatherStoryMedia(story) {
   let ids = [];
   try { ids = JSON.parse(story.source_message_ids || "[]"); } catch {}
+  const seen = new Set();
+  const media = [];
+  // Hero first if available
+  if (story.hero_attachment_id) {
+    const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
+    if (isDisplayableMedia(a)) {
+      seen.add(a.id);
+      media.push(a);
+    }
+  }
+  // Then every other attachment from source messages, in message + attachment order
   for (const mid of ids) {
     const atts = getArchiveAttachmentsForMessageStmt.all(mid);
-    const img = atts.find((a) => a.content_type && a.content_type.startsWith("image/"));
-    if (img) return img;
+    for (const a of atts) {
+      if (seen.has(a.id)) continue;
+      if (!isDisplayableMedia(a)) continue;
+      seen.add(a.id);
+      media.push(a);
+    }
   }
-  return null;
+  return media;
+}
+
+function renderMediaItem(a) {
+  if (a.content_type.startsWith("video/")) {
+    return `<video controls preload="metadata" playsinline><source src="${esc(a.public_url)}" type="${esc(a.content_type)}"></video>`;
+  }
+  return `<img src="${esc(a.public_url)}" alt="" loading="lazy">`;
+}
+
+function renderStoryCarousel(media, storyId) {
+  if (media.length === 0) return "";
+  if (media.length === 1) {
+    return `<div class="aspect-[16/9] overflow-hidden bg-slate-900 flex items-center justify-center">${renderMediaItem(media[0])}</div>`;
+  }
+  const slides = media.map((a) => `<div class="carousel-slide">${renderMediaItem(a)}</div>`).join("");
+  const dots = media.map((_, i) => `<button class="carousel-dot${i === 0 ? " active" : ""}" type="button" aria-label="Slide ${i + 1}" data-index="${i}"></button>`).join("");
+  return `
+    <div class="carousel" data-carousel data-total="${media.length}">
+      <div class="carousel-track">${slides}</div>
+      <button class="carousel-btn carousel-prev" type="button" aria-label="Previous">‹</button>
+      <button class="carousel-btn carousel-next" type="button" aria-label="Next">›</button>
+      <div class="carousel-counter">1 / ${media.length}</div>
+      <div class="carousel-indicators">${dots}</div>
+    </div>`;
 }
 
 function paragraphs(body) {
@@ -871,18 +956,13 @@ function renderArchivePage(stories) {
 
   const cards = stories
     .map((s) => {
-      const hero = findHeroAttachment(s);
+      const media = gatherStoryMedia(s);
       const dateLabel = s.period_start && s.period_end && s.period_start.slice(0, 10) !== s.period_end.slice(0, 10)
         ? `${formatStoryDate(s.period_start)} – ${formatStoryDate(s.period_end)}`
         : formatStoryDate(s.period_end || s.period_start);
-      const heroHtml = hero
-        ? `<div class="aspect-[16/9] overflow-hidden bg-slate-900">
-             <img src="${esc(hero.public_url)}" alt="" loading="lazy" class="w-full h-full object-cover">
-           </div>`
-        : "";
       return `
         <article class="card overflow-hidden mb-8">
-          ${heroHtml}
+          ${renderStoryCarousel(media, s.id)}
           <div class="p-6 md:p-8">
             <div class="text-xs uppercase tracking-widest text-accent-soft mb-2">${esc(dateLabel)}</div>
             <h2 class="text-2xl md:text-3xl font-bold text-white tracking-tight mb-3">${esc(s.title)}</h2>
@@ -898,7 +978,44 @@ function renderArchivePage(stories) {
       <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">The story so far</h1>
       <p class="text-slate-400 mt-2">Significant moments from the channel, curated automatically.</p>
     </section>
-    <div class="max-w-3xl mx-auto">${cards}</div>`;
+    <div class="max-w-3xl mx-auto">${cards}</div>
+    <script>
+      // Lightweight carousel: prev/next buttons, clickable dots, scroll-driven counter + dot sync.
+      document.querySelectorAll('[data-carousel]').forEach((c) => {
+        const track = c.querySelector('.carousel-track');
+        const prev  = c.querySelector('.carousel-prev');
+        const next  = c.querySelector('.carousel-next');
+        const dots  = Array.from(c.querySelectorAll('.carousel-dot'));
+        const counter = c.querySelector('.carousel-counter');
+        const total = dots.length;
+
+        function go(delta) {
+          track.scrollBy({ left: delta * track.clientWidth, behavior: 'smooth' });
+        }
+        function jump(i) {
+          track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+        }
+        prev && prev.addEventListener('click', () => go(-1));
+        next && next.addEventListener('click', () => go(1));
+        dots.forEach((d, i) => d.addEventListener('click', () => jump(i)));
+
+        let raf = null;
+        track.addEventListener('scroll', () => {
+          if (raf) return;
+          raf = requestAnimationFrame(() => {
+            raf = null;
+            const i = Math.round(track.scrollLeft / track.clientWidth);
+            dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
+            if (counter) counter.textContent = (i + 1) + ' / ' + total;
+            if (prev) prev.disabled = i === 0;
+            if (next) next.disabled = i === total - 1;
+          });
+        });
+        // Initialize button enabled state
+        if (prev) prev.disabled = true;
+        if (next) next.disabled = total <= 1;
+      });
+    </script>`;
   return renderLayout("Archive", body, {});
 }
 

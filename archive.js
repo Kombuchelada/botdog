@@ -16,6 +16,7 @@ import {
 } from "./database.js";
 import { uploadObject, isSpacesConfigured } from "./do-spaces.js";
 import { proposeStories, isAnthropicConfigured } from "./claude.js";
+import heicConvert from "heic-convert";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour
 const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -76,6 +77,12 @@ function getExtFromFilename(filename) {
   return filename.slice(idx + 1).toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
 }
 
+function isHeic(contentType, filename) {
+  if (contentType && /heic|heif/i.test(contentType)) return true;
+  if (filename && /\.(heic|heif)$/i.test(filename)) return true;
+  return false;
+}
+
 async function downloadAndStoreAttachment(messageId, att) {
   // Skip if we already have it.
   if (getArchiveAttachmentByIdStmt.get(att.id)) return;
@@ -91,11 +98,31 @@ async function downloadAndStoreAttachment(messageId, att) {
     warn(`download error for attachment ${att.id}:`, err.message);
     return;
   }
-  const ext = getExtFromFilename(att.filename);
+
+  // HEIC → JPEG conversion at ingest time. Sharp's prebuilt binary doesn't ship
+  // libheif, and browsers other than Safari can't render HEIC, so we transcode
+  // once here. The JPEG is what lands in Spaces and what both the website and
+  // Claude see going forward.
+  let ext = getExtFromFilename(att.filename);
+  let contentType = att.content_type || null;
+  if (isHeic(contentType, att.filename)) {
+    try {
+      const jpeg = await heicConvert({ buffer: body, format: "JPEG", quality: 0.9 });
+      body = Buffer.from(jpeg);
+      ext = "jpg";
+      contentType = "image/jpeg";
+      log(`converted HEIC -> JPEG for attachment ${att.id} (${body.length} bytes)`);
+    } catch (err) {
+      warn(`HEIC convert failed for attachment ${att.id}, storing original:`, err.message);
+      // Fall through and store the original — better to have an unreadable file
+      // archived than to drop it on the floor.
+    }
+  }
+
   const key = `attachments/${messageId}/${att.id}.${ext}`;
   let publicUrl;
   try {
-    publicUrl = await uploadObject(key, body, att.content_type || "application/octet-stream");
+    publicUrl = await uploadObject(key, body, contentType || "application/octet-stream");
   } catch (err) {
     warn(`Spaces upload failed for attachment ${att.id}:`, err.message);
     return;
@@ -106,8 +133,8 @@ async function downloadAndStoreAttachment(messageId, att) {
     att.url,
     key,
     publicUrl,
-    att.content_type || null,
-    att.size || null,
+    contentType,
+    body.length,
     att.width || null,
     att.height || null,
   );
