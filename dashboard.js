@@ -126,12 +126,17 @@ function buildUserList() {
   }));
 }
 
+const TOP_USERS_COUNT = 10;
+
 function buildOverview() {
   const events = getAllEventsStmt.all();
   const dailyMap = aggregateDaily(events);
   const timeline = dailyTimelineSeries(dailyMap);
   const heatmap = heatmapSeries(dailyMap);
   const leaderboard = buildUserList();
+  const topUsersComparison = buildCompare(
+    leaderboard.slice(0, TOP_USERS_COUNT).map((u) => u.user_id),
+  );
   const totalDogs = getTotalHotdogsStmt.get().total_hotdogs || 0;
   const activeDays = dailyMap.size;
   const dogsPerDay = activeDays > 0 ? totalDogs / activeDays : 0;
@@ -155,6 +160,7 @@ function buildOverview() {
     leaderboard: leaderboard.slice(0, 10),
     timeline: timeline.points,
     heatmap,
+    topUsersComparison,
   };
 }
 
@@ -410,6 +416,16 @@ function renderOverviewPage(data) {
     <section class="card p-6 mb-8">
       <div class="flex items-center justify-between mb-3">
         <div>
+          <div class="stat-label">Top 10 cumulative</div>
+          <div class="text-slate-300 text-sm mt-1">How the leaderboard built up over time</div>
+        </div>
+      </div>
+      <div class="h-96 mt-3"><canvas id="chart-overview-compare"></canvas></div>
+    </section>
+
+    <section class="card p-6 mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <div>
           <div class="stat-label">Activity heatmap</div>
           <div class="text-slate-300 text-sm mt-1">Last 53 weeks · color by daily total</div>
         </div>
@@ -447,6 +463,7 @@ function renderOverviewPage(data) {
     <script>
       (function () {
         const data = PAGE_DATA;
+        const PALETTE = ['#ff6b35','#22d3ee','#a78bfa','#facc15','#fb7185','#60a5fa','#34d399','#f472b6','#fbbf24','#a3e635'];
 
         // Timeline chart
         const tlCtx = document.getElementById('chart-timeline').getContext('2d');
@@ -501,6 +518,39 @@ function renderOverviewPage(data) {
             },
           },
         });
+
+        // Top-10 cumulative comparison
+        const cmpData = data.topUsersComparison;
+        if (cmpData && cmpData.users && cmpData.users.length > 0) {
+          const cmpCtx = document.getElementById('chart-overview-compare').getContext('2d');
+          const datasets = cmpData.users.map((u, i) => ({
+            label: u.name,
+            data: cmpData.dates.map((d, idx) => ({ x: d, y: cmpData.byUser[u.user_id][idx] })),
+            borderColor: PALETTE[i % PALETTE.length],
+            backgroundColor: PALETTE[i % PALETTE.length] + '22',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 0,
+            tension: 0.2,
+          }));
+          new Chart(cmpCtx, {
+            type: 'line',
+            data: { datasets },
+            options: {
+              responsive: true, maintainAspectRatio: false,
+              plugins: {
+                legend: { labels: { color: '#cbd5e1', usePointStyle: true, boxWidth: 8 } },
+                tooltip: { mode: 'index', intersect: false },
+              },
+              interaction: { mode: 'index', intersect: false },
+              scales: {
+                x: { type: 'time', time: { unit: cmpData.dates.length > 365 ? 'month' : 'week' },
+                     grid: { color: 'rgba(148,163,184,0.06)' }, ticks: { color: '#94a3b8' }, border: { display: false } },
+                y: { beginAtZero: true, grid: { color: 'rgba(148,163,184,0.08)' }, ticks: { color: '#94a3b8' }, border: { display: false } },
+              },
+            },
+          });
+        }
 
         // User picker
         const picker = document.getElementById('user-picker');
@@ -672,7 +722,7 @@ function renderComparePage({ users, dates, byUser, allUsers, selected }) {
     return renderLayout("Compare", body, {});
   }
 
-  const palette = ["#ff6b35", "#22d3ee", "#a78bfa", "#34d399", "#facc15", "#fb7185", "#60a5fa", "#fbbf24"];
+  const palette = ["#ff6b35", "#22d3ee", "#a78bfa", "#facc15", "#fb7185", "#60a5fa", "#34d399", "#f472b6", "#fbbf24", "#a3e635"];
   const body = `
     <section class="mb-6">
       <a href="/compare" class="text-slate-400 hover:text-slate-200 text-sm">← change selection</a>
