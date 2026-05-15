@@ -11,6 +11,8 @@ const SYSTEM_PROMPT = `You are the curator of "Year of the Glizzy", a Discord co
 
 Your job: read a window of channel messages and identify SIGNIFICANT events worth turning into short stories on a public web archive.
 
+TIMEZONE: All timestamps you see are pre-converted to Pacific Time (the group's local timezone). Day boundaries are Pacific midnight — when grouping events as "one day" or "one evening", use the Pacific date shown in the timestamp, NOT UTC. If a message says "2026-05-12 23:45 Pacific", that's a late-night-on-May-12 event, not an early-May-13 event.
+
 WHAT COUNTS AS SIGNIFICANT:
 - Adventurous or unique moments (hot dogs in unusual places, special events)
 - Funny, memorable, or surprising moments
@@ -89,6 +91,29 @@ function looksLikeHeic(buf, url) {
   return ["heic", "heix", "heif", "mif1", "msf1"].includes(brand);
 }
 
+/**
+ * Convert any ISO/UTC timestamp into a Pacific-Time string like
+ * "2026-05-12 23:45 Pacific" so Claude reasons about day boundaries the same
+ * way the rest of the bot does.
+ */
+function toPacificDateTimeString(input) {
+  const d = input instanceof Date ? input : new Date(input);
+  if (isNaN(d.getTime())) return String(input);
+  const date = d.toLocaleDateString("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const time = d.toLocaleTimeString("en-US", {
+    timeZone: "America/Los_Angeles",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${date} ${time} Pacific`;
+}
+
 async function fetchAndResize(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fetch ${res.status} from ${url}`);
@@ -117,7 +142,7 @@ export async function proposeStories({ messages, attachmentsByMessageId, periodS
   const content = [
     {
       type: "text",
-      text: `You are reviewing messages from ${periodStart} to ${periodEnd}. ${messages.length} message${messages.length === 1 ? "" : "s"} follow.`,
+      text: `You are reviewing messages from ${toPacificDateTimeString(periodStart)} to ${toPacificDateTimeString(periodEnd)}. ${messages.length} message${messages.length === 1 ? "" : "s"} follow. All timestamps below are Pacific Time.`,
     },
   ];
 
@@ -127,7 +152,7 @@ export async function proposeStories({ messages, attachmentsByMessageId, periodS
     const header = [
       `\n— Message ${m.id} —`,
       `Author: ${m.author_name}`,
-      `When: ${m.created_at}`,
+      `When: ${toPacificDateTimeString(m.created_at)}`,
       m.reply_to ? `Reply to: ${m.reply_to}` : null,
       `Text: ${m.content && m.content.trim() ? m.content : "(none)"}`,
     ].filter(Boolean).join("\n");

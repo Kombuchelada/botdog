@@ -97,17 +97,35 @@ function dailyTimelineSeries(dailyMap) {
   return { points, total: cumulative };
 }
 
-function heatmapSeries(dailyMap, weeks = 53) {
+// Fixed lower bound for the heatmap — Year of the Glizzy began here.
+const HEATMAP_START_ISO = "2025-12-31";
+const HEATMAP_MAX_WEEKS = 52;
+
+function heatmapSeries(dailyMap) {
   const now = new Date();
   const todayKey = toPacificDateKey(now);
-  const anchor = new Date(todayKey + "T12:00:00Z");
-  const dayOfWeek = anchor.getUTCDay();
-  const totalDays = weeks * 7;
-  const start = shiftDays(anchor, -(totalDays - 1 - (6 - dayOfWeek)));
+
+  // Lower bound: Sunday on/before HEATMAP_START_ISO.
+  const lowerBound = new Date(HEATMAP_START_ISO + "T12:00:00Z");
+  lowerBound.setUTCDate(lowerBound.getUTCDate() - lowerBound.getUTCDay());
+
+  // End anchor: Saturday of this week.
+  const endAnchor = new Date(todayKey + "T12:00:00Z");
+  endAnchor.setUTCDate(endAnchor.getUTCDate() + (6 - endAnchor.getUTCDay()));
+
+  // Cap: never go more than HEATMAP_MAX_WEEKS back from endAnchor.
+  const maxBackStart = new Date(endAnchor);
+  maxBackStart.setUTCDate(maxBackStart.getUTCDate() - (HEATMAP_MAX_WEEKS * 7 - 1));
+
+  const start = lowerBound > maxBackStart ? lowerBound : maxBackStart;
+  const capped = maxBackStart > lowerBound;
+
+  const totalDays = Math.round((endAnchor - start) / 86400000) + 1;
+  const weeks = Math.ceil(totalDays / 7);
 
   let max = 0;
   const cells = [];
-  for (let i = 0; i < totalDays; i++) {
+  for (let i = 0; i < weeks * 7; i++) {
     const d = shiftDays(start, i);
     if (d > now) {
       cells.push({ date: null, value: null });
@@ -118,7 +136,11 @@ function heatmapSeries(dailyMap, weeks = 53) {
     if (value > max) max = value;
     cells.push({ date: key, value });
   }
-  return { cells, weeks, max };
+  return { cells, weeks, max, capped };
+}
+
+function heatmapWindowLabel(heatmap) {
+  return heatmap.capped ? `Last ${HEATMAP_MAX_WEEKS} weeks` : "Since Dec 31, 2025";
 }
 
 function buildUserList() {
@@ -504,7 +526,7 @@ function renderOverviewPage(data) {
       <div class="flex items-center justify-between mb-3">
         <div>
           <div class="stat-label">Activity heatmap</div>
-          <div class="text-slate-300 text-sm mt-1">Last 53 weeks · color by daily total</div>
+          <div class="text-slate-300 text-sm mt-1">${esc(heatmapWindowLabel(data.heatmap))} · color by daily total</div>
         </div>
         <div class="text-xs text-slate-500">peak day: <span class="text-slate-200 font-semibold">${esc(data.heatmap.max)}</span></div>
       </div>
@@ -694,7 +716,7 @@ function renderUserPage(data) {
       <div class="flex items-center justify-between mb-3">
         <div>
           <div class="stat-label">Activity heatmap</div>
-          <div class="text-slate-300 text-sm mt-1">Last 53 weeks</div>
+          <div class="text-slate-300 text-sm mt-1">${esc(heatmapWindowLabel(data.heatmap))}</div>
         </div>
         <div class="text-xs text-slate-500">peak day: <span class="text-slate-200 font-semibold">${esc(data.heatmap.max)}</span></div>
       </div>

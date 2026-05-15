@@ -141,11 +141,42 @@ function shiftDays(date, days) {
 // 1. HEATMAP
 // ============================================================================
 
+// Fixed lower bound for the heatmap — Year of the Glizzy began here.
+const HEATMAP_START_ISO = "2025-12-31";
+const HEATMAP_MAX_WEEKS = 52;
+
+/**
+ * Compute the heatmap window: starts at the Sunday on/before HEATMAP_START_ISO,
+ * ends at the Saturday of this week, capped to HEATMAP_MAX_WEEKS columns
+ * (sliding forward once we accumulate more history than the cap allows).
+ */
+function computeHeatmapWindow(now = new Date()) {
+  const todayPacificKey = toPacificDateKey(now);
+
+  const lowerBound = new Date(HEATMAP_START_ISO + "T12:00:00Z");
+  lowerBound.setUTCDate(lowerBound.getUTCDate() - lowerBound.getUTCDay());
+
+  const endAnchor = new Date(todayPacificKey + "T12:00:00Z");
+  endAnchor.setUTCDate(endAnchor.getUTCDate() + (6 - endAnchor.getUTCDay()));
+
+  // Start no earlier than (endAnchor - 52 weeks + 1 day): keeps the column count <= 52.
+  const maxBackStart = new Date(endAnchor);
+  maxBackStart.setUTCDate(maxBackStart.getUTCDate() - (HEATMAP_MAX_WEEKS * 7 - 1));
+
+  const startDate = lowerBound > maxBackStart ? lowerBound : maxBackStart;
+  const capped = maxBackStart > lowerBound;
+
+  const totalDays = Math.round((endAnchor - startDate) / 86400000) + 1;
+  const weeks = Math.ceil(totalDays / 7);
+  return { startDate, endAnchor, weeks, capped, now };
+}
+
 export function renderHeatmap({ userId } = {}) {
   const events = getAllEventsStmt.all();
   const dailyMap = aggregateDaily(events, userId);
 
-  const weeks = 53;
+  const { startDate, weeks, capped, now } = computeHeatmapWindow();
+
   const cellSize = 14;
   const gap = 3;
   const stride = cellSize + gap;
@@ -170,22 +201,11 @@ export function renderHeatmap({ userId } = {}) {
 
   ctx.fillStyle = "#9aa3b0";
   ctx.font = "400 13px Inter";
-  ctx.fillText("Last 53 weeks (Pacific time)", 20, 58);
-
-  // Compute the grid start date (Sunday of 52 weeks ago).
-  const now = new Date();
-  const todayPacificKey = toPacificDateKey(now);
-  // Walk back to today's day-of-week start.
-  // We'll align the rightmost column to the current week.
-  // Using a stable anchor: parse today's key back into a date and treat it as Pacific midnight.
-  const anchorDate = new Date(todayPacificKey + "T12:00:00Z"); // safe noon
-  const dayOfWeek = anchorDate.getUTCDay(); // 0=Sun..6=Sat (close enough for layout)
-  const totalDays = weeks * 7;
-  const startDate = shiftDays(anchorDate, -(totalDays - 1 - (6 - dayOfWeek)));
+  ctx.fillText(capped ? `Last ${HEATMAP_MAX_WEEKS} weeks (Pacific time)` : "Since Dec 31, 2025 (Pacific time)", 20, 58);
 
   // Determine the max daily total in the visible range for color scaling.
   let max = 1;
-  for (let i = 0; i < totalDays; i++) {
+  for (let i = 0; i < weeks * 7; i++) {
     const k = toPacificDateKey(shiftDays(startDate, i));
     const v = dailyMap.get(k) || 0;
     if (v > max) max = v;
@@ -567,23 +587,32 @@ export function renderStatCard({ userId }) {
     ctx.fillText(t.suffix, x + 16, tileTop + 98);
   });
 
-  // Mini-heatmap on right (last 26 weeks ≈ 6 months)
-  const miniWeeks = 26;
+  // Mini-heatmap on right: last ~26 weeks, but never earlier than the project start.
+  // As history grows past 26 weeks, this stays at 26. While history is shorter than
+  // 26 weeks, it clamps to the project start so we don't draw a swath of empty cells.
+  const MINI_WEEKS_TARGET = 26;
   const miniCell = 14;
   const miniGap = 3;
   const miniStride = miniCell + miniGap;
-  const miniLeft = w - 32 - miniWeeks * miniStride;
   const miniTop = 130;
-
-  ctx.fillStyle = "#9aa3b0";
-  ctx.font = "400 12px Inter";
-  ctx.fillText("LAST 26 WEEKS", miniLeft, miniTop - 12);
 
   const now = new Date();
   const todayKey = toPacificDateKey(now);
-  const anchor = new Date(todayKey + "T12:00:00Z");
-  const dayOfWeek = anchor.getUTCDay();
-  const miniStart = shiftDays(anchor, -(miniWeeks * 7 - 1 - (6 - dayOfWeek)));
+  const miniLowerBound = new Date(HEATMAP_START_ISO + "T12:00:00Z");
+  miniLowerBound.setUTCDate(miniLowerBound.getUTCDate() - miniLowerBound.getUTCDay());
+  const miniEndAnchor = new Date(todayKey + "T12:00:00Z");
+  miniEndAnchor.setUTCDate(miniEndAnchor.getUTCDate() + (6 - miniEndAnchor.getUTCDay()));
+  const wantStart = new Date(miniEndAnchor);
+  wantStart.setUTCDate(wantStart.getUTCDate() - (MINI_WEEKS_TARGET * 7 - 1));
+  const miniStart = wantStart > miniLowerBound ? wantStart : miniLowerBound;
+  const miniTotalDays = Math.round((miniEndAnchor - miniStart) / 86400000) + 1;
+  const miniWeeks = Math.ceil(miniTotalDays / 7);
+  const miniLeft = w - 32 - miniWeeks * miniStride;
+
+  ctx.fillStyle = "#9aa3b0";
+  ctx.font = "400 12px Inter";
+  const miniLabel = miniWeeks >= MINI_WEEKS_TARGET ? `LAST ${MINI_WEEKS_TARGET} WEEKS` : "RECENT ACTIVITY";
+  ctx.fillText(miniLabel, miniLeft, miniTop - 12);
 
   let miniMax = 1;
   for (let i = 0; i < miniWeeks * 7; i++) {
