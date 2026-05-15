@@ -14,7 +14,7 @@ import {
   getArchiveAttachmentByIdStmt,
   getArchiveAttachmentsForMessageStmt,
 } from "./database.js";
-import { reviseStory } from "./archive.js";
+import { reviseStory, triggerArchiveTick } from "./archive.js";
 import { runBackup, getLastBackupResult } from "./backup.js";
 import { isSpacesConfigured } from "./do-spaces.js";
 
@@ -305,7 +305,9 @@ function queryEvents({ page, q, userId }) {
   return { rows, totalRows, totalPages };
 }
 
-function renderArchiveList(stories) {
+function renderArchiveList(stories, opts = {}) {
+  const flash = opts.flash ? `<div class="alert alert-success">${esc(opts.flash)}</div>` : "";
+  const error = opts.error ? `<div class="alert alert-danger">${esc(opts.error)}</div>` : "";
   const rows = stories.length === 0
     ? `<tr><td colspan="5" class="text-center text-muted py-4">No stories yet. The bot will fill this in as it processes channel history.</td></tr>`
     : stories.map((s) => {
@@ -334,11 +336,24 @@ function renderArchiveList(stories) {
     <div class="d-flex justify-content-between align-items-end mb-2">
       <h3>Archive stories <small class="text-muted">(${stories.length})</small></h3>
     </div>
+    ${flash}${error}
     <div class="table-responsive">
       <table class="table table-sm table-striped table-hover">
         <thead><tr><th>ID</th><th>Title</th><th>Period</th><th>Generated</th><th>Actions</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
+    </div>
+
+    <div class="card border-danger mt-4">
+      <div class="card-body">
+        <h6 class="card-subtitle text-danger mb-2">Danger zone</h6>
+        <p class="text-muted small mb-3">
+          Wipe all ingested messages, attachments (in the local DB only — files in DO Spaces are not deleted), and stories, then re-run the initial backfill from Discord. Useful if your earlier backfill ran into upload failures and the attachments are missing.
+        </p>
+        <form method="post" action="/admin/archive/reset" onsubmit="return confirm('This will DELETE all archive_messages, archive_attachments, archive_stories, and archive_state rows from the local DB, then re-fetch from Discord. Hot dog events and other admin data are NOT touched. Continue?');">
+          <button class="btn btn-outline-danger" type="submit">Reset archive and re-backfill</button>
+        </form>
+      </div>
     </div>`;
   return renderLayout("Archive stories", body);
 }
@@ -587,7 +602,26 @@ export function registerAdmin(app) {
   // ===== Archive story management =====
 
   router.get("/archive", requireAuth, (req, res) => {
-    res.send(renderArchiveList(listAllStoriesStmt.all()));
+    res.send(renderArchiveList(listAllStoriesStmt.all(), {
+      flash: req.query.flash || null,
+      error: req.query.error || null,
+    }));
+  });
+
+  router.post("/archive/reset", requireAuth, (req, res) => {
+    try {
+      db.exec(`
+        DELETE FROM archive_stories;
+        DELETE FROM archive_attachments;
+        DELETE FROM archive_messages;
+        DELETE FROM archive_state;
+      `);
+      triggerArchiveTick();
+      res.redirect("/admin/archive?flash=" + encodeURIComponent("Archive tables cleared; backfill kicked off in the background. Watch the Railway logs for [archive] lines."));
+    } catch (err) {
+      console.error("archive reset failed:", err);
+      res.redirect("/admin/archive?error=" + encodeURIComponent(err.message));
+    }
   });
 
   router.get("/archive/:id/edit", requireAuth, (req, res) => {

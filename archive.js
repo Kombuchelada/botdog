@@ -321,6 +321,20 @@ async function runWeeklyJobIfDue() {
 }
 
 let tickRunning = false;
+
+/**
+ * Manually trigger a tick (used by the admin "Reset archive" button so a fresh
+ * backfill kicks off immediately without waiting for the next scheduled poll).
+ * No-op if a tick is already running.
+ */
+export function triggerArchiveTick() {
+  if (tickRunning) {
+    log("manual trigger: tick already running, will pick up on next scheduled run");
+    return;
+  }
+  setImmediate(() => { tick().catch((e) => warn("manual tick crashed:", e)); });
+}
+
 async function tick() {
   if (tickRunning) {
     log("previous tick still running, skipping");
