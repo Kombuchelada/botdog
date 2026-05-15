@@ -4,6 +4,9 @@ import {
   getAllEventsStmt,
   getLeaderboardStmt,
   getTotalHotdogsStmt,
+  listPublishedStoriesStmt,
+  getArchiveAttachmentByIdStmt,
+  getArchiveAttachmentsForMessageStmt,
 } from "./database.js";
 import {
   buildUserDatesMap,
@@ -267,6 +270,7 @@ const NAV = `
         <a href="/" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Server</a>
         <a href="/users" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Users</a>
         <a href="/compare" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Compare</a>
+        <a href="/archive" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Archive</a>
       </nav>
     </div>
   </header>`;
@@ -816,6 +820,88 @@ function renderComparePage({ users, dates, byUser, allUsers, selected }) {
   return renderLayout("Compare", body, { users, dates, byUser });
 }
 
+function formatStoryDate(iso) {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  } catch {
+    return iso.slice(0, 10);
+  }
+}
+
+function findHeroAttachment(story) {
+  if (story.hero_attachment_id) {
+    const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
+    if (a && a.content_type && a.content_type.startsWith("image/")) return a;
+  }
+  // Fallback: first image attachment among the source messages.
+  let ids = [];
+  try { ids = JSON.parse(story.source_message_ids || "[]"); } catch {}
+  for (const mid of ids) {
+    const atts = getArchiveAttachmentsForMessageStmt.all(mid);
+    const img = atts.find((a) => a.content_type && a.content_type.startsWith("image/"));
+    if (img) return img;
+  }
+  return null;
+}
+
+function paragraphs(body) {
+  return String(body || "")
+    .split(/\n{2,}/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => `<p>${esc(p).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+function renderArchivePage(stories) {
+  if (stories.length === 0) {
+    const body = `
+      <section class="mb-6">
+        <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Archive</div>
+        <h1 class="text-4xl font-bold text-white tracking-tight">The story so far</h1>
+      </section>
+      <div class="card p-12 text-center">
+        <div class="text-5xl mb-3">🌭</div>
+        <div class="text-xl text-slate-200 font-semibold">No stories yet</div>
+        <div class="text-slate-400 mt-2">The archive bot is still warming up. Check back in a bit.</div>
+      </div>`;
+    return renderLayout("Archive", body, {});
+  }
+
+  const cards = stories
+    .map((s) => {
+      const hero = findHeroAttachment(s);
+      const dateLabel = s.period_start && s.period_end && s.period_start.slice(0, 10) !== s.period_end.slice(0, 10)
+        ? `${formatStoryDate(s.period_start)} – ${formatStoryDate(s.period_end)}`
+        : formatStoryDate(s.period_end || s.period_start);
+      const heroHtml = hero
+        ? `<div class="aspect-[16/9] overflow-hidden bg-slate-900">
+             <img src="${esc(hero.public_url)}" alt="" loading="lazy" class="w-full h-full object-cover">
+           </div>`
+        : "";
+      return `
+        <article class="card overflow-hidden mb-8">
+          ${heroHtml}
+          <div class="p-6 md:p-8">
+            <div class="text-xs uppercase tracking-widest text-accent-soft mb-2">${esc(dateLabel)}</div>
+            <h2 class="text-2xl md:text-3xl font-bold text-white tracking-tight mb-3">${esc(s.title)}</h2>
+            <div class="prose-archive text-slate-300 leading-relaxed space-y-3">${paragraphs(s.body)}</div>
+          </div>
+        </article>`;
+    })
+    .join("");
+
+  const body = `
+    <section class="mb-8">
+      <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Archive</div>
+      <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">The story so far</h1>
+      <p class="text-slate-400 mt-2">Significant moments from the channel, curated automatically.</p>
+    </section>
+    <div class="max-w-3xl mx-auto">${cards}</div>`;
+  return renderLayout("Archive", body, {});
+}
+
 function renderUserListPage(users) {
   const body = `
     <section class="mb-6">
@@ -868,6 +954,11 @@ export function registerDashboard(app) {
 
   router.get("/users", (req, res) => {
     res.send(renderUserListPage(buildUserList()));
+  });
+
+  router.get("/archive", (req, res) => {
+    const stories = listPublishedStoriesStmt.all();
+    res.send(renderArchivePage(stories));
   });
 
   router.get("/user/:id", (req, res) => {

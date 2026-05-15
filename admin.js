@@ -6,7 +6,17 @@ import {
   updateEventStmt,
   deleteEventStmt,
   insertEventWithTimestampStmt,
+  listAllStoriesStmt,
+  getStoryByIdStmt,
+  updateStoryStmt,
+  setStoryHiddenStmt,
+  deleteStoryStmt,
+  getArchiveAttachmentByIdStmt,
+  getArchiveAttachmentsForMessageStmt,
 } from "./database.js";
+import { reviseStory } from "./archive.js";
+import { runBackup, getLastBackupResult } from "./backup.js";
+import { isSpacesConfigured } from "./do-spaces.js";
 
 const COOKIE_NAME = "admin_session";
 const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -104,6 +114,8 @@ function renderLayout(title, body, opts = {}) {
            <div class="navbar-nav me-auto">
              <a class="nav-link" href="/admin/events">Events</a>
              <a class="nav-link" href="/admin/events/new">New event</a>
+             <a class="nav-link" href="/admin/archive">Archive stories</a>
+             <a class="nav-link" href="/admin/backup">Backups</a>
            </div>
            <form method="post" action="/admin/logout" class="d-inline">
              <button class="btn btn-outline-secondary btn-sm" type="submit">Log out</button>
@@ -293,6 +305,107 @@ function queryEvents({ page, q, userId }) {
   return { rows, totalRows, totalPages };
 }
 
+function renderArchiveList(stories) {
+  const rows = stories.length === 0
+    ? `<tr><td colspan="5" class="text-center text-muted py-4">No stories yet. The bot will fill this in as it processes channel history.</td></tr>`
+    : stories.map((s) => {
+        const period = s.period_start && s.period_end
+          ? `${esc(String(s.period_start).slice(0, 10))} → ${esc(String(s.period_end).slice(0, 10))}`
+          : "—";
+        return `<tr ${s.hidden ? 'class="opacity-50"' : ""}>
+          <td><code class="small">${esc(s.id)}</code></td>
+          <td>${esc(s.title)} ${s.manually_edited ? '<span class="badge text-bg-secondary ms-1">edited</span>' : ""} ${s.hidden ? '<span class="badge text-bg-warning ms-1">hidden</span>' : ""}</td>
+          <td><span class="small text-muted">${period}</span></td>
+          <td><span class="small text-muted">${esc(String(s.generated_at).slice(0, 16))}</span></td>
+          <td class="text-nowrap">
+            <a class="btn btn-sm btn-outline-primary" href="/admin/archive/${esc(s.id)}/edit">Edit</a>
+            <form method="post" action="/admin/archive/${esc(s.id)}/revise" class="d-inline" onsubmit="return confirm('Re-run Claude on the source messages and overwrite this story?');">
+              <button class="btn btn-sm btn-outline-info" type="submit">Revise</button>
+            </form>
+            ${s.hidden
+              ? `<form method="post" action="/admin/archive/${esc(s.id)}/restore" class="d-inline"><button class="btn btn-sm btn-outline-success" type="submit">Unhide</button></form>`
+              : `<form method="post" action="/admin/archive/${esc(s.id)}/delete" class="d-inline" onsubmit="return confirm('Hide this story from the public archive?');"><button class="btn btn-sm btn-outline-danger" type="submit">Hide</button></form>`
+            }
+          </td>
+        </tr>`;
+      }).join("");
+
+  const body = `
+    <div class="d-flex justify-content-between align-items-end mb-2">
+      <h3>Archive stories <small class="text-muted">(${stories.length})</small></h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped table-hover">
+        <thead><tr><th>ID</th><th>Title</th><th>Period</th><th>Generated</th><th>Actions</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  return renderLayout("Archive stories", body);
+}
+
+function gatherHeroCandidates(story) {
+  let ids = [];
+  try { ids = JSON.parse(story.source_message_ids || "[]"); } catch {}
+  const seen = new Set();
+  const out = [];
+  for (const mid of ids) {
+    const atts = getArchiveAttachmentsForMessageStmt.all(mid);
+    for (const a of atts) {
+      if (!a.content_type || !a.content_type.startsWith("image/")) continue;
+      if (seen.has(a.id)) continue;
+      seen.add(a.id);
+      out.push(a);
+    }
+  }
+  // Also include the current hero even if it's not in the source list anymore.
+  if (story.hero_attachment_id && !seen.has(story.hero_attachment_id)) {
+    const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
+    if (a) out.unshift(a);
+  }
+  return out;
+}
+
+function renderArchiveEditForm(story, opts = {}) {
+  const heroes = gatherHeroCandidates(story);
+  const heroOptions = [
+    `<option value="">— none —</option>`,
+    ...heroes.map((a) => `<option value="${esc(a.id)}" ${a.id === story.hero_attachment_id ? "selected" : ""}>${esc(a.id)} (${esc(a.content_type || "")})</option>`),
+  ].join("");
+  const heroPreview = story.hero_attachment_id
+    ? (() => {
+        const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
+        return a ? `<img src="${esc(a.public_url)}" alt="" style="max-width:240px;border-radius:8px;margin-top:8px">` : "";
+      })()
+    : "";
+
+  const error = opts.error ? `<div class="alert alert-danger">${esc(opts.error)}</div>` : "";
+  const body = `
+    <h3 class="mb-3">Edit story #${esc(story.id)}</h3>
+    ${error}
+    <form method="post" action="/admin/archive/${esc(story.id)}">
+      <div class="mb-3">
+        <label class="form-label">Title</label>
+        <input class="form-control" type="text" name="title" required value="${esc(story.title)}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Body <small class="text-muted">(plain text; blank lines separate paragraphs)</small></label>
+        <textarea class="form-control" name="body" rows="10" required>${esc(story.body)}</textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Hero image</label>
+        <select class="form-select" name="hero_attachment_id">${heroOptions}</select>
+        ${heroPreview}
+      </div>
+      <div class="text-muted small mb-3">
+        Period: ${esc(String(story.period_start).slice(0, 10))} → ${esc(String(story.period_end).slice(0, 10))} ·
+        Source messages: ${esc((JSON.parse(story.source_message_ids || "[]") || []).join(", "))}
+      </div>
+      <button class="btn btn-primary" type="submit">Save changes</button>
+      <a class="btn btn-outline-secondary" href="/admin/archive">Cancel</a>
+    </form>`;
+  return renderLayout(`Edit story #${story.id}`, body);
+}
+
 const splitTxn = db.transaction((orig) => {
   const n = Math.abs(orig.amount);
   const unit = Math.sign(orig.amount);
@@ -423,6 +536,102 @@ export function registerAdmin(app) {
     }
     splitTxn(event);
     res.redirect("/admin/events");
+  });
+
+  // ===== Database backups =====
+
+  router.get("/backup", requireAuth, (req, res) => {
+    const last = getLastBackupResult();
+    const flash = req.query.flash ? `<div class="alert alert-success">${esc(req.query.flash)}</div>` : "";
+    const error = req.query.error ? `<div class="alert alert-danger">${esc(req.query.error)}</div>` : "";
+    const configured = isSpacesConfigured();
+    const lastBlock = last
+      ? `<dl class="row mb-0">
+          <dt class="col-sm-3">Last backup</dt><dd class="col-sm-9"><code>${esc(last.timestamp)}</code></dd>
+          <dt class="col-sm-3">Size</dt><dd class="col-sm-9">${esc(last.compressed_bytes.toLocaleString())} bytes gzipped <span class="text-muted">(from ${esc(last.original_bytes.toLocaleString())} bytes, ${esc((last.compressed_bytes/last.original_bytes*100).toFixed(1))}%)</span></dd>
+          <dt class="col-sm-3">Duration</dt><dd class="col-sm-9">${esc(last.elapsed_ms)} ms</dd>
+          <dt class="col-sm-3">Timestamped URL</dt><dd class="col-sm-9"><a class="small text-break" href="${esc(last.timestamped_url)}" target="_blank">${esc(last.timestamped_url)}</a></dd>
+          <dt class="col-sm-3">Latest URL</dt><dd class="col-sm-9"><a class="small text-break" href="${esc(last.latest_url)}" target="_blank">${esc(last.latest_url)}</a></dd>
+         </dl>`
+      : `<p class="text-muted mb-0">No backup has run in this process yet. The scheduled job fires 30 seconds after boot and then every 24 hours; you can also trigger one manually below.</p>`;
+
+    const body = `
+      <h3 class="mb-3">Database backups</h3>
+      ${flash}${error}
+      <div class="card mb-3"><div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">Status</h6>
+        ${configured ? "" : '<div class="alert alert-warning">DO Spaces is not configured. Set DO_SPACES_* env vars before backups can run.</div>'}
+        ${lastBlock}
+      </div></div>
+      <div class="card"><div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">Manual backup</h6>
+        <p class="text-muted small">Takes a hot-safe snapshot, gzips it, and uploads to your bucket under <code>backups/db-{ISO}.db.gz</code>. Also overwrites <code>backups/latest.db.gz</code>.</p>
+        <form method="post" action="/admin/backup">
+          <button class="btn btn-primary" type="submit" ${configured ? "" : "disabled"}>Back up now</button>
+        </form>
+      </div></div>
+      <p class="text-muted small mt-3">Restore manually by downloading <code>backups/latest.db.gz</code> from the DO console, gunzipping, and replacing the live <code>data.db</code> file on Railway. Retention: nothing is auto-pruned; old backups stay until you delete them in DO.</p>`;
+    res.send(renderLayout("Backups", body));
+  });
+
+  router.post("/backup", requireAuth, async (req, res) => {
+    try {
+      const result = await runBackup();
+      res.redirect(`/admin/backup?flash=${encodeURIComponent(`Backup uploaded: ${result.timestamp} (${result.compressed_bytes} bytes)`)}`);
+    } catch (err) {
+      console.error("manual backup failed:", err);
+      res.redirect(`/admin/backup?error=${encodeURIComponent(err.message)}`);
+    }
+  });
+
+  // ===== Archive story management =====
+
+  router.get("/archive", requireAuth, (req, res) => {
+    res.send(renderArchiveList(listAllStoriesStmt.all()));
+  });
+
+  router.get("/archive/:id/edit", requireAuth, (req, res) => {
+    const story = getStoryByIdStmt.get(req.params.id);
+    if (!story) return res.status(404).send(renderLayout("Not found", "<p>Story not found.</p>"));
+    res.send(renderArchiveEditForm(story));
+  });
+
+  router.post("/archive/:id", requireAuth, (req, res) => {
+    const story = getStoryByIdStmt.get(req.params.id);
+    if (!story) return res.status(404).send(renderLayout("Not found", "<p>Story not found.</p>"));
+    const { title, body, hero_attachment_id } = req.body || {};
+    if (!title || !body) {
+      return res.status(400).send(renderArchiveEditForm(story, { error: "Title and body are required." }));
+    }
+    updateStoryStmt.run(
+      String(title).trim(),
+      String(body).trim(),
+      hero_attachment_id ? String(hero_attachment_id).trim() : null,
+      story.id,
+    );
+    res.redirect("/admin/archive");
+  });
+
+  router.post("/archive/:id/delete", requireAuth, (req, res) => {
+    setStoryHiddenStmt.run(1, req.params.id);
+    res.redirect("/admin/archive");
+  });
+
+  router.post("/archive/:id/restore", requireAuth, (req, res) => {
+    setStoryHiddenStmt.run(0, req.params.id);
+    res.redirect("/admin/archive");
+  });
+
+  router.post("/archive/:id/revise", requireAuth, async (req, res) => {
+    const story = getStoryByIdStmt.get(req.params.id);
+    if (!story) return res.status(404).send(renderLayout("Not found", "<p>Story not found.</p>"));
+    try {
+      await reviseStory(story.id);
+      res.redirect("/admin/archive");
+    } catch (err) {
+      console.error("revise failed:", err);
+      res.status(500).send(renderLayout("Revise failed", `<div class="alert alert-danger">Revise failed: ${esc(err.message)}</div><a class="btn btn-secondary" href="/admin/archive">Back</a>`));
+    }
   });
 
   app.use("/admin", router);
