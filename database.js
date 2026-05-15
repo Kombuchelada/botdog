@@ -137,6 +137,9 @@ export const getOldestArchiveMessageIdStmt = db.prepare(
 export const getNewestArchiveMessageIdStmt = db.prepare(
   `SELECT id FROM archive_messages ORDER BY id DESC LIMIT 1`,
 );
+export const countStoriesForPeriodStmt = db.prepare(
+  `SELECT COUNT(*) AS c FROM archive_stories WHERE period_start = ? AND period_end = ?`,
+);
 export const insertArchiveStoryStmt = db.prepare(
   `INSERT INTO archive_stories (title, body, hero_attachment_id, period_start, period_end, source_message_ids, model_id)
    VALUES (?, ?, ?, ?, ?, ?, ?)`,

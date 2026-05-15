@@ -1,6 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 
 const MODEL_ID = "claude-sonnet-4-6";
+const MAX_IMAGE_DIM = 1500;        // Anthropic enforces 2000px in many-image requests; stay safely under
+const MAX_IMAGES_PER_CALL = 50;    // Cap base64 payload (~20MB worst case)
+const JPEG_QUALITY = 85;
 
 const SYSTEM_PROMPT = `You are the curator of "Year of the Glizzy", a Discord community where people post about eating hot dogs.
 
@@ -76,6 +80,18 @@ const TOOL = {
  * @param {string} params.periodEnd - ISO timestamp
  * @returns {Promise<{stories: Array, modelId: string}>}
  */
+async function fetchAndResize(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch ${res.status} from ${url}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const out = await sharp(buf)
+    .rotate() // honor EXIF orientation
+    .resize({ width: MAX_IMAGE_DIM, height: MAX_IMAGE_DIM, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer();
+  return out.toString("base64");
+}
+
 export async function proposeStories({ messages, attachmentsByMessageId, periodStart, periodEnd }) {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY not set");
@@ -90,7 +106,6 @@ export async function proposeStories({ messages, attachmentsByMessageId, periodS
   ];
 
   let imageCount = 0;
-  const MAX_IMAGES = 90; // Anthropic limit is 100/request; leave headroom.
 
   for (const m of messages) {
     const header = [
@@ -105,17 +120,31 @@ export async function proposeStories({ messages, attachmentsByMessageId, periodS
     const atts = attachmentsByMessageId.get(m.id) || [];
     for (const a of atts) {
       if (!a.content_type || !a.content_type.startsWith("image/")) continue;
-      if (imageCount >= MAX_IMAGES) {
-        content.push({ type: "text", text: `(skipped image attachment_id: ${a.id} — image limit reached)` });
+      if (imageCount >= MAX_IMAGES_PER_CALL) {
+        content.push({ type: "text", text: `(skipped image attachment_id: ${a.id} — image limit reached for this batch)` });
         continue;
       }
-      content.push({ type: "image", source: { type: "url", url: a.public_url } });
+      let base64;
+      try {
+        base64 = await fetchAndResize(a.public_url);
+      } catch (err) {
+        console.warn(`[claude] failed to fetch/resize ${a.public_url}:`, err.message);
+        content.push({ type: "text", text: `(skipped image attachment_id: ${a.id} — failed to load)` });
+        continue;
+      }
+      content.push({
+        type: "image",
+        source: { type: "base64", media_type: "image/jpeg", data: base64 },
+      });
       content.push({ type: "text", text: `(attachment_id: ${a.id})` });
       imageCount++;
     }
   }
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    maxRetries: 5, // SDK does exponential backoff on 429/5xx and honors retry-after
+  });
   const response = await anthropic.messages.create({
     model: MODEL_ID,
     max_tokens: 4096,

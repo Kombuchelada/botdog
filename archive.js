@@ -8,6 +8,7 @@ import {
   getOldestArchiveMessageIdStmt,
   getNewestArchiveMessageIdStmt,
   insertArchiveStoryStmt,
+  countStoriesForPeriodStmt,
   getStoryByIdStmt,
   replaceStoryContentStmt,
   getArchiveState,
@@ -214,6 +215,13 @@ function attachmentsForMessages(messageIds) {
 }
 
 async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
+  // Idempotency: if we already have stories covering this exact window (from a
+  // previous successful run), don't waste a Claude call generating duplicates.
+  const existing = countStoriesForPeriodStmt.get(periodStartIso, periodEndIso).c;
+  if (existing > 0) {
+    log(`${label}: ${existing} story/ies already exist for this window, skipping`);
+    return { stories: 0, skipped: true };
+  }
   const messages = getArchiveMessagesInRangeStmt.all(periodStartIso, periodEndIso);
   if (messages.length === 0) {
     log(`${label}: no messages in window, skipping`);
@@ -297,7 +305,7 @@ async function generateBackfillStories() {
     }
     cursor = next;
     windows++;
-    await sleep(500); // gentle between Claude calls
+    await sleep(2000); // ~30 RPM ceiling, comfortably under Anthropic tier-1 50 RPM
   }
   setArchiveState(STATE_BACKFILL_STORIES_DONE, new Date().toISOString());
   log(`backfill stories complete after ${windows} weekly windows`);

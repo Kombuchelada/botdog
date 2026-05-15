@@ -344,6 +344,18 @@ function renderArchiveList(stories, opts = {}) {
       </table>
     </div>
 
+    <div class="card mt-4">
+      <div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">Retry story generation</h6>
+        <p class="text-muted small mb-3">
+          Re-runs Claude over every weekly window. Existing stories for a window are kept (the new logic skips windows that already have at least one story), so this only fills in gaps from previous failures. Cheap, safe to click.
+        </p>
+        <form method="post" action="/admin/archive/retry-stories">
+          <button class="btn btn-outline-primary" type="submit">Retry story generation</button>
+        </form>
+      </div>
+    </div>
+
     <div class="card border-danger mt-4">
       <div class="card-body">
         <h6 class="card-subtitle text-danger mb-2">Danger zone</h6>
@@ -606,6 +618,17 @@ export function registerAdmin(app) {
       flash: req.query.flash || null,
       error: req.query.error || null,
     }));
+  });
+
+  router.post("/archive/retry-stories", requireAuth, (req, res) => {
+    try {
+      db.prepare("DELETE FROM archive_state WHERE key = 'backfill_stories_complete_at'").run();
+      triggerArchiveTick();
+      res.redirect("/admin/archive?flash=" + encodeURIComponent("Story generation restarted. Windows that already have stories will be skipped; only gaps get re-processed."));
+    } catch (err) {
+      console.error("retry stories failed:", err);
+      res.redirect("/admin/archive?error=" + encodeURIComponent(err.message));
+    }
   });
 
   router.post("/archive/reset", requireAuth, (req, res) => {
