@@ -385,6 +385,7 @@ const NAV = `
         <a href="/users" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Users</a>
         <a href="/compare" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Compare</a>
         <a href="/archive" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Archive</a>
+        <a href="/game" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">🌭 Play</a>
       </nav>
     </div>
   </header>`;

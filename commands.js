@@ -171,6 +171,19 @@ const CHART_COMMAND = {
   ],
 };
 
+const GLIZZY_COMMAND = {
+  name: "glizzy",
+  description: "GlizzyClicker — idle game tied to your hotdog stats",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    { name: "leaderboard", description: "Top players by lifetime glizzies", type: 1 },
+    { name: "me", description: "Your own GlizzyClicker stats", type: 1 },
+    { name: "play", description: "Link to the game (yearoftheglizzy.com/game)", type: 1 },
+  ],
+};
+
 const ALL_COMMANDS = [
   HOTDOG_COMMAND,
   PROTEST_COMMAND,
@@ -182,6 +195,7 @@ const ALL_COMMANDS = [
   LEADERBOARD_ACTIVE_COMMAND,
   LEADERBOARD_SITTING_COMMAND,
   CHART_COMMAND,
+  GLIZZY_COMMAND,
 ];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);

@@ -18,6 +18,8 @@ import {
   renderStatCard,
   renderWhenHeatmap,
 } from "./charts.js";
+import { getLeaderboardRows, getPlayerSummary } from "./game.js";
+import { getUserProfileStmt } from "./database.js";
 import {
   getLeaderboard,
   getStats,
@@ -76,6 +78,8 @@ export function registerInteractions(app) {
               return handleStatsCommand(res);
             case "chart":
               return handleChartCommand(res, req);
+            case "glizzy":
+              return handleGlizzyCommand(res, req);
             default:
               console.error(`unknown command: ${name}`);
               return res.status(400).json({ error: "unknown command" });
@@ -590,4 +594,102 @@ async function renderAndUpload(subName, getOpt, body) {
   }
 
   await uploadInteractionAttachment(token, pngBuffer, filename, { content: caption });
+}
+
+/**
+ * Dispatch /glizzy <subcommand>. All three subcommands return immediately with
+ * a CHANNEL_MESSAGE_WITH_SOURCE (no deferral) — they're all fast DB queries.
+ */
+function handleGlizzyCommand(res, req) {
+  const sub = (req.body.data.options || [])[0];
+  if (!sub) return res.send({ type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: "Unknown glizzy subcommand." } });
+
+  const context = req.body.context;
+  const invoker = context === 0 ? req.body.member.user : req.body.user;
+  const baseUrl = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+
+  switch (sub.name) {
+    case "leaderboard": {
+      const rows = getLeaderboardRows(10);
+      if (rows.length === 0) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: { content: "🌭 Nobody's playing GlizzyClicker yet. Be the first: " + (baseUrl ? `${baseUrl}/game` : "/game") },
+        });
+      }
+      const lines = rows.map((r, i) => {
+        const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `**${i + 1}.**`;
+        return `${medal} <@${r.user_id}> — **${r.lifetime.toLocaleString()}** lifetime · ${r.total_buildings} buildings`;
+      });
+      const embed = {
+        title: "🌭 GlizzyClicker Leaderboard",
+        description: lines.join("\n"),
+        url: baseUrl ? `${baseUrl}/game/leaderboard` : undefined,
+        color: 0xff6b35,
+        footer: { text: "Year of the Glizzy" },
+        timestamp: new Date().toISOString(),
+      };
+      return res.send({ type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { embeds: [embed] } });
+    }
+    case "me": {
+      const summary = getPlayerSummary(invoker.id);
+      if (!summary.exists) {
+        return res.send({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            flags: InteractionResponseFlags.EPHEMERAL,
+            content: `🌭 You haven't played yet! ${baseUrl ? `${baseUrl}/game` : "/game"} — log in with Discord and start clicking.`,
+          },
+        });
+      }
+      const profile = getUserProfileStmt.get(invoker.id);
+      const name = (profile && (profile.global_name || profile.username)) || invoker.username || `User ${invoker.id.slice(-4)}`;
+      const fields = [
+        { name: "Lifetime", value: `**${summary.state.lifetime.toLocaleString()}** 🌭`, inline: true },
+        { name: "Current", value: `**${Math.floor(summary.state.glizzies).toLocaleString()}**`, inline: true },
+        { name: "Per second", value: `**${summary.rates.perSecond.toFixed(1)}**`, inline: true },
+        { name: "Buildings", value: String(summary.totalBuildings), inline: true },
+        { name: "Clicks", value: summary.state.total_clicks.toLocaleString(), inline: true },
+        { name: "Click power", value: Math.floor(summary.rates.perClick).toLocaleString(), inline: true },
+      ];
+      if (summary.topBuilding) {
+        fields.push({
+          name: "Top producer",
+          value: `${summary.topBuilding.emoji} ${summary.topBuilding.name} — ${summary.topProduction.toFixed(1)}/s`,
+          inline: false,
+        });
+      }
+      if (summary.bonuses.length > 0) {
+        fields.push({
+          name: "Active bonuses",
+          value: summary.bonuses.map((b) => `${b.emoji} **${b.name}** — ${b.explanation}`).join("\n"),
+          inline: false,
+        });
+      }
+      const embed = {
+        title: `🌭 ${name}'s GlizzyClicker`,
+        url: baseUrl ? `${baseUrl}/game` : undefined,
+        color: 0xff6b35,
+        fields,
+        footer: { text: "Year of the Glizzy" },
+        timestamp: new Date().toISOString(),
+      };
+      return res.send({ type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { embeds: [embed] } });
+    }
+    case "play": {
+      const url = baseUrl ? `${baseUrl}/game` : "/game";
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          flags: InteractionResponseFlags.EPHEMERAL,
+          content: `🌭 Click here to play: ${url}`,
+        },
+      });
+    }
+    default:
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: { content: `Unknown subcommand: ${sub.name}` },
+      });
+  }
 }

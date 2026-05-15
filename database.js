@@ -104,6 +104,34 @@ db.prepare(
 ).run();
 
 db.prepare(
+  `CREATE TABLE IF NOT EXISTS glizzy_game (
+    user_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    lifetime_glizzies INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+).run();
+db.prepare(
+  `CREATE INDEX IF NOT EXISTS idx_glizzy_lifetime ON glizzy_game(lifetime_glizzies DESC)`,
+).run();
+
+export const upsertGameStateStmt = db.prepare(
+  `INSERT INTO glizzy_game (user_id, state, lifetime_glizzies)
+   VALUES (?, ?, ?)
+   ON CONFLICT(user_id) DO UPDATE SET
+     state = excluded.state,
+     lifetime_glizzies = MAX(glizzy_game.lifetime_glizzies, excluded.lifetime_glizzies),
+     updated_at = datetime('now')`,
+);
+export const getGameStateStmt = db.prepare(
+  "SELECT * FROM glizzy_game WHERE user_id = ?",
+);
+export const topByLifetimeStmt = db.prepare(
+  "SELECT user_id, state, lifetime_glizzies, updated_at FROM glizzy_game ORDER BY lifetime_glizzies DESC LIMIT ?",
+);
+
+db.prepare(
   `CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY,
     username TEXT,

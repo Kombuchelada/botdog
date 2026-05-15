@@ -7,6 +7,8 @@ import { registerDashboard } from "./dashboard.js";
 import { startArchive } from "./archive.js";
 import { startBackups } from "./backup.js";
 import { db } from "./database.js";
+import { registerOAuth } from "./oauth.js";
+import { registerGame } from "./game.js";
 
 // Create an express app
 const app = express();
@@ -16,6 +18,8 @@ const PORT = process.env.PORT || 3000;
 registerInteractions(app);
 registerApi(app);
 registerAdmin(app);
+registerOAuth(app);
+registerGame(app);
 registerDashboard(app);
 
 const server = app.listen(PORT, () => {
