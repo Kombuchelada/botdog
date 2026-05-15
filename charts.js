@@ -500,7 +500,124 @@ export function renderLeaderboard({ limit = 10 } = {}) {
 }
 
 // ============================================================================
-// 4. STAT CARD
+// 4. WHEN HEATMAP (day-of-week × hour-of-day)
+// ============================================================================
+
+const PACIFIC_DOW_HOUR = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  weekday: "short",
+  hour: "numeric",
+  hour12: false,
+});
+
+function buildWhenGrid(events, userId) {
+  const filtered = userId ? events.filter((e) => e.user_id === userId) : events;
+  const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+  let max = 0;
+  for (const e of filtered) {
+    if (e.amount <= 0) continue;
+    const d = parseUtcTimestamp(e.timestamp);
+    if (!d || isNaN(d.getTime())) continue;
+    const parts = PACIFIC_DOW_HOUR.formatToParts(d);
+    const wd = parts.find((p) => p.type === "weekday")?.value;
+    const hrStr = parts.find((p) => p.type === "hour")?.value;
+    const dayIdx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+    let hr = parseInt(hrStr, 10);
+    if (hr === 24) hr = 0;
+    if (dayIdx < 0 || Number.isNaN(hr)) continue;
+    grid[dayIdx][hr] += e.amount;
+    if (grid[dayIdx][hr] > max) max = grid[dayIdx][hr];
+  }
+  return { grid, max };
+}
+
+export function renderWhenHeatmap({ userId } = {}) {
+  const events = getAllEventsStmt.all();
+  const { grid, max } = buildWhenGrid(events, userId);
+
+  const cellSize = 22;
+  const gap = 3;
+  const stride = cellSize + gap;
+  const gridLeft = 70;
+  const gridTop = 90;
+  const gridWidth = 24 * stride;
+  const gridHeight = 7 * stride;
+
+  const w = gridLeft + gridWidth + 40;
+  const h = gridTop + gridHeight + 70;
+  const canvas = makeCanvas(w, h);
+  const ctx = canvas.getContext("2d");
+
+  paintBackground(ctx, w, h);
+
+  const subject = userId ? getDisplayName(userId) : "Server";
+  ctx.fillStyle = "#fff";
+  ctx.font = "700 24px Inter";
+  ctx.fillText(`${subject} — When Dogs Get Eaten`, 20, 38);
+
+  ctx.fillStyle = "#9aa3b0";
+  ctx.font = "400 13px Inter";
+  ctx.fillText("By day of week and hour (Pacific time)", 20, 58);
+
+  // Hour labels at the top (every 3 hours)
+  ctx.fillStyle = "#9aa3b0";
+  ctx.font = "400 11px Inter";
+  ctx.textAlign = "center";
+  for (let h = 0; h < 24; h += 3) {
+    const x = gridLeft + h * stride + cellSize / 2;
+    ctx.fillText(String(h).padStart(2, "0"), x, gridTop - 8);
+  }
+  ctx.textAlign = "left";
+
+  // Day labels on the left
+  ctx.fillStyle = "#7d8590";
+  ctx.font = "400 11px Inter";
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  for (let d = 0; d < 7; d++) {
+    ctx.fillText(days[d], 30, gridTop + d * stride + cellSize / 2 + 4);
+  }
+
+  // Cells
+  for (let d = 0; d < 7; d++) {
+    for (let hh = 0; hh < 24; hh++) {
+      const v = grid[d][hh];
+      const x = gridLeft + hh * stride;
+      const y = gridTop + d * stride;
+      ctx.fillStyle = heatColor(v, max);
+      fillRoundRect(ctx, x, y, cellSize, cellSize, 4);
+    }
+  }
+
+  // Continuous gradient legend
+  const legendY = gridTop + gridHeight + 26;
+  const barLeft = gridLeft + 36;
+  const barWidth = 5 * stride;
+  ctx.fillStyle = "#9aa3b0";
+  ctx.font = "400 11px Inter";
+  ctx.fillText("Less", gridLeft, legendY + 11);
+  const legendGrad = ctx.createLinearGradient(barLeft, 0, barLeft + barWidth, 0);
+  legendGrad.addColorStop(0.0, plasmaColor(0.0));
+  legendGrad.addColorStop(0.25, plasmaColor(0.25));
+  legendGrad.addColorStop(0.5, plasmaColor(0.5));
+  legendGrad.addColorStop(0.75, plasmaColor(0.75));
+  legendGrad.addColorStop(1.0, plasmaColor(1.0));
+  ctx.fillStyle = legendGrad;
+  fillRoundRect(ctx, barLeft, legendY, barWidth, cellSize - 8, 3);
+  ctx.fillStyle = "#9aa3b0";
+  ctx.fillText("More", barLeft + barWidth + 6, legendY + 11);
+
+  // Peak callout on right
+  ctx.fillStyle = "#fff";
+  ctx.font = "700 14px Inter";
+  ctx.textAlign = "right";
+  ctx.fillText(`peak: ${max}`, w - 20, legendY + 11);
+  ctx.textAlign = "left";
+
+  return canvas.toBuffer("image/png");
+}
+
+// ============================================================================
+// 5. STAT CARD
 // ============================================================================
 
 export function renderStatCard({ userId }) {

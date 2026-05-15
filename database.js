@@ -102,6 +102,14 @@ db.prepare(
     hidden INTEGER NOT NULL DEFAULT 0
   )`,
 ).run();
+
+// Additive migration: existing deployments get tags column.
+(function ensureStoriesTagsColumn() {
+  const cols = db.prepare("PRAGMA table_info(archive_stories)").all();
+  if (!cols.find((c) => c.name === "tags")) {
+    db.prepare("ALTER TABLE archive_stories ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'").run();
+  }
+})();
 db.prepare(
   `CREATE INDEX IF NOT EXISTS idx_archive_stories_period ON archive_stories(period_end DESC)`,
 ).run();
@@ -141,8 +149,8 @@ export const countStoriesForPeriodStmt = db.prepare(
   `SELECT COUNT(*) AS c FROM archive_stories WHERE period_start = ? AND period_end = ?`,
 );
 export const insertArchiveStoryStmt = db.prepare(
-  `INSERT INTO archive_stories (title, body, hero_attachment_id, period_start, period_end, source_message_ids, model_id)
-   VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO archive_stories (title, body, hero_attachment_id, period_start, period_end, source_message_ids, model_id, tags)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 export const listPublishedStoriesStmt = db.prepare(
   `SELECT * FROM archive_stories WHERE hidden = 0 ORDER BY period_end DESC, id DESC`,
@@ -154,7 +162,7 @@ export const getStoryByIdStmt = db.prepare(
   `SELECT * FROM archive_stories WHERE id = ?`,
 );
 export const updateStoryStmt = db.prepare(
-  `UPDATE archive_stories SET title = ?, body = ?, hero_attachment_id = ?, manually_edited = 1 WHERE id = ?`,
+  `UPDATE archive_stories SET title = ?, body = ?, hero_attachment_id = ?, tags = ?, manually_edited = 1 WHERE id = ?`,
 );
 export const setStoryHiddenStmt = db.prepare(
   `UPDATE archive_stories SET hidden = ? WHERE id = ?`,
@@ -163,7 +171,7 @@ export const deleteStoryStmt = db.prepare(
   `DELETE FROM archive_stories WHERE id = ?`,
 );
 export const replaceStoryContentStmt = db.prepare(
-  `UPDATE archive_stories SET title = ?, body = ?, hero_attachment_id = ?, source_message_ids = ?, model_id = ?, manually_edited = 0, generated_at = datetime('now') WHERE id = ?`,
+  `UPDATE archive_stories SET title = ?, body = ?, hero_attachment_id = ?, source_message_ids = ?, model_id = ?, tags = ?, manually_edited = 0, generated_at = datetime('now') WHERE id = ?`,
 );
 export const getArchiveStateStmt = db.prepare(
   `SELECT value FROM archive_state WHERE key = ?`,

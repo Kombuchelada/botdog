@@ -16,6 +16,7 @@ import {
   renderTimeline,
   renderLeaderboard,
   renderStatCard,
+  renderWhenHeatmap,
 } from "./charts.js";
 import {
   getLeaderboard,
@@ -31,6 +32,7 @@ import {
   getUserTotalStmt,
   getTotalHotdogsStmt,
 } from "./database.js";
+import { detectAchievements, formatAchievementsForResponse } from "./achievements.js";
 
 // To keep track of active protests waiting for a second (still in memory)
 const activeProtests = {};
@@ -470,6 +472,21 @@ function handleHotDogCommand(res, req, id) {
   // Get current total from the view
   const row = getUserTotalStmt.get(userId);
   const newCount = row ? row.total_count : 0;
+  const serverTotal = getTotalHotdogsStmt.get().total_hotdogs || 0;
+
+  let achievementText = "";
+  try {
+    const triggers = detectAchievements({
+      userId,
+      username,
+      amount,
+      userTotalAfter: newCount,
+      serverTotalAfter: serverTotal,
+    });
+    achievementText = formatAchievementsForResponse(triggers);
+  } catch (err) {
+    console.error("achievement detection failed:", err);
+  }
 
   return res.send({
     type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
@@ -478,7 +495,7 @@ function handleHotDogCommand(res, req, id) {
       components: [
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
-          content: `You now have ${newCount} hot dogs, ${username}! 🌭`,
+          content: `You now have ${newCount} hot dogs, ${username}! 🌭${achievementText}`,
         },
       ],
     },
@@ -559,6 +576,13 @@ async function renderAndUpload(subName, getOpt, body) {
       pngBuffer = renderStatCard({ userId });
       filename = `card-${userId}.png`;
       caption = `🌭 Stat card for <@${userId}>`;
+      break;
+    }
+    case "when": {
+      const userId = getOpt("user")?.value || null;
+      pngBuffer = renderWhenHeatmap({ userId });
+      filename = `when-${userId || "server"}.png`;
+      caption = userId ? `🌭 When <@${userId}> eats dogs` : "🌭 When the server eats dogs";
       break;
     }
     default:

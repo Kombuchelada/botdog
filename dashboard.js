@@ -143,6 +143,71 @@ function heatmapWindowLabel(heatmap) {
   return heatmap.capped ? `Last ${HEATMAP_MAX_WEEKS} weeks` : "Since Dec 31, 2025";
 }
 
+const PACIFIC_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  weekday: "short",
+  hour: "numeric",
+  hour12: false,
+});
+
+function buildWhenHeatmap(events, userId) {
+  const filtered = userId ? events.filter((e) => e.user_id === userId) : events;
+  const grid = Array.from({ length: 7 }, () => Array(24).fill(0));
+  let max = 0;
+  for (const e of filtered) {
+    if (e.amount <= 0) continue; // skip protest deductions
+    const d = parseUtcTimestamp(e.timestamp);
+    if (!d || isNaN(d.getTime())) continue;
+    const parts = PACIFIC_FORMATTER.formatToParts(d);
+    const wd = parts.find((p) => p.type === "weekday")?.value;
+    const hrStr = parts.find((p) => p.type === "hour")?.value;
+    const dayIdx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(wd);
+    let hr = parseInt(hrStr, 10);
+    if (hr === 24) hr = 0;
+    if (dayIdx < 0 || Number.isNaN(hr)) continue;
+    grid[dayIdx][hr] += e.amount;
+    if (grid[dayIdx][hr] > max) max = grid[dayIdx][hr];
+  }
+  return { grid, max };
+}
+
+function whenHeatmapSVG(when, cellSize = 22, gap = 3) {
+  const { grid, max } = when;
+  const stride = cellSize + gap;
+  const left = 38; // day labels
+  const top = 22; // hour labels
+  const width = left + 24 * stride;
+  const height = top + 7 * stride;
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  const cells = [];
+  for (let d = 0; d < 7; d++) {
+    for (let h = 0; h < 24; h++) {
+      const v = grid[d][h];
+      const t = max > 0 ? v / max : 0;
+      const fill = v === 0 ? "#1e293b" : plasmaColor(t);
+      const x = left + h * stride;
+      const y = top + d * stride;
+      cells.push(`<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" rx="4" ry="4" fill="${fill}"><title>${esc(days[d])} ${String(h).padStart(2, "0")}:00 — ${esc(v)} dog${v === 1 ? "" : "s"}</title></rect>`);
+    }
+  }
+
+  // Hour labels at the top (every 3 hours)
+  const hourLabels = [];
+  for (let h = 0; h < 24; h += 3) {
+    const x = left + h * stride + cellSize / 2;
+    hourLabels.push(`<text x="${x}" y="14" font-size="10" fill="#94a3b8" text-anchor="middle" font-family="Inter, system-ui, sans-serif">${String(h).padStart(2, "0")}</text>`);
+  }
+
+  // Day labels on the left
+  const dayLabels = days.map((d, i) => {
+    const y = top + i * stride + cellSize / 2 + 4;
+    return `<text x="32" y="${y}" font-size="11" fill="#7d8590" text-anchor="end" font-family="Inter, system-ui, sans-serif">${esc(d)}</text>`;
+  }).join("");
+
+  return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="xMidYMid meet" class="block">${hourLabels.join("")}${dayLabels}${cells.join("")}</svg>`;
+}
+
 function buildUserList() {
   const rows = getLeaderboardStmt.all();
   return rows.map((r) => ({
@@ -186,6 +251,7 @@ function buildOverview() {
     leaderboard: leaderboard.slice(0, 10),
     timeline: timeline.points,
     heatmap,
+    when: buildWhenHeatmap(events),
     topUsersComparison,
   };
 }
@@ -228,6 +294,7 @@ function buildUserDetail(userId) {
     avgPerActiveDay: dates.size > 0 ? total / dates.size : 0,
     timeline: timeline.points,
     heatmap,
+    when: buildWhenHeatmap(events, userId),
     recent,
   };
 }
@@ -538,6 +605,22 @@ function renderOverviewPage(data) {
       </div>
     </section>
 
+    <section class="card p-6 mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="stat-label">When dogs get eaten</div>
+          <div class="text-slate-300 text-sm mt-1">Submissions by day of week and hour (Pacific time)</div>
+        </div>
+        <div class="text-xs text-slate-500">peak hour: <span class="text-slate-200 font-semibold">${esc(data.when.max)}</span></div>
+      </div>
+      <div class="overflow-x-auto">${whenHeatmapSVG(data.when)}</div>
+      <div class="flex items-center gap-2 mt-3 text-xs text-slate-400">
+        <span>Less</span>
+        ${plasmaLegendSVG()}
+        <span>More</span>
+      </div>
+    </section>
+
     <section class="grid md:grid-cols-2 gap-6 mb-8">
       <div class="card p-6">
         <div class="stat-label">View a user</div>
@@ -726,6 +809,17 @@ function renderUserPage(data) {
         ${plasmaLegendSVG()}
         <span>More</span>
       </div>
+    </section>
+
+    <section class="card p-6 mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="stat-label">When they eat</div>
+          <div class="text-slate-300 text-sm mt-1">By day of week and hour (Pacific time)</div>
+        </div>
+        <div class="text-xs text-slate-500">peak hour: <span class="text-slate-200 font-semibold">${esc(data.when.max)}</span></div>
+      </div>
+      <div class="overflow-x-auto">${whenHeatmapSVG(data.when)}</div>
     </section>
 
     <section class="card p-6">
@@ -979,6 +1073,27 @@ function renderStoryCarousel(media, storyId) {
     </div>`;
 }
 
+function parseTags(story) {
+  try {
+    const arr = JSON.parse(story.tags || "[]");
+    return Array.isArray(arr) ? arr.filter(Boolean) : [];
+  } catch { return []; }
+}
+
+function renderTagChips(tags, opts = {}) {
+  if (!tags || tags.length === 0) return "";
+  const baseClass = "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium transition";
+  return tags
+    .map((t) => {
+      const active = opts.activeTag && t === opts.activeTag;
+      const classes = active
+        ? `${baseClass} bg-accent text-white`
+        : `${baseClass} bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white`;
+      return `<a href="/archive?tag=${encodeURIComponent(t)}" class="${classes}">${esc(t)}</a>`;
+    })
+    .join(" ");
+}
+
 function paragraphs(body) {
   return String(body || "")
     .split(/\n{2,}/)
@@ -1046,6 +1161,7 @@ function renderStoryPage(story) {
     imageWidth: hero?.width || null,
     imageHeight: hero?.height || null,
   };
+  const tags = parseTags(story);
   const body = `
     <section class="mb-4">
       <a href="/archive" class="text-slate-400 hover:text-slate-200 text-sm">← back to archive</a>
@@ -1056,23 +1172,59 @@ function renderStoryPage(story) {
         <div class="text-xs uppercase tracking-widest text-accent-soft mb-2">${esc(dateLabel)}</div>
         <h1 class="text-3xl md:text-4xl font-bold text-white tracking-tight mb-3">${esc(story.title)}</h1>
         <div class="prose-archive text-slate-300 leading-relaxed space-y-3 text-lg">${paragraphs(story.body)}</div>
+        ${tags.length > 0 ? `<div class="flex flex-wrap gap-1.5 mt-6">${renderTagChips(tags)}</div>` : ""}
       </div>
     </article>
     ${CAROUSEL_JS}`;
   return renderLayout(story.title, body, {}, { og });
 }
 
-function renderArchivePage(stories) {
+function renderArchivePage(allStories, activeTag) {
+  // Build the set of all unique tags across all (visible) stories for the filter row
+  const tagCounts = new Map();
+  for (const s of allStories) {
+    for (const t of parseTags(s)) {
+      tagCounts.set(t, (tagCounts.get(t) || 0) + 1);
+    }
+  }
+  const sortedTags = Array.from(tagCounts.entries()).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+
+  const stories = activeTag
+    ? allStories.filter((s) => parseTags(s).includes(activeTag))
+    : allStories;
+
+  const filterChips = sortedTags.length > 0
+    ? `<div class="flex flex-wrap items-center gap-2 mb-6">
+         ${activeTag
+           ? `<a href="/archive" class="inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-700 text-white hover:bg-slate-600">× clear</a>`
+           : `<span class="text-xs text-slate-500 mr-1">filter:</span>`}
+         ${sortedTags
+           .map((t) => {
+             const active = t === activeTag;
+             const classes = active
+               ? "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-accent text-white"
+               : "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white";
+             return `<a href="/archive?tag=${encodeURIComponent(t)}" class="${classes}">${esc(t)} <span class="opacity-60">${esc(tagCounts.get(t))}</span></a>`;
+           })
+           .join("")}
+       </div>`
+    : "";
+
   if (stories.length === 0) {
     const body = `
       <section class="mb-6">
         <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Archive</div>
         <h1 class="text-4xl font-bold text-white tracking-tight">The story so far</h1>
+        ${activeTag ? `<p class="text-slate-400 mt-2">No stories tagged <span class="accent font-semibold">${esc(activeTag)}</span>.</p>` : ""}
       </section>
-      <div class="card p-12 text-center">
-        <div class="text-5xl mb-3">🌭</div>
-        <div class="text-xl text-slate-200 font-semibold">No stories yet</div>
-        <div class="text-slate-400 mt-2">The archive bot is still warming up. Check back in a bit.</div>
+      <div class="max-w-3xl mx-auto">
+        ${filterChips}
+        <div class="card p-12 text-center">
+          <div class="text-5xl mb-3">🌭</div>
+          <div class="text-xl text-slate-200 font-semibold">${activeTag ? "No matching stories" : "No stories yet"}</div>
+          <div class="text-slate-400 mt-2">${activeTag ? "Try a different tag, or clear the filter." : "The archive bot is still warming up. Check back in a bit."}</div>
+          ${activeTag ? `<a href="/archive" class="inline-block mt-4 text-accent hover:text-accent-soft">← back to all stories</a>` : ""}
+        </div>
       </div>`;
     return renderLayout("Archive", body, {});
   }
@@ -1080,6 +1232,7 @@ function renderArchivePage(stories) {
   const cards = stories
     .map((s) => {
       const media = gatherStoryMedia(s);
+      const tags = parseTags(s);
       const dateLabel = s.period_start && s.period_end && s.period_start.slice(0, 10) !== s.period_end.slice(0, 10)
         ? `${formatStoryDate(s.period_start)} – ${formatStoryDate(s.period_end)}`
         : formatStoryDate(s.period_end || s.period_start);
@@ -1095,18 +1248,22 @@ function renderArchivePage(stories) {
               <a href="/archive/${esc(s.id)}" class="text-white hover:text-accent-soft transition">${esc(s.title)}</a>
             </h2>
             <div class="prose-archive text-slate-300 leading-relaxed space-y-3">${paragraphs(s.body)}</div>
+            ${tags.length > 0 ? `<div class="flex flex-wrap gap-1.5 mt-5">${renderTagChips(tags, { activeTag })}</div>` : ""}
           </div>
         </article>`;
     })
     .join("");
 
   const body = `
-    <section class="mb-8">
+    <section class="mb-6">
       <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Archive</div>
-      <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">The story so far</h1>
-      <p class="text-slate-400 mt-2">Significant moments from the channel, curated automatically.</p>
+      <h1 class="text-4xl md:text-5xl font-bold text-white tracking-tight">${activeTag ? `Stories tagged ${esc(activeTag)}` : "The story so far"}</h1>
+      <p class="text-slate-400 mt-2">${activeTag ? `${stories.length} of ${allStories.length} stories.` : "Significant moments from the channel, curated automatically."}</p>
     </section>
-    <div class="max-w-3xl mx-auto">${cards}</div>
+    <div class="max-w-3xl mx-auto">
+      ${filterChips}
+      ${cards}
+    </div>
     ${CAROUSEL_JS}`;
   return renderLayout("Archive", body, {});
 }
@@ -1167,7 +1324,8 @@ export function registerDashboard(app) {
 
   router.get("/archive", (req, res) => {
     const stories = listPublishedStoriesStmt.all();
-    res.send(renderArchivePage(stories));
+    const activeTag = req.query.tag ? String(req.query.tag).toLowerCase().trim() : null;
+    res.send(renderArchivePage(stories, activeTag));
   });
 
   router.get("/archive/:id", (req, res) => {

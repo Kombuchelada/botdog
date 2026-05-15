@@ -18,6 +18,7 @@ import { uploadObject, isSpacesConfigured } from "./do-spaces.js";
 import { proposeStories, isAnthropicConfigured } from "./claude.js";
 import { DiscordRequest } from "./utils.js";
 import heicConvert from "heic-convert";
+import { runDigestIfDue } from "./digest.js";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour
 const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -337,6 +338,7 @@ async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
   const announceEnabled = !!getArchiveState(STATE_BACKFILL_STORIES_DONE);
   for (const s of result.stories) {
     const srcIds = JSON.stringify(s.source_message_ids || []);
+    const tagsJson = JSON.stringify(Array.isArray(s.tags) ? s.tags.map((t) => String(t).toLowerCase().trim()).filter(Boolean) : []);
     const insertResult = insertArchiveStoryStmt.run(
       s.title,
       s.body,
@@ -345,6 +347,7 @@ async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
       periodEndIso,
       srcIds,
       result.modelId,
+      tagsJson,
     );
     if (announceEnabled) {
       const storyId = Number(insertResult.lastInsertRowid);
@@ -443,6 +446,7 @@ async function tick() {
     await forwardPoll();
     await generateBackfillStories();
     await runWeeklyJobIfDue();
+    await runDigestIfDue();
   } catch (err) {
     warn("tick error:", err);
   } finally {
@@ -478,6 +482,7 @@ export async function reviseStory(storyId) {
     fresh.hero_attachment_id || null,
     JSON.stringify(fresh.source_message_ids || ids),
     result.modelId,
+    JSON.stringify(Array.isArray(fresh.tags) ? fresh.tags.map((t) => String(t).toLowerCase().trim()).filter(Boolean) : []),
     storyId,
   );
   return fresh;

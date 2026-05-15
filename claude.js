@@ -33,6 +33,10 @@ TONE & FORMAT:
 - Don't open with "In a remarkable display of…" or similar clichés
 - Be specific — name the place, the food, the people, the moment
 
+TIMEZONE: All "When" timestamps below are in Pacific time (the community's home timezone). When you describe day boundaries ("on the night of May 12", "by midnight"), use the Pacific dates as printed — don't do any timezone math.
+
+TAGS: For each story, also pick 2-3 short lowercase tags (single words or hyphenated phrases) that describe its theme — used to filter the public archive page. Examples: 'kimchi', 'road-trip', 'group', 'late-night', 'record', 'solo', 'hike', 'birthday'.
+
 Always call the publish_stories tool exactly once with a stories array. Empty array = nothing was worth publishing this period.`;
 
 const TOOL = {
@@ -46,7 +50,7 @@ const TOOL = {
         maxItems: 3,
         items: {
           type: "object",
-          required: ["title", "body", "source_message_ids"],
+          required: ["title", "body", "source_message_ids", "tags"],
           properties: {
             title: {
               type: "string",
@@ -64,6 +68,13 @@ const TOOL = {
               type: "array",
               items: { type: "string" },
               description: "The exact Discord message IDs (as strings) this story is based on. Use the ids printed in the '— Message …— ' headers.",
+            },
+            tags: {
+              type: "array",
+              minItems: 2,
+              maxItems: 3,
+              items: { type: "string" },
+              description: "2-3 lowercase descriptive tags. Single words or short hyphenated phrases. Examples: 'kimchi', 'road-trip', 'group', 'late-night', 'record', 'solo', 'hike', 'birthday'. These make the archive browsable by theme.",
             },
           },
         },

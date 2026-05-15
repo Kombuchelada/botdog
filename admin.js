@@ -17,6 +17,7 @@ import {
 import { reviseStory, triggerArchiveTick } from "./archive.js";
 import { runBackup, getLastBackupResult } from "./backup.js";
 import { isSpacesConfigured, deletePrefix } from "./do-spaces.js";
+import { runDigestNow, isDigestConfigured } from "./digest.js";
 
 const COOKIE_NAME = "admin_session";
 const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -346,6 +347,19 @@ function renderArchiveList(stories, opts = {}) {
 
     <div class="card mt-4">
       <div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">Daily digest</h6>
+        <p class="text-muted small mb-3">
+          The bot posts a daily digest each morning at 9 AM Pacific in the configured channel.
+          Click below to post one right now (covers yesterday's activity, won't double-post).
+        </p>
+        <form method="post" action="/admin/digest/send">
+          <button class="btn btn-outline-primary" type="submit">Send digest now</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-body">
         <h6 class="card-subtitle text-muted mb-2">Retry story generation</h6>
         <p class="text-muted small mb-3">
           Re-runs Claude over every weekly window. Existing stories for a window are kept (the new logic skips windows that already have at least one story), so this only fills in gaps from previous failures. Cheap, safe to click.
@@ -404,6 +418,8 @@ function renderArchiveEditForm(story, opts = {}) {
         return a ? `<img src="${esc(a.public_url)}" alt="" style="max-width:240px;border-radius:8px;margin-top:8px">` : "";
       })()
     : "";
+  let tagsArr = [];
+  try { tagsArr = JSON.parse(story.tags || "[]"); } catch {}
 
   const error = opts.error ? `<div class="alert alert-danger">${esc(opts.error)}</div>` : "";
   const body = `
@@ -417,6 +433,10 @@ function renderArchiveEditForm(story, opts = {}) {
       <div class="mb-3">
         <label class="form-label">Body <small class="text-muted">(plain text; blank lines separate paragraphs)</small></label>
         <textarea class="form-control" name="body" rows="10" required>${esc(story.body)}</textarea>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Tags <small class="text-muted">(comma-separated; lowercase; 2-3 ideal)</small></label>
+        <input class="form-control" type="text" name="tags" value="${esc(tagsArr.join(", "))}" placeholder="kimchi, late-night, group">
       </div>
       <div class="mb-3">
         <label class="form-label">Hero image</label>
@@ -620,6 +640,19 @@ export function registerAdmin(app) {
     }));
   });
 
+  router.post("/digest/send", requireAuth, async (req, res) => {
+    if (!isDigestConfigured()) {
+      return res.redirect("/admin/archive?error=" + encodeURIComponent("Digest not configured (need DISCORD_TOKEN + DIGEST/ARCHIVE channel ID)"));
+    }
+    try {
+      const d = await runDigestNow();
+      res.redirect("/admin/archive?flash=" + encodeURIComponent(`Digest posted for ${d.forDateKey} — ${d.totalYesterday} dogs by ${d.contributorCount} users.`));
+    } catch (err) {
+      console.error("manual digest failed:", err);
+      res.redirect("/admin/archive?error=" + encodeURIComponent(err.message));
+    }
+  });
+
   router.post("/archive/retry-stories", requireAuth, (req, res) => {
     try {
       db.prepare("DELETE FROM archive_state WHERE key = 'backfill_stories_complete_at'").run();
@@ -668,14 +701,22 @@ export function registerAdmin(app) {
   router.post("/archive/:id", requireAuth, (req, res) => {
     const story = getStoryByIdStmt.get(req.params.id);
     if (!story) return res.status(404).send(renderLayout("Not found", "<p>Story not found.</p>"));
-    const { title, body, hero_attachment_id } = req.body || {};
+    const { title, body, hero_attachment_id, tags } = req.body || {};
     if (!title || !body) {
       return res.status(400).send(renderArchiveEditForm(story, { error: "Title and body are required." }));
     }
+    const tagsJson = JSON.stringify(
+      String(tags || "")
+        .split(",")
+        .map((t) => t.toLowerCase().trim())
+        .filter(Boolean)
+        .slice(0, 5),
+    );
     updateStoryStmt.run(
       String(title).trim(),
       String(body).trim(),
       hero_attachment_id ? String(hero_attachment_id).trim() : null,
+      tagsJson,
       story.id,
     );
     res.redirect("/admin/archive");

@@ -155,6 +155,19 @@ const CHART_COMMAND = {
         },
       ],
     },
+    {
+      name: "when",
+      description: "Day-of-week × hour-of-day submission heatmap",
+      type: 1,
+      options: [
+        {
+          type: 6,
+          name: "user",
+          description: "Limit to one user (default: server-wide)",
+          required: false,
+        },
+      ],
+    },
   ],
 };
 
