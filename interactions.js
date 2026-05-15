@@ -6,7 +6,17 @@ import {
   MessageComponentTypes,
   verifyKeyMiddleware,
 } from "discord-interactions";
-import { DiscordRequest } from "./utils.js";
+import {
+  DiscordRequest,
+  uploadInteractionAttachment,
+  editOriginalInteractionMessage,
+} from "./utils.js";
+import {
+  renderHeatmap,
+  renderTimeline,
+  renderLeaderboard,
+  renderStatCard,
+} from "./charts.js";
 import {
   getLeaderboard,
   getStats,
@@ -62,6 +72,8 @@ export function registerInteractions(app) {
               return handleMostInASittingLeaderboardCommand(res);
             case "stats":
               return handleStatsCommand(res);
+            case "chart":
+              return handleChartCommand(res, req);
             default:
               console.error(`unknown command: ${name}`);
               return res.status(400).json({ error: "unknown command" });
@@ -471,4 +483,87 @@ function handleHotDogCommand(res, req, id) {
       ],
     },
   });
+}
+
+/**
+ * Dispatch /chart <subcommand> [...options].
+ *
+ * Slash-command subcommands arrive as: req.body.data.options = [{ name, type:1, options:[...] }]
+ * We defer immediately so we have up to 15 minutes to render and upload.
+ */
+function handleChartCommand(res, req) {
+  const sub = (req.body.data.options || [])[0];
+  if (!sub) {
+    return res.send({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: "Unknown chart subcommand." },
+    });
+  }
+
+  const subOptions = sub.options || [];
+  const getOpt = (name) => subOptions.find((o) => o.name === name);
+  const interactionToken = req.body.token;
+
+  // Defer the response immediately (must reply within 3 s).
+  res.send({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
+
+  // Render + upload happen in the background. Don't await — the HTTP response is already out.
+  renderAndUpload(sub.name, getOpt, req.body).catch(async (err) => {
+    console.error(`/chart ${sub.name} failed:`, err);
+    try {
+      await editOriginalInteractionMessage(
+        interactionToken,
+        `Could not generate the chart — ${err.message || "unknown error"}.`,
+      );
+    } catch (followupErr) {
+      console.error("failed to surface error to user:", followupErr);
+    }
+  });
+}
+
+async function renderAndUpload(subName, getOpt, body) {
+  const token = body.token;
+  let pngBuffer;
+  let filename;
+  let caption;
+
+  switch (subName) {
+    case "heatmap": {
+      const userId = getOpt("user")?.value || null;
+      pngBuffer = renderHeatmap({ userId });
+      filename = `heatmap-${userId || "server"}.png`;
+      caption = userId ? `🌭 Hot dog heatmap for <@${userId}>` : "🌭 Server hot dog heatmap";
+      break;
+    }
+    case "timeline": {
+      const userId = getOpt("user")?.value || null;
+      pngBuffer = renderTimeline({ userId });
+      filename = `timeline-${userId || "server"}.png`;
+      caption = userId ? `🌭 Cumulative hot dogs for <@${userId}>` : "🌭 Server cumulative hot dogs";
+      break;
+    }
+    case "leaderboard": {
+      const limit = getOpt("limit")?.value ?? 10;
+      pngBuffer = renderLeaderboard({ limit });
+      filename = "leaderboard.png";
+      caption = "🌭 Hot dog leaderboard";
+      break;
+    }
+    case "card": {
+      let userId = getOpt("user")?.value;
+      if (!userId) {
+        const context = body.context;
+        const invoker = context === 0 ? body.member.user : body.user;
+        userId = invoker.id;
+      }
+      pngBuffer = renderStatCard({ userId });
+      filename = `card-${userId}.png`;
+      caption = `🌭 Stat card for <@${userId}>`;
+      break;
+    }
+    default:
+      throw new Error(`unknown subcommand: ${subName}`);
+  }
+
+  await uploadInteractionAttachment(token, pngBuffer, filename, { content: caption });
 }

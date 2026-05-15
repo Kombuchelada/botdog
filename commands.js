@@ -96,6 +96,68 @@ const LEADERBOARD_SITTING_COMMAND = {
   contexts: [0, 1, 2],
 };
 
+const CHART_COMMAND = {
+  name: "chart",
+  description: "Generate hot dog data visualizations",
+  type: 1,
+  integration_types: [0, 1],
+  contexts: [0, 1, 2],
+  options: [
+    {
+      name: "heatmap",
+      description: "GitHub-style calendar of daily activity",
+      type: 1,
+      options: [
+        {
+          type: 6, // USER
+          name: "user",
+          description: "Limit to one user (default: server-wide)",
+          required: false,
+        },
+      ],
+    },
+    {
+      name: "timeline",
+      description: "Cumulative hot dogs over time",
+      type: 1,
+      options: [
+        {
+          type: 6,
+          name: "user",
+          description: "Limit to one user (default: server-wide)",
+          required: false,
+        },
+      ],
+    },
+    {
+      name: "leaderboard",
+      description: "Top users as a horizontal bar chart",
+      type: 1,
+      options: [
+        {
+          type: 4, // INTEGER
+          name: "limit",
+          description: "How many users to show (default 10, max 25)",
+          required: false,
+        },
+      ],
+    },
+    {
+      name: "card",
+      description: "Single-user stat card",
+      type: 1,
+      options: [
+        {
+          type: 6,
+          name: "user",
+          description: "Target user (default: yourself)",
+          required: false,
+        },
+      ],
+    },
+  ],
+};
+
 const ALL_COMMANDS = [
   HOTDOG_COMMAND,
   PROTEST_COMMAND,
@@ -106,6 +168,7 @@ const ALL_COMMANDS = [
   LEADERBOARD_DAY_COMMAND,
   LEADERBOARD_ACTIVE_COMMAND,
   LEADERBOARD_SITTING_COMMAND,
+  CHART_COMMAND,
 ];
 
 InstallGlobalCommands(process.env.APP_ID, ALL_COMMANDS);

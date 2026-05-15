@@ -146,7 +146,7 @@ function getDogsPerMonth() {
   return (totalDogsConsumed / monthsElapsed).toFixed();
 }
 
-function buildUserMaxDailyMap(allEvents) {
+export function buildUserMaxDailyMap(allEvents) {
   const userDailyTotals = new Map();
   for (const event of allEvents) {
     const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
@@ -163,7 +163,7 @@ function buildUserMaxDailyMap(allEvents) {
   return userMaxDaily;
 }
 
-function buildUserDatesMap(allEvents) {
+export function buildUserDatesMap(allEvents) {
   const userDates = new Map();
   for (const event of allEvents) {
     const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
@@ -175,7 +175,7 @@ function buildUserDatesMap(allEvents) {
   return userDates;
 }
 
-function getLongestStreakEver(dates) {
+export function getLongestStreakEver(dates) {
   if (dates.size === 0) return 0;
   const sorted = Array.from(dates).sort();
   let maxStreak = 1;
@@ -192,7 +192,7 @@ function getLongestStreakEver(dates) {
   return maxStreak;
 }
 
-function getCurrentStreak(dates) {
+export function getCurrentStreak(dates) {
   const now = new Date();
   const todayKey = toPacificDateKey(now);
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -246,7 +246,7 @@ function getLongestDailyStreak() {
   return { userIds, days: maxDays };
 }
 
-function toPacificDateKey(date) {
+export function toPacificDateKey(date) {
   // Convert UTC date to Pacific Time
   const pacificDateString = date.toLocaleString("en-US", {
     timeZone: "America/Los_Angeles",
@@ -259,7 +259,7 @@ function toPacificDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
-function parseUtcTimestamp(timestamp) {
+export function parseUtcTimestamp(timestamp) {
   if (!timestamp) {
     return new Date(NaN);
   }
