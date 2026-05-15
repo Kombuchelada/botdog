@@ -19,6 +19,7 @@ import { proposeStories, isAnthropicConfigured } from "./claude.js";
 import { DiscordRequest } from "./utils.js";
 import heicConvert from "heic-convert";
 import { runDigestIfDue } from "./digest.js";
+import { refreshProfilesIfDue } from "./profiles.js";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour
 const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -447,6 +448,7 @@ async function tick() {
     await generateBackfillStories();
     await runWeeklyJobIfDue();
     await runDigestIfDue();
+    await refreshProfilesIfDue();
   } catch (err) {
     warn("tick error:", err);
   } finally {

@@ -103,6 +103,37 @@ db.prepare(
   )`,
 ).run();
 
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS user_profiles (
+    user_id TEXT PRIMARY KEY,
+    username TEXT,
+    global_name TEXT,
+    avatar_hash TEXT,
+    avatar_url TEXT,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+).run();
+
+export const upsertUserProfileStmt = db.prepare(
+  `INSERT INTO user_profiles (user_id, username, global_name, avatar_hash, avatar_url, fetched_at)
+   VALUES (?, ?, ?, ?, ?, datetime('now'))
+   ON CONFLICT(user_id) DO UPDATE SET
+     username = excluded.username,
+     global_name = excluded.global_name,
+     avatar_hash = excluded.avatar_hash,
+     avatar_url = excluded.avatar_url,
+     fetched_at = datetime('now')`,
+);
+export const getUserProfileStmt = db.prepare(
+  "SELECT * FROM user_profiles WHERE user_id = ?",
+);
+export const listUserProfilesStmt = db.prepare(
+  "SELECT * FROM user_profiles",
+);
+export const listDistinctEventUserIdsStmt = db.prepare(
+  "SELECT DISTINCT user_id FROM hotdog_events",
+);
+
 // Additive migration: existing deployments get tags column.
 (function ensureStoriesTagsColumn() {
   const cols = db.prepare("PRAGMA table_info(archive_stories)").all();

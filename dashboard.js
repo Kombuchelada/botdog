@@ -8,6 +8,7 @@ import {
   getStoryByIdStmt,
   getArchiveAttachmentByIdStmt,
   getArchiveAttachmentsForMessageStmt,
+  getUserProfileStmt,
 } from "./database.js";
 import {
   buildUserDatesMap,
@@ -27,9 +28,32 @@ const getUserDisplayNameStmt = db.prepare(
 );
 
 function getDisplayName(userId) {
+  // Prefer the up-to-date Discord profile name when we have it cached.
+  const profile = getUserProfileStmt.get(userId);
+  if (profile && (profile.global_name || profile.username)) {
+    return profile.global_name || profile.username;
+  }
   const row = getUserDisplayNameStmt.get(userId);
   if (row && row.username) return row.username;
   return `User ${String(userId).slice(-4)}`;
+}
+
+function getAvatarUrl(userId) {
+  const profile = getUserProfileStmt.get(userId);
+  return profile && profile.avatar_url ? profile.avatar_url : null;
+}
+
+function renderAvatar(userId, size = 32) {
+  const url = getAvatarUrl(userId);
+  const dim = `width:${size}px;height:${size}px;`;
+  if (url) {
+    return `<img src="${esc(url)}" alt="" loading="lazy" style="${dim}border-radius:50%;object-fit:cover;display:inline-block;flex-shrink:0;background:#1e293b;">`;
+  }
+  // Initials placeholder
+  const name = getDisplayName(userId);
+  const initial = (name[0] || "?").toUpperCase();
+  const fontSize = Math.max(10, Math.round(size * 0.45));
+  return `<span style="${dim}border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:${fontSize}px;flex-shrink:0;">${esc(initial)}</span>`;
 }
 
 // Plasma — sequential, perceptually uniform, colorblind-safe (designed for
@@ -764,12 +788,15 @@ function renderUserPage(data) {
     <section class="mb-8">
       <a href="/" class="text-slate-400 hover:text-slate-200 text-sm">← back to server</a>
       <div class="mt-4 grid md:grid-cols-3 gap-6 items-center">
-        <div class="md:col-span-2">
-          <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">User dashboard</div>
-          <h1 class="text-5xl font-bold text-white tracking-tight">${esc(data.name)}</h1>
-          <div class="mt-3 text-lg text-slate-300">
-            <span class="accent font-bold text-2xl">${esc(data.total)}</span> hot dogs ·
-            ${data.rank ? `rank <span class="accent font-semibold">#${esc(data.rank)}</span> of ${esc(data.totalUsers)}` : ""}
+        <div class="md:col-span-2 flex items-center gap-5">
+          <div>${renderAvatar(data.user_id, 96)}</div>
+          <div>
+            <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">User dashboard</div>
+            <h1 class="text-5xl font-bold text-white tracking-tight">${esc(data.name)}</h1>
+            <div class="mt-3 text-lg text-slate-300">
+              <span class="accent font-bold text-2xl">${esc(data.total)}</span> hot dogs ·
+              ${data.rank ? `rank <span class="accent font-semibold">#${esc(data.rank)}</span> of ${esc(data.totalUsers)}` : ""}
+            </div>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
@@ -928,9 +955,12 @@ function renderComparePage({ users, dates, byUser, allUsers, selected }) {
           (u, i) => `
           <div class="card p-5">
             <div class="flex items-center justify-between">
-              <div>
-                <div class="text-xs uppercase tracking-widest text-slate-400">User</div>
-                <div class="text-lg font-bold text-white mt-1">${esc(u.name)}</div>
+              <div class="flex items-center gap-3">
+                ${renderAvatar(u.user_id, 40)}
+                <div>
+                  <div class="text-xs uppercase tracking-widest text-slate-400">User</div>
+                  <div class="text-lg font-bold text-white mt-1">${esc(u.name)}</div>
+                </div>
               </div>
               <div class="w-3 h-3 rounded-full" style="background:${palette[i % palette.length]}"></div>
             </div>
@@ -1284,6 +1314,7 @@ function renderUserListPage(users) {
             <a class="user-row flex items-center justify-between px-4 py-3 hover:bg-slate-800/50 transition" href="/user/${esc(u.user_id)}" data-name="${esc(u.name.toLowerCase())}">
               <div class="flex items-center gap-3">
                 <div class="text-sm text-slate-500 w-6 text-right">${esc(i + 1)}</div>
+                ${renderAvatar(u.user_id, 32)}
                 <div class="text-slate-100 font-medium">${esc(u.name)}</div>
               </div>
               <div class="text-accent font-bold">${esc(u.total)}</div>

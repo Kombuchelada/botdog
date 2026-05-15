@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts, loadImage } from "@napi-rs/canvas";
 import { Chart, registerables } from "chart.js";
 import "chartjs-adapter-date-fns";
 
@@ -16,6 +16,7 @@ import {
   db,
   getAllEventsStmt,
   getLeaderboardStmt,
+  getUserProfileStmt,
 } from "./database.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -46,9 +47,76 @@ const getUserDisplayNameStmt = db.prepare(
 );
 
 function getDisplayName(userId) {
+  const profile = getUserProfileStmt.get(userId);
+  if (profile && (profile.global_name || profile.username)) {
+    return profile.global_name || profile.username;
+  }
   const row = getUserDisplayNameStmt.get(userId);
   if (row && row.username) return row.username;
   return `User ${userId.slice(-4)}`;
+}
+
+// In-memory cache of loaded avatar images keyed by Spaces URL.
+// Cleared on process restart; daily worker refresh re-uploads when avatars change.
+const avatarImageCache = new Map();
+
+async function loadAvatarImage(userId) {
+  const profile = getUserProfileStmt.get(userId);
+  if (!profile || !profile.avatar_url) return null;
+  const url = profile.avatar_url;
+  if (avatarImageCache.has(url)) return avatarImageCache.get(url);
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const img = await loadImage(buf);
+    avatarImageCache.set(url, img);
+    return img;
+  } catch {
+    return null;
+  }
+}
+
+async function loadAvatarImages(userIds) {
+  const results = await Promise.all(userIds.map((id) => loadAvatarImage(id).catch(() => null)));
+  return new Map(userIds.map((id, i) => [id, results[i]]));
+}
+
+function drawCircularAvatar(ctx, img, cx, cy, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+  ctx.drawImage(img, cx - r, cy - r, r * 2, r * 2);
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "rgba(255,255,255,0.12)";
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawInitialsAvatar(ctx, name, cx, cy, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = "#334155";
+  ctx.fill();
+  ctx.fillStyle = "#cbd5e1";
+  ctx.font = `700 ${Math.round(r * 0.95)}px Inter`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText((name?.[0] || "?").toUpperCase(), cx, cy + 1);
+  ctx.restore();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+}
+
+function drawAvatarOrPlaceholder(ctx, img, name, cx, cy, r) {
+  if (img) drawCircularAvatar(ctx, img, cx, cy, r);
+  else drawInitialsAvatar(ctx, name, cx, cy, r);
 }
 
 function makeCanvas(w, h) {
@@ -409,7 +477,7 @@ export function renderTimeline({ userId } = {}) {
 // 3. LEADERBOARD bar chart
 // ============================================================================
 
-export function renderLeaderboard({ limit = 10 } = {}) {
+export async function renderLeaderboard({ limit = 10 } = {}) {
   const requested = Math.max(1, Math.min(25, limit));
   const rows = getLeaderboardStmt.all().slice(0, requested);
   if (rows.length === 0) return renderEmptyState("No hot dog counts yet!");
@@ -420,6 +488,9 @@ export function renderLeaderboard({ limit = 10 } = {}) {
     name: getDisplayName(r.user_id),
     total: r.total_count,
   }));
+
+  // Pre-warm avatar cache in parallel so we don't serialize 10 network fetches.
+  const avatars = await loadAvatarImages(labelled.map((r) => r.user_id));
 
   const w = 880;
   const rowHeight = 42;
@@ -451,9 +522,10 @@ export function renderLeaderboard({ limit = 10 } = {}) {
 
   // Bars
   const maxValue = labelled[0].total;
-  const barX = 200;
+  const barX = 240; // bumped right to make room for the avatar tile
   const barMaxWidth = w - barX - 100;
   const barHeight = 26;
+  const avatarRadius = 13;
 
   labelled.forEach((row, idx) => {
     const y = headerHeight + idx * rowHeight;
@@ -465,12 +537,15 @@ export function renderLeaderboard({ limit = 10 } = {}) {
     ctx.textAlign = "right";
     ctx.fillText(`${rank}`, 50, y + barHeight + 1);
 
+    // Avatar
+    drawAvatarOrPlaceholder(ctx, avatars.get(row.user_id), row.name, 78, y + barHeight / 2, avatarRadius);
+
     // Name
     ctx.fillStyle = "#e5e7eb";
     ctx.font = "600 14px Inter";
     ctx.textAlign = "left";
-    const truncated = row.name.length > 18 ? row.name.slice(0, 17) + "…" : row.name;
-    ctx.fillText(truncated, 70, y + barHeight - 3);
+    const truncated = row.name.length > 16 ? row.name.slice(0, 15) + "…" : row.name;
+    ctx.fillText(truncated, 102, y + barHeight - 3);
 
     // Bar with gradient
     const ratio = row.total / maxValue;
@@ -620,7 +695,7 @@ export function renderWhenHeatmap({ userId } = {}) {
 // 5. STAT CARD
 // ============================================================================
 
-export function renderStatCard({ userId }) {
+export async function renderStatCard({ userId }) {
   if (!userId) return renderEmptyState("No user supplied.");
   const events = getAllEventsStmt.all();
 
@@ -628,6 +703,8 @@ export function renderStatCard({ userId }) {
   if (userEvents.length === 0) {
     return renderEmptyState(`${getDisplayName(userId)} has no hot dogs yet.`);
   }
+
+  const avatarImg = await loadAvatarImage(userId);
 
   const total = userEvents.reduce((s, e) => s + e.amount, 0);
   const datesMap = buildUserDatesMap(events);
@@ -653,15 +730,16 @@ export function renderStatCard({ userId }) {
   ctx.fillStyle = accentGrad;
   ctx.fillRect(0, 0, w, 5);
 
-  // Username header
+  // Avatar + username header
   const name = getDisplayName(userId);
+  drawAvatarOrPlaceholder(ctx, avatarImg, name, 70, 64, 36);
   ctx.fillStyle = "#fff";
   ctx.font = "700 36px Inter";
-  ctx.fillText(name, 32, 70);
+  ctx.fillText(name, 124, 70);
 
   ctx.fillStyle = "#9aa3b0";
   ctx.font = "400 14px Inter";
-  ctx.fillText("Hot dog stat card", 32, 94);
+  ctx.fillText("Hot dog stat card", 124, 94);
 
   // Big total
   ctx.fillStyle = ACCENT;

@@ -561,7 +561,7 @@ async function renderAndUpload(subName, getOpt, body) {
     }
     case "leaderboard": {
       const limit = getOpt("limit")?.value ?? 10;
-      pngBuffer = renderLeaderboard({ limit });
+      pngBuffer = await renderLeaderboard({ limit });
       filename = "leaderboard.png";
       caption = "🌭 Hot dog leaderboard";
       break;
@@ -573,7 +573,7 @@ async function renderAndUpload(subName, getOpt, body) {
         const invoker = context === 0 ? body.member.user : body.user;
         userId = invoker.id;
       }
-      pngBuffer = renderStatCard({ userId });
+      pngBuffer = await renderStatCard({ userId });
       filename = `card-${userId}.png`;
       caption = `🌭 Stat card for <@${userId}>`;
       break;

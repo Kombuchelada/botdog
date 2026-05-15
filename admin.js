@@ -18,6 +18,7 @@ import { reviseStory, triggerArchiveTick } from "./archive.js";
 import { runBackup, getLastBackupResult } from "./backup.js";
 import { isSpacesConfigured, deletePrefix } from "./do-spaces.js";
 import { runDigestNow, isDigestConfigured } from "./digest.js";
+import { refreshAllKnownProfiles } from "./profiles.js";
 
 const COOKIE_NAME = "admin_session";
 const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -347,6 +348,18 @@ function renderArchiveList(stories, opts = {}) {
 
     <div class="card mt-4">
       <div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">User profiles &amp; avatars</h6>
+        <p class="text-muted small mb-3">
+          Auto-refreshes once per day from the worker. Click to force a refresh now — pulls each user's current Discord profile and re-uploads the avatar to Spaces.
+        </p>
+        <form method="post" action="/admin/profiles/refresh">
+          <button class="btn btn-outline-primary" type="submit">Refresh profiles now</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-4">
+      <div class="card-body">
         <h6 class="card-subtitle text-muted mb-2">Daily digest</h6>
         <p class="text-muted small mb-3">
           The bot posts a daily digest each morning at 9 AM Pacific in the configured channel.
@@ -638,6 +651,16 @@ export function registerAdmin(app) {
       flash: req.query.flash || null,
       error: req.query.error || null,
     }));
+  });
+
+  router.post("/profiles/refresh", requireAuth, async (req, res) => {
+    try {
+      const summary = await refreshAllKnownProfiles();
+      res.redirect("/admin/archive?flash=" + encodeURIComponent(`Refreshed ${summary.total} profiles: ${summary.updated} updated, ${summary.skipped} unchanged, ${summary.errored} errored.`));
+    } catch (err) {
+      console.error("profile refresh failed:", err);
+      res.redirect("/admin/archive?error=" + encodeURIComponent(err.message));
+    }
   });
 
   router.post("/digest/send", requireAuth, async (req, res) => {
