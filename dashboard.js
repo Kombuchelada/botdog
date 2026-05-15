@@ -5,6 +5,7 @@ import {
   getLeaderboardStmt,
   getTotalHotdogsStmt,
   listPublishedStoriesStmt,
+  getStoryByIdStmt,
   getArchiveAttachmentByIdStmt,
   getArchiveAttachmentsForMessageStmt,
 } from "./database.js";
@@ -275,7 +276,32 @@ const NAV = `
     </div>
   </header>`;
 
-function renderLayout(title, body, data) {
+function renderOgTags(og) {
+  if (!og) return "";
+  const tags = [
+    ["og:site_name", "Year of the Glizzy"],
+    ["og:type", og.type || "website"],
+    ["og:url", og.url || ""],
+    ["og:title", og.title || ""],
+    ["og:description", og.description || ""],
+    og.image && ["og:image", og.image],
+    og.imageWidth && ["og:image:width", String(og.imageWidth)],
+    og.imageHeight && ["og:image:height", String(og.imageHeight)],
+    ["twitter:card", og.image ? "summary_large_image" : "summary"],
+    ["twitter:title", og.title || ""],
+    ["twitter:description", og.description || ""],
+    og.image && ["twitter:image", og.image],
+  ].filter(Boolean);
+  return tags
+    .map(([key, val]) => {
+      const isOg = key.startsWith("og:");
+      const attr = isOg ? "property" : "name";
+      return `<meta ${attr}="${esc(key)}" content="${esc(val)}">`;
+    })
+    .join("\n");
+}
+
+function renderLayout(title, body, data, opts = {}) {
   // Escape `<` so a `</script>` inside any string value can't break us out of the script tag.
   const dataJson = JSON.stringify(data || {}).replace(/</g, "\\u003c");
   return `<!doctype html>
@@ -285,6 +311,7 @@ function renderLayout(title, body, data) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} · Hot Dog Hub</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E">
+${renderOgTags(opts.og)}
 <script>window.PAGE_DATA = ${dataJson};</script>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
@@ -939,6 +966,80 @@ function paragraphs(body) {
     .join("");
 }
 
+const CAROUSEL_JS = `
+  <script>
+    document.querySelectorAll('[data-carousel]').forEach((c) => {
+      const track = c.querySelector('.carousel-track');
+      const prev  = c.querySelector('.carousel-prev');
+      const next  = c.querySelector('.carousel-next');
+      const dots  = Array.from(c.querySelectorAll('.carousel-dot'));
+      const counter = c.querySelector('.carousel-counter');
+      const total = dots.length;
+      const go = (d) => track.scrollBy({ left: d * track.clientWidth, behavior: 'smooth' });
+      const jump = (i) => track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+      prev && prev.addEventListener('click', () => go(-1));
+      next && next.addEventListener('click', () => go(1));
+      dots.forEach((d, i) => d.addEventListener('click', () => jump(i)));
+      let raf = null;
+      track.addEventListener('scroll', () => {
+        if (raf) return;
+        raf = requestAnimationFrame(() => {
+          raf = null;
+          const i = Math.round(track.scrollLeft / track.clientWidth);
+          dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
+          if (counter) counter.textContent = (i + 1) + ' / ' + total;
+          if (prev) prev.disabled = i === 0;
+          if (next) next.disabled = i === total - 1;
+        });
+      });
+      if (prev) prev.disabled = true;
+      if (next) next.disabled = total <= 1;
+    });
+  </script>`;
+
+function buildStoryUrl(storyId) {
+  const base = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  return base ? `${base}/archive/${storyId}` : `/archive/${storyId}`;
+}
+
+function buildStoryExcerpt(body, maxChars = 240) {
+  const text = String(body || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  const cut = text.lastIndexOf(" ", maxChars);
+  return text.slice(0, cut > 0 ? cut : maxChars) + "…";
+}
+
+function renderStoryPage(story) {
+  const media = gatherStoryMedia(story);
+  const hero = media[0] || null;
+  const dateLabel = story.period_start && story.period_end && story.period_start.slice(0, 10) !== story.period_end.slice(0, 10)
+    ? `${formatStoryDate(story.period_start)} – ${formatStoryDate(story.period_end)}`
+    : formatStoryDate(story.period_end || story.period_start);
+  const og = {
+    type: "article",
+    url: buildStoryUrl(story.id),
+    title: story.title,
+    description: buildStoryExcerpt(story.body, 200),
+    image: hero && hero.content_type && hero.content_type.startsWith("image/") ? hero.public_url : null,
+    imageWidth: hero?.width || null,
+    imageHeight: hero?.height || null,
+  };
+  const body = `
+    <section class="mb-4">
+      <a href="/archive" class="text-slate-400 hover:text-slate-200 text-sm">← back to archive</a>
+    </section>
+    <article class="card overflow-hidden mb-8 max-w-3xl mx-auto">
+      ${renderStoryCarousel(media, story.id)}
+      <div class="p-6 md:p-8">
+        <div class="text-xs uppercase tracking-widest text-accent-soft mb-2">${esc(dateLabel)}</div>
+        <h1 class="text-3xl md:text-4xl font-bold text-white tracking-tight mb-3">${esc(story.title)}</h1>
+        <div class="prose-archive text-slate-300 leading-relaxed space-y-3 text-lg">${paragraphs(story.body)}</div>
+      </div>
+    </article>
+    ${CAROUSEL_JS}`;
+  return renderLayout(story.title, body, {}, { og });
+}
+
 function renderArchivePage(stories) {
   if (stories.length === 0) {
     const body = `
@@ -964,8 +1065,13 @@ function renderArchivePage(stories) {
         <article class="card overflow-hidden mb-8">
           ${renderStoryCarousel(media, s.id)}
           <div class="p-6 md:p-8">
-            <div class="text-xs uppercase tracking-widest text-accent-soft mb-2">${esc(dateLabel)}</div>
-            <h2 class="text-2xl md:text-3xl font-bold text-white tracking-tight mb-3">${esc(s.title)}</h2>
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs uppercase tracking-widest text-accent-soft">${esc(dateLabel)}</div>
+              <a href="/archive/${esc(s.id)}" class="text-slate-500 hover:text-accent-soft text-xs" title="Permalink">↗ link</a>
+            </div>
+            <h2 class="text-2xl md:text-3xl font-bold text-white tracking-tight mb-3">
+              <a href="/archive/${esc(s.id)}" class="text-white hover:text-accent-soft transition">${esc(s.title)}</a>
+            </h2>
             <div class="prose-archive text-slate-300 leading-relaxed space-y-3">${paragraphs(s.body)}</div>
           </div>
         </article>`;
@@ -979,43 +1085,7 @@ function renderArchivePage(stories) {
       <p class="text-slate-400 mt-2">Significant moments from the channel, curated automatically.</p>
     </section>
     <div class="max-w-3xl mx-auto">${cards}</div>
-    <script>
-      // Lightweight carousel: prev/next buttons, clickable dots, scroll-driven counter + dot sync.
-      document.querySelectorAll('[data-carousel]').forEach((c) => {
-        const track = c.querySelector('.carousel-track');
-        const prev  = c.querySelector('.carousel-prev');
-        const next  = c.querySelector('.carousel-next');
-        const dots  = Array.from(c.querySelectorAll('.carousel-dot'));
-        const counter = c.querySelector('.carousel-counter');
-        const total = dots.length;
-
-        function go(delta) {
-          track.scrollBy({ left: delta * track.clientWidth, behavior: 'smooth' });
-        }
-        function jump(i) {
-          track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
-        }
-        prev && prev.addEventListener('click', () => go(-1));
-        next && next.addEventListener('click', () => go(1));
-        dots.forEach((d, i) => d.addEventListener('click', () => jump(i)));
-
-        let raf = null;
-        track.addEventListener('scroll', () => {
-          if (raf) return;
-          raf = requestAnimationFrame(() => {
-            raf = null;
-            const i = Math.round(track.scrollLeft / track.clientWidth);
-            dots.forEach((d, idx) => d.classList.toggle('active', idx === i));
-            if (counter) counter.textContent = (i + 1) + ' / ' + total;
-            if (prev) prev.disabled = i === 0;
-            if (next) next.disabled = i === total - 1;
-          });
-        });
-        // Initialize button enabled state
-        if (prev) prev.disabled = true;
-        if (next) next.disabled = total <= 1;
-      });
-    </script>`;
+    ${CAROUSEL_JS}`;
   return renderLayout("Archive", body, {});
 }
 
@@ -1076,6 +1146,20 @@ export function registerDashboard(app) {
   router.get("/archive", (req, res) => {
     const stories = listPublishedStoriesStmt.all();
     res.send(renderArchivePage(stories));
+  });
+
+  router.get("/archive/:id", (req, res) => {
+    const story = getStoryByIdStmt.get(req.params.id);
+    if (!story || story.hidden) {
+      return res.status(404).send(renderLayout("Not found", `
+        <div class="card p-12 text-center max-w-2xl mx-auto">
+          <div class="text-5xl mb-3">🌭</div>
+          <div class="text-xl text-slate-200 font-semibold">Story not found</div>
+          <div class="text-slate-400 mt-2">Maybe it was hidden, or the link is wrong.</div>
+          <a href="/archive" class="inline-block mt-4 text-accent hover:text-accent-soft">← back to archive</a>
+        </div>`, {}));
+    }
+    res.send(renderStoryPage(story));
   });
 
   router.get("/user/:id", (req, res) => {

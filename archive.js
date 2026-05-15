@@ -16,6 +16,7 @@ import {
 } from "./database.js";
 import { uploadObject, isSpacesConfigured } from "./do-spaces.js";
 import { proposeStories, isAnthropicConfigured } from "./claude.js";
+import { DiscordRequest } from "./utils.js";
 import heicConvert from "heic-convert";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour
@@ -232,6 +233,62 @@ async function forwardPoll() {
   }
 }
 
+function findFirstImageForStory(story) {
+  if (story.hero_attachment_id) {
+    const a = getArchiveAttachmentByIdStmt.get(story.hero_attachment_id);
+    if (a && a.content_type && a.content_type.startsWith("image/")) return a;
+  }
+  let ids = story.source_message_ids;
+  if (typeof ids === "string") {
+    try { ids = JSON.parse(ids); } catch { ids = []; }
+  }
+  if (!Array.isArray(ids)) ids = [];
+  for (const mid of ids) {
+    const atts = getArchiveAttachmentsForMessageStmt.all(mid);
+    const img = atts.find((a) => a && a.content_type && a.content_type.startsWith("image/"));
+    if (img) return img;
+  }
+  return null;
+}
+
+function excerpt(text, max) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (s.length <= max) return s;
+  const cut = s.lastIndexOf(" ", max);
+  return s.slice(0, cut > 0 ? cut : max) + "…";
+}
+
+async function announceStory(storyId, story) {
+  const channelId = process.env.ARCHIVE_ANNOUNCE_CHANNEL_ID || chanId();
+  const baseUrl = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
+  if (!channelId || !baseUrl) {
+    log(`announce skipped (need PUBLIC_BASE_URL${process.env.ARCHIVE_ANNOUNCE_CHANNEL_ID ? "" : " and a valid channel"})`);
+    return;
+  }
+  const storyUrl = `${baseUrl}/archive/${storyId}`;
+  const image = findFirstImageForStory(story);
+  const embed = {
+    title: story.title,
+    description: excerpt(story.body, 300),
+    url: storyUrl,
+    color: 0xff6b35, // brand accent
+    footer: { text: "Year of the Glizzy" },
+    timestamp: new Date().toISOString(),
+  };
+  if (image && image.public_url) {
+    embed.image = { url: image.public_url };
+  }
+  try {
+    await DiscordRequest(`channels/${channelId}/messages`, {
+      method: "POST",
+      body: { content: "🌭 New archive story", embeds: [embed] },
+    });
+    log(`announced story ${storyId} in channel ${channelId}`);
+  } catch (err) {
+    warn(`announcement failed for story ${storyId}:`, err.message);
+  }
+}
+
 function attachmentsForMessages(messageIds) {
   const map = new Map();
   for (const id of messageIds) {
@@ -277,9 +334,10 @@ async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
     warn(`${label}: Claude call failed:`, err.message);
     return { stories: 0 };
   }
+  const announceEnabled = !!getArchiveState(STATE_BACKFILL_STORIES_DONE);
   for (const s of result.stories) {
     const srcIds = JSON.stringify(s.source_message_ids || []);
-    insertArchiveStoryStmt.run(
+    const insertResult = insertArchiveStoryStmt.run(
       s.title,
       s.body,
       s.hero_attachment_id || null,
@@ -288,8 +346,12 @@ async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
       srcIds,
       result.modelId,
     );
+    if (announceEnabled) {
+      const storyId = Number(insertResult.lastInsertRowid);
+      await announceStory(storyId, s);
+    }
   }
-  log(`${label}: published ${result.stories.length} stories`);
+  log(`${label}: published ${result.stories.length} stories${announceEnabled ? " (announced)" : " (backfill — no announce)"}`);
   return { stories: result.stories.length };
 }
 
