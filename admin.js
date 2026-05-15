@@ -16,7 +16,7 @@ import {
 } from "./database.js";
 import { reviseStory, triggerArchiveTick } from "./archive.js";
 import { runBackup, getLastBackupResult } from "./backup.js";
-import { isSpacesConfigured } from "./do-spaces.js";
+import { isSpacesConfigured, deletePrefix } from "./do-spaces.js";
 
 const COOKIE_NAME = "admin_session";
 const COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -360,10 +360,10 @@ function renderArchiveList(stories, opts = {}) {
       <div class="card-body">
         <h6 class="card-subtitle text-danger mb-2">Danger zone</h6>
         <p class="text-muted small mb-3">
-          Wipe all ingested messages, attachments (in the local DB only — files in DO Spaces are not deleted), and stories, then re-run the initial backfill from Discord. Useful if your earlier backfill ran into upload failures and the attachments are missing.
+          Wipe all ingested messages, attachments (both local DB rows <strong>and</strong> every file under <code>attachments/</code> in your Spaces bucket), and stories, then re-fetch the entire channel from Discord with the current code path. Hot dog events, admin auth, and the <code>backups/</code> prefix in Spaces are <strong>not</strong> touched.
         </p>
-        <form method="post" action="/admin/archive/reset" onsubmit="return confirm('This will DELETE all archive_messages, archive_attachments, archive_stories, and archive_state rows from the local DB, then re-fetch from Discord. Hot dog events and other admin data are NOT touched. Continue?');">
-          <button class="btn btn-outline-danger" type="submit">Reset archive and re-backfill</button>
+        <form method="post" action="/admin/archive/reset" onsubmit="return confirm('FULL WIPE: deletes archive_messages + archive_attachments + archive_stories + archive_state rows AND every file under attachments/ in DO Spaces, then re-fetches from Discord. Backups, hotdog events, and admin data are NOT touched. This is destructive and may take a few seconds. Continue?');">
+          <button class="btn btn-outline-danger" type="submit">Reset archive (DB + Spaces) and re-backfill</button>
         </form>
       </div>
     </div>`;
@@ -631,8 +631,20 @@ export function registerAdmin(app) {
     }
   });
 
-  router.post("/archive/reset", requireAuth, (req, res) => {
+  router.post("/archive/reset", requireAuth, async (req, res) => {
     try {
+      // Wipe Spaces first so we don't leave orphans if the DB wipe fails.
+      // Only the attachments/ prefix is touched — backups/ is left alone.
+      let spacesDeleted = 0;
+      if (isSpacesConfigured()) {
+        try {
+          spacesDeleted = await deletePrefix("attachments/");
+          console.log(`[admin] wiped ${spacesDeleted} objects from Spaces under attachments/`);
+        } catch (err) {
+          console.error("[admin] Spaces wipe failed:", err);
+          return res.redirect("/admin/archive?error=" + encodeURIComponent(`Spaces wipe failed: ${err.message}. Local DB was NOT modified.`));
+        }
+      }
       db.exec(`
         DELETE FROM archive_stories;
         DELETE FROM archive_attachments;
@@ -640,7 +652,7 @@ export function registerAdmin(app) {
         DELETE FROM archive_state;
       `);
       triggerArchiveTick();
-      res.redirect("/admin/archive?flash=" + encodeURIComponent("Archive tables cleared; backfill kicked off in the background. Watch the Railway logs for [archive] lines."));
+      res.redirect("/admin/archive?flash=" + encodeURIComponent(`Wiped ${spacesDeleted} files from Spaces + cleared local archive tables. Backfill kicked off — watch Railway logs for [archive] lines.`));
     } catch (err) {
       console.error("archive reset failed:", err);
       res.redirect("/admin/archive?error=" + encodeURIComponent(err.message));

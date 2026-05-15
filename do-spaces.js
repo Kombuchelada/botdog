@@ -1,4 +1,9 @@
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+} from "@aws-sdk/client-s3";
 
 let cachedClient = null;
 
@@ -52,6 +57,39 @@ export async function uploadObject(key, body, contentType) {
     }),
   );
   return `${publicBase()}/${encodeURI(key)}`;
+}
+
+/**
+ * Delete every object under a given key prefix. Returns the number deleted.
+ * Paginates 1000 keys at a time via ListObjectsV2 + DeleteObjects.
+ */
+export async function deletePrefix(prefix) {
+  const c = client();
+  const b = bucket();
+  let token = undefined;
+  let totalDeleted = 0;
+  do {
+    const list = await c.send(
+      new ListObjectsV2Command({
+        Bucket: b,
+        Prefix: prefix,
+        ContinuationToken: token,
+        MaxKeys: 1000,
+      }),
+    );
+    const keys = (list.Contents || []).map((o) => ({ Key: o.Key }));
+    if (keys.length > 0) {
+      await c.send(
+        new DeleteObjectsCommand({
+          Bucket: b,
+          Delete: { Objects: keys, Quiet: true },
+        }),
+      );
+      totalDeleted += keys.length;
+    }
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token);
+  return totalDeleted;
 }
 
 export function isSpacesConfigured() {
