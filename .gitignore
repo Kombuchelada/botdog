@@ -1,4 +1,7 @@
 node_modules
 .env
 *.db
+*.db.bak
 *.csv
+Dockerfile.claude-sandbox
+claude-sandbox.sh

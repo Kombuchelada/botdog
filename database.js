@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 
 // Initialize SQLite database for persistent hotdog tracking
-const db = new Database("/database/data.db");
+const db = new Database(process.env.DB_PATH || "/database/data.db");
+export { db };
 
 // Create table to track each hotdog addition event
 db.prepare(
@@ -46,4 +47,18 @@ export const getMaxSinglePerUserStmt = db.prepare(
 );
 export const getAverageAmountPerEventStmt = db.prepare(
   "SELECT AVG(amount) as average_amount FROM hotdog_events",
+);
+
+// Admin-only prepared statements
+export const getEventByIdStmt = db.prepare(
+  "SELECT * FROM hotdog_events WHERE id = ?",
+);
+export const updateEventStmt = db.prepare(
+  "UPDATE hotdog_events SET user_id = ?, username = ?, amount = ?, timestamp = ? WHERE id = ?",
+);
+export const deleteEventStmt = db.prepare(
+  "DELETE FROM hotdog_events WHERE id = ?",
+);
+export const insertEventWithTimestampStmt = db.prepare(
+  "INSERT INTO hotdog_events (user_id, username, amount, timestamp) VALUES (?, ?, ?, ?)",
 );
