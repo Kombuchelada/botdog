@@ -504,10 +504,10 @@ const GAME_CLIENT_JS = `
       const cost = buildingCost(b.id);
       const affordable = state.glizzies >= cost;
       const cls = affordable ? 'building-card affordable card p-3' : 'building-card locked card p-3';
-      const production = (rates.buildingProduction[b.id] || 0).toFixed(2);
-      const perUnit = rates.perUnitRate[b.id] || 0;
+      const productionNum = rates.buildingProduction[b.id] || 0;
+      const perUnit = (rates.perUnitRate && rates.perUnitRate[b.id]) || 0;
       const perUnitStr = perUnit < 0.1 ? perUnit.toFixed(2) : perUnit < 10 ? perUnit.toFixed(1) : fmt(perUnit);
-      const productionStr = production < 0.1 ? production.toFixed(2) : production < 10 ? production.toFixed(1) : fmt(production);
+      const productionStr = productionNum < 0.1 ? productionNum.toFixed(2) : productionNum < 10 ? productionNum.toFixed(1) : fmt(productionNum);
       return \`
         <div class="\${cls}" data-buy="\${b.id}">
           <div class="flex items-center gap-3">
