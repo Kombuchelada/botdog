@@ -1,6 +1,6 @@
 import express from "express";
 import crypto from "node:crypto";
-import { upsertUserProfileStmt, db } from "./database.js";
+import { upsertUserProfileStmt, getUserProfileStmt, db } from "./database.js";
 
 const SESSION_COOKIE = "glizzy_session";
 const STATE_COOKIE = "glizzy_oauth_state";
@@ -190,9 +190,34 @@ export function registerOAuth(app) {
     }
     const user = await userRes.json();
 
-    // Upsert into user_profiles so the rest of the site has a fresh display name + avatar entry.
-    // (Full avatar mirroring happens via profiles.js on the daily refresh; we just record identity here.)
-    upsertUserProfileStmt.run(user.id, user.username || null, user.global_name || null, user.avatar || null, null);
+    // Upsert into user_profiles. We want the avatar to render immediately on the
+    // dashboard / leaderboards, so we set avatar_url to the Discord CDN URL right
+    // away. The daily worker (profiles.js) will later replace it with the durable
+    // Spaces-mirrored copy.
+    //
+    // Don't clobber an existing Spaces URL when the avatar hash hasn't changed:
+    // that would replace a permanent URL with one that might go stale if the user
+    // changes their avatar later.
+    const cached = getUserProfileStmt.get(user.id);
+    const newHash = user.avatar || null;
+    let avatarUrl;
+    if (cached && cached.avatar_hash === newHash && cached.avatar_url) {
+      avatarUrl = cached.avatar_url; // keep durable URL we already have
+    } else if (newHash) {
+      const ext = newHash.startsWith("a_") ? "gif" : "png";
+      avatarUrl = `https://cdn.discordapp.com/avatars/${user.id}/${newHash}.${ext}?size=256`;
+    } else {
+      avatarUrl = null;
+    }
+    upsertUserProfileStmt.run(user.id, user.username || null, user.global_name || null, newHash, avatarUrl);
+
+    // Kick a Spaces mirror in the background (no await). Fails gracefully when
+    // DO Spaces isn't configured locally.
+    import("./profiles.js").then((m) =>
+      m.refreshProfile(user.id).catch((err) =>
+        console.warn("[oauth] background avatar mirror failed:", err.message),
+      ),
+    ).catch(() => {});
 
     res.clearCookie(STATE_COOKIE, { path: "/oauth" });
     setSessionCookie(res, user.id, req.secure || req.headers["x-forwarded-proto"] === "https");

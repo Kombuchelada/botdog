@@ -236,33 +236,23 @@ const STYLES = `
   .building-card:hover { background:#111a30; }
   .building-card.affordable { cursor: pointer; }
   .building-card.locked { opacity: 0.45; }
-  .upgrade-pill {
-    position: relative;
-    background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:999px;
-    padding: 6px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;
-    cursor: pointer; transition: all 0.15s;
+  .upgrade-card {
+    width: 100%; text-align: left;
+    background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:10px;
+    padding: 10px 12px; cursor: pointer; transition: all 0.15s;
   }
-  .upgrade-pill.affordable { border-color: #ff6b35; color: #ffa07a; }
-  .upgrade-pill.affordable:hover { background:#1f1408; }
-  .upgrade-pill.locked { opacity: 0.55; cursor: default; }
-  .upgrade-pill.owned { background:#1d2a3a; border-color: #34d399; color: #6ee7b7; cursor: default; }
-  .upgrade-pill .tooltip {
-    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
-    background: #0f172a; border: 1px solid rgba(148,163,184,0.25);
-    padding: 10px 12px; border-radius: 8px; color: #e2e8f0;
-    width: 260px; pointer-events: none;
-    opacity: 0; transition: opacity 0.15s; z-index: 100;
-    text-align: left; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
-    font-weight: normal;
-  }
-  .upgrade-pill .tooltip::after {
-    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
-    border: 6px solid transparent; border-top-color: #0f172a;
-  }
-  .upgrade-pill:hover .tooltip { opacity: 1; }
-  .upgrade-pill .tooltip .t-name { font-weight: 700; color: #fff; font-size: 14px; }
-  .upgrade-pill .tooltip .t-desc { color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; }
-  .upgrade-pill .tooltip .t-cost { color: #ffa07a; font-size: 11px; margin-top: 6px; font-weight: 600; }
+  .upgrade-card.affordable { border-color: rgba(255,107,53,0.55); }
+  .upgrade-card.affordable:hover { background:#1f1408; }
+  .upgrade-card.locked { opacity: 0.55; cursor: default; }
+  .upgrade-card.owned { background:#13241e; border-color: rgba(52,211,153,0.4); cursor: default; }
+  .upgrade-card.owned .u-name { color: #6ee7b7; }
+  .upgrade-card .u-emoji { font-size: 20px; line-height: 1; flex-shrink: 0; }
+  .upgrade-card .u-name { color: #f1f5f9; font-weight: 600; font-size: 13px; }
+  .upgrade-card .u-desc { color: #94a3b8; font-size: 11px; line-height: 1.4; margin-top: 2px; }
+  .upgrade-card .u-cost { font-size: 11px; font-weight: 600; margin-top: 4px; }
+  .upgrade-card.affordable .u-cost { color: #ffa07a; }
+  .upgrade-card.locked .u-cost { color: #94a3b8; }
+  .upgrade-card.owned .u-cost { color: #6ee7b7; }
   .bonus-card { background:#0b1220; border: 1px solid rgba(148,163,184,0.08); border-radius: 10px; padding: 10px 12px; transition: all 0.15s; }
   .bonus-card.active { background: linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,107,53,0.02)); border-color: rgba(255,107,53,0.4); }
   .bonus-card.locked { opacity: 0.55; }
@@ -387,7 +377,7 @@ ${NAV}
     <section class="md:col-span-1">
       <div class="card p-4 mb-4">
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Upgrades</div>
-        <div id="upgrades-list" class="flex flex-wrap gap-2"></div>
+        <div id="upgrades-list" class="space-y-2"></div>
       </div>
       <div class="card p-4">
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Buildings</div>
@@ -428,13 +418,15 @@ const GAME_CLIENT_JS = `
   let saveInFlight = false;
 
   // ----- formatting -----
+  const SCALES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
   function fmt(n) {
+    if (!Number.isFinite(n)) return String(n);
     n = Math.floor(n);
-    if (n < 1e3) return n.toLocaleString();
-    if (n < 1e6) return (n/1e3).toFixed(2) + 'K';
-    if (n < 1e9) return (n/1e6).toFixed(2) + 'M';
-    if (n < 1e12) return (n/1e9).toFixed(2) + 'B';
-    return (n/1e12).toFixed(2) + 'T';
+    if (n < 1000) return n.toLocaleString();
+    const tier = Math.floor(Math.log10(n) / 3);
+    if (tier >= SCALES.length) return n.toExponential(2);
+    const scaled = n / Math.pow(1000, tier);
+    return scaled.toFixed(2) + SCALES[tier];
   }
   function fmtRate(n) {
     if (n < 1) return n.toFixed(2) + '/s';
@@ -538,21 +530,21 @@ const GAME_CLIENT_JS = `
     const root = document.getElementById('upgrades-list');
     const owned = new Set(state.upgrades_owned);
     const html = UPGRADES.map(u => {
-      let cls = 'upgrade-pill';
-      let statusLabel = '';
-      if (owned.has(u.id)) { cls += ' owned'; statusLabel = 'owned'; }
-      else if (state.glizzies >= u.cost) { cls += ' affordable'; statusLabel = fmt(u.cost); }
-      else { cls += ' locked'; statusLabel = fmt(u.cost); }
+      let cls = 'upgrade-card';
+      let costLabel = '';
+      if (owned.has(u.id)) { cls += ' owned'; costLabel = '✓ Owned'; }
+      else if (state.glizzies >= u.cost) { cls += ' affordable'; costLabel = 'Cost: ' + fmt(u.cost); }
+      else { cls += ' locked'; costLabel = 'Cost: ' + fmt(u.cost); }
       const desc = u.description || '';
       return \`<button class="\${cls}" data-upgrade="\${u.id}">
-        <span>\${u.emoji}</span>
-        <span>\${u.name}</span>
-        <span class="text-xs opacity-60">\${statusLabel}</span>
-        <span class="tooltip">
-          <span class="t-name">\${u.emoji} \${u.name}</span>
-          <span class="t-desc" style="display:block">\${desc}</span>
-          <span class="t-cost" style="display:block">\${owned.has(u.id) ? '✓ Owned' : 'Cost: ' + fmt(u.cost) + ' 🌭'}</span>
-        </span>
+        <div class="flex items-start gap-2">
+          <span class="u-emoji">\${u.emoji}</span>
+          <div class="flex-1 min-w-0">
+            <div class="u-name">\${u.name}</div>
+            <div class="u-desc">\${desc}</div>
+            <div class="u-cost">\${costLabel}</div>
+          </div>
+        </div>
       </button>\`;
     }).join('');
     root.innerHTML = html;

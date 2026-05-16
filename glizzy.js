@@ -102,7 +102,7 @@ export const ALL_BONUSES = [
     id: "big_eater",
     emoji: "🍽️",
     name: "Big Eater",
-    description: "+0.25× click power",
+    description: "Click power ×100",
     trigger: "Eat more than 4 hot dogs in a single Pacific day",
     duration: "24 hours after a qualifying day",
   },
@@ -110,7 +110,7 @@ export const ALL_BONUSES = [
     id: "breakfast_boon",
     emoji: "🌅",
     name: "Breakfast Boon",
-    description: "Mustard Stand production +50%",
+    description: "Mustard Stand production +500%",
     trigger: "Log a hot dog before 8 AM Pacific",
     duration: "24 hours after a qualifying day",
   },
@@ -118,7 +118,7 @@ export const ALL_BONUSES = [
     id: "night_owl",
     emoji: "🦉",
     name: "Night Owl",
-    description: "Glizzy Cart production +50%",
+    description: "Glizzy Cart production +500%",
     trigger: "Log a hot dog at or after 10 PM Pacific",
     duration: "24 hours after a qualifying day",
   },
@@ -134,7 +134,7 @@ export const ALL_BONUSES = [
     id: "centurion",
     emoji: "💯",
     name: "Centurion",
-    description: "+10% all production (permanent)",
+    description: "+100% all production (permanent)",
     trigger: "Eat 100 lifetime hot dogs",
     duration: "Permanent (replaced by higher tier)",
   },
@@ -142,7 +142,7 @@ export const ALL_BONUSES = [
     id: "half_grand",
     emoji: "🏆",
     name: "Half-Grand",
-    description: "+25% all production (permanent)",
+    description: "+250% all production (permanent)",
     trigger: "Eat 500 lifetime hot dogs",
     duration: "Permanent (replaces Centurion)",
   },
@@ -150,7 +150,7 @@ export const ALL_BONUSES = [
     id: "glizzy_pope",
     emoji: "👑",
     name: "Glizzy Pope",
-    description: "+50% all production (permanent)",
+    description: "+500% all production (permanent)",
     trigger: "Eat 1,000 lifetime hot dogs",
     duration: "Permanent (replaces Half-Grand)",
   },
@@ -208,19 +208,19 @@ export function computeBonuses(userId) {
   if (yesterdayTotal > 4) {
     activate("big_eater", {
       explanation: `Ate ${yesterdayTotal} dogs yesterday`,
-      effect: { type: "click_mult", value: 1.25 },
+      effect: { type: "click_mult", value: 100 },
     });
   }
   if (hadEarlyDog) {
     activate("breakfast_boon", {
       explanation: "Ate a dog before 8 AM yesterday",
-      effect: { type: "building_mult", building: "mustard_stand", value: 1.5 },
+      effect: { type: "building_mult", building: "mustard_stand", value: 6 },
     });
   }
   if (hadLateDog) {
     activate("night_owl", {
       explanation: "Ate a dog after 10 PM yesterday",
-      effect: { type: "building_mult", building: "glizzy_cart", value: 1.5 },
+      effect: { type: "building_mult", building: "glizzy_cart", value: 6 },
     });
   }
   if (streak >= 3) {
@@ -234,17 +234,17 @@ export function computeBonuses(userId) {
   if (userTotal >= 1000) {
     activate("glizzy_pope", {
       explanation: `${userTotal} lifetime dogs`,
-      effect: { type: "global_mult", value: 1.5 },
+      effect: { type: "global_mult", value: 6 },
     });
   } else if (userTotal >= 500) {
     activate("half_grand", {
       explanation: `${userTotal} lifetime dogs`,
-      effect: { type: "global_mult", value: 1.25 },
+      effect: { type: "global_mult", value: 3.5 },
     });
   } else if (userTotal >= 100) {
     activate("centurion", {
       explanation: `${userTotal} lifetime dogs`,
-      effect: { type: "global_mult", value: 1.1 },
+      effect: { type: "global_mult", value: 2 },
     });
   }
 
