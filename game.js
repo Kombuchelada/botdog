@@ -7,6 +7,7 @@ import {
   getPlayerSummary,
   BUILDINGS,
   UPGRADES,
+  ALL_BONUSES,
 } from "./glizzy.js";
 import { getUserProfileStmt } from "./database.js";
 
@@ -51,50 +52,76 @@ const HEAD = `
 // =====================
 
 const HERO_SVG = `
-<svg viewBox="0 0 320 220" class="hero-svg" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 320 240" class="hero-svg" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bunTop" cx="0.5" cy="0.4" r="0.6">
-      <stop offset="0%" stop-color="#f0c374"/><stop offset="100%" stop-color="#c98a3e"/>
-    </radialGradient>
-    <radialGradient id="bunBot" cx="0.5" cy="0.5" r="0.6">
-      <stop offset="0%" stop-color="#e3b16a"/><stop offset="100%" stop-color="#a06f30"/>
-    </radialGradient>
-    <linearGradient id="sausage" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="#d35a3a"/><stop offset="100%" stop-color="#a83a22"/>
+    <linearGradient id="bunGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fadc9c"/>
+      <stop offset="55%" stop-color="#d6a05a"/>
+      <stop offset="100%" stop-color="#8a5e23"/>
+    </linearGradient>
+    <linearGradient id="sausageGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e87c4e"/>
+      <stop offset="55%" stop-color="#c44536"/>
+      <stop offset="100%" stop-color="#722012"/>
+    </linearGradient>
+    <linearGradient id="mustardGrad" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffe066"/>
+      <stop offset="100%" stop-color="#d49a07"/>
     </linearGradient>
     <filter id="heroshadow" x="-20%" y="-20%" width="140%" height="140%">
       <feGaussianBlur stdDeviation="6"/>
-      <feOffset dx="0" dy="6"/>
-      <feComponentTransfer><feFuncA type="linear" slope="0.4"/></feComponentTransfer>
+      <feOffset dx="0" dy="8"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer>
       <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
   </defs>
+
+  <!-- Ground shadow -->
+  <ellipse cx="160" cy="215" rx="125" ry="7" fill="rgba(0,0,0,0.35)"/>
+
   <g filter="url(#heroshadow)">
-    <ellipse cx="160" cy="160" rx="135" ry="40" fill="url(#bunBot)"/>
-    <rect x="35" y="80" width="250" height="58" rx="29" ry="29" fill="url(#sausage)"/>
-    <ellipse cx="160" cy="80" rx="135" ry="40" fill="url(#bunTop)"/>
+    <!-- Bottom bun: long pill, full width -->
+    <rect x="22" y="125" width="276" height="78" rx="39" fill="url(#bunGrad)"/>
+    <!-- Sausage: pokes out the top of the bun, slightly above center -->
+    <rect x="38" y="92" width="244" height="58" rx="29" fill="url(#sausageGrad)"/>
   </g>
-  <!-- Sesame seeds on bun -->
+
+  <!-- Sausage highlight stripe -->
+  <ellipse cx="160" cy="105" rx="105" ry="5" fill="rgba(255,200,170,0.55)"/>
+
+  <!-- Subtle bun seam (where sausage emerges) -->
+  <ellipse cx="160" cy="148" rx="118" ry="4" fill="rgba(50,30,10,0.18)"/>
+
+  <!-- Mustard zigzag down the length of the sausage -->
+  <path d="M 60 116 L 80 100 L 100 116 L 120 100 L 140 116 L 160 100 L 180 116 L 200 100 L 220 116 L 240 100 L 260 116"
+        stroke="url(#mustardGrad)" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 60 116 L 80 100 L 100 116 L 120 100 L 140 116 L 160 100 L 180 116 L 200 100 L 220 116 L 240 100 L 260 116"
+        stroke="#fff4a3" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
+
+  <!-- Sesame seeds scattered on the bun -->
   <g fill="#fff4cc" opacity="0.85">
-    <ellipse cx="85" cy="65" rx="3" ry="1.6" transform="rotate(-15 85 65)"/>
-    <ellipse cx="125" cy="55" rx="3" ry="1.6" transform="rotate(10 125 55)"/>
-    <ellipse cx="170" cy="58" rx="3" ry="1.6" transform="rotate(-5 170 58)"/>
-    <ellipse cx="215" cy="62" rx="3" ry="1.6" transform="rotate(15 215 62)"/>
-    <ellipse cx="245" cy="72" rx="3" ry="1.6" transform="rotate(-10 245 72)"/>
+    <ellipse cx="55" cy="162" rx="3" ry="1.5" transform="rotate(-18 55 162)"/>
+    <ellipse cx="90" cy="170" rx="3" ry="1.5" transform="rotate(8 90 170)"/>
+    <ellipse cx="130" cy="165" rx="3" ry="1.5" transform="rotate(-5 130 165)"/>
+    <ellipse cx="160" cy="172" rx="3" ry="1.5"/>
+    <ellipse cx="195" cy="166" rx="3" ry="1.5" transform="rotate(12 195 166)"/>
+    <ellipse cx="230" cy="170" rx="3" ry="1.5" transform="rotate(-8 230 170)"/>
+    <ellipse cx="265" cy="162" rx="3" ry="1.5" transform="rotate(20 265 162)"/>
+    <ellipse cx="75" cy="185" rx="3" ry="1.5" transform="rotate(5 75 185)"/>
+    <ellipse cx="245" cy="185" rx="3" ry="1.5" transform="rotate(-12 245 185)"/>
   </g>
-  <!-- Mustard squiggle -->
-  <path d="M 50 108 Q 80 90 115 108 T 185 108 T 270 108" stroke="#f7c02e" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M 50 108 Q 80 90 115 108 T 185 108 T 270 108" stroke="#fce078" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>
-  <!-- Face -->
+
+  <!-- Cute face on the sausage -->
   <g>
-    <circle cx="110" cy="108" r="7" fill="#fff"/>
-    <circle cx="112" cy="110" r="3.5" fill="#1a1a1a"/>
-    <circle cx="210" cy="108" r="7" fill="#fff"/>
-    <circle cx="212" cy="110" r="3.5" fill="#1a1a1a"/>
-    <path d="M 145 128 Q 160 138 175 128" stroke="#1a1a1a" stroke-width="3" fill="none" stroke-linecap="round"/>
-    <!-- Cheek blush -->
-    <circle cx="90" cy="118" r="6" fill="#e25822" opacity="0.25"/>
-    <circle cx="230" cy="118" r="6" fill="#e25822" opacity="0.25"/>
+    <circle cx="125" cy="122" r="7" fill="#fff"/>
+    <circle cx="127" cy="124" r="3.5" fill="#1a1a1a"/>
+    <circle cx="125" cy="120" r="1.5" fill="#fff"/>
+    <circle cx="195" cy="122" r="7" fill="#fff"/>
+    <circle cx="197" cy="124" r="3.5" fill="#1a1a1a"/>
+    <circle cx="195" cy="120" r="1.5" fill="#fff"/>
+    <path d="M 145 136 Q 160 145 175 136" stroke="#1a1a1a" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <circle cx="105" cy="135" r="5" fill="#e25822" opacity="0.45"/>
+    <circle cx="215" cy="135" r="5" fill="#e25822" opacity="0.45"/>
   </g>
 </svg>`;
 
@@ -210,14 +237,35 @@ const STYLES = `
   .building-card.affordable { cursor: pointer; }
   .building-card.locked { opacity: 0.45; }
   .upgrade-pill {
+    position: relative;
     background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:999px;
     padding: 6px 12px; font-size: 13px; display: inline-flex; align-items: center; gap: 6px;
     cursor: pointer; transition: all 0.15s;
   }
   .upgrade-pill.affordable { border-color: #ff6b35; color: #ffa07a; }
   .upgrade-pill.affordable:hover { background:#1f1408; }
-  .upgrade-pill.locked { opacity: 0.4; cursor: default; }
+  .upgrade-pill.locked { opacity: 0.55; cursor: default; }
   .upgrade-pill.owned { background:#1d2a3a; border-color: #34d399; color: #6ee7b7; cursor: default; }
+  .upgrade-pill .tooltip {
+    position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+    background: #0f172a; border: 1px solid rgba(148,163,184,0.25);
+    padding: 10px 12px; border-radius: 8px; color: #e2e8f0;
+    width: 260px; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s; z-index: 100;
+    text-align: left; box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    font-weight: normal;
+  }
+  .upgrade-pill .tooltip::after {
+    content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: #0f172a;
+  }
+  .upgrade-pill:hover .tooltip { opacity: 1; }
+  .upgrade-pill .tooltip .t-name { font-weight: 700; color: #fff; font-size: 14px; }
+  .upgrade-pill .tooltip .t-desc { color: #cbd5e1; font-size: 12px; margin-top: 4px; line-height: 1.4; }
+  .upgrade-pill .tooltip .t-cost { color: #ffa07a; font-size: 11px; margin-top: 6px; font-weight: 600; }
+  .bonus-card { background:#0b1220; border: 1px solid rgba(148,163,184,0.08); border-radius: 10px; padding: 10px 12px; transition: all 0.15s; }
+  .bonus-card.active { background: linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,107,53,0.02)); border-color: rgba(255,107,53,0.4); }
+  .bonus-card.locked { opacity: 0.55; }
   .bonus-row { background:#0b1220; border-left: 3px solid #ff6b35; padding: 10px 12px; border-radius: 6px; }
   .pulse-once { animation: pulse 0.6s ease-out; }
   @keyframes pulse {
@@ -287,15 +335,32 @@ ${NAV}
     <!-- LEFT: bonuses -->
     <section class="md:col-span-1">
       <div class="card p-4 mb-4">
-        <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Active bonuses</div>
-        <div id="bonuses-list" class="space-y-2">
-          ${bonuses.length === 0
-            ? `<div class="text-slate-500 text-sm">No active bonuses. Eat dogs in the channel to earn them.</div>`
-            : bonuses.map((b) => `
-                <div class="bonus-row">
-                  <div class="flex items-center gap-2 text-white font-semibold"><span class="text-lg">${esc(b.emoji)}</span> ${esc(b.name)}</div>
-                  <div class="text-xs text-slate-400 mt-0.5">${esc(b.explanation)}</div>
-                </div>`).join("")}
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-xs uppercase tracking-widest text-slate-400">Bonuses</div>
+          <div class="text-xs text-slate-500"><span class="accent">${esc(bonuses.length)}</span> / ${esc(ALL_BONUSES.length)} active</div>
+        </div>
+        <div class="space-y-2">
+          ${ALL_BONUSES.map((def) => {
+            const active = bonuses.find((b) => b.id === def.id);
+            const cls = active ? "bonus-card active" : "bonus-card locked";
+            const displayName = active && active.name ? active.name : def.name;
+            const explanationLine = active
+              ? `<div class="text-xs accent font-semibold mt-1">${esc(active.explanation || def.description)} <span class="text-slate-400 font-normal">· ${esc(def.duration)}</span></div>
+                 <div class="text-xs text-slate-300 mt-1">${esc(def.description)}</div>`
+              : `<div class="text-xs text-slate-400 mt-1">${esc(def.description)}</div>
+                 <div class="text-xs text-slate-500 mt-1">How to earn: ${esc(def.trigger)}</div>`;
+            return `
+              <div class="${cls}">
+                <div class="flex items-center gap-2 text-white font-semibold">
+                  <span class="text-lg">${esc(def.emoji)}</span> ${esc(displayName)}
+                  ${active ? `<span class="ml-auto text-[10px] uppercase tracking-widest text-accent">Active</span>` : ""}
+                </div>
+                ${explanationLine}
+              </div>`;
+          }).join("")}
+        </div>
+        <div class="text-[11px] text-slate-500 mt-3">
+          Bonuses derive from your real hot dog activity in Discord. Log dogs there → bonuses appear here next refresh.
         </div>
       </div>
       <div class="card p-4">
@@ -462,10 +527,21 @@ const GAME_CLIENT_JS = `
     const owned = new Set(state.upgrades_owned);
     const html = UPGRADES.map(u => {
       let cls = 'upgrade-pill';
-      if (owned.has(u.id)) cls += ' owned';
-      else if (state.glizzies >= u.cost) cls += ' affordable';
-      else cls += ' locked';
-      return \`<button class="\${cls}" data-upgrade="\${u.id}" title="\${u.name} — costs \${fmt(u.cost)}"><span>\${u.emoji}</span><span>\${u.name}</span><span class="text-xs opacity-60">\${owned.has(u.id) ? 'owned' : fmt(u.cost)}</span></button>\`;
+      let statusLabel = '';
+      if (owned.has(u.id)) { cls += ' owned'; statusLabel = 'owned'; }
+      else if (state.glizzies >= u.cost) { cls += ' affordable'; statusLabel = fmt(u.cost); }
+      else { cls += ' locked'; statusLabel = fmt(u.cost); }
+      const desc = u.description || '';
+      return \`<button class="\${cls}" data-upgrade="\${u.id}">
+        <span>\${u.emoji}</span>
+        <span>\${u.name}</span>
+        <span class="text-xs opacity-60">\${statusLabel}</span>
+        <span class="tooltip">
+          <span class="t-name">\${u.emoji} \${u.name}</span>
+          <span class="t-desc" style="display:block">\${desc}</span>
+          <span class="t-cost" style="display:block">\${owned.has(u.id) ? '✓ Owned' : 'Cost: ' + fmt(u.cost) + ' 🌭'}</span>
+        </span>
+      </button>\`;
     }).join('');
     root.innerHTML = html;
     root.querySelectorAll('[data-upgrade]').forEach(el => {
@@ -568,7 +644,7 @@ const GAME_CLIENT_JS = `
       saveInFlight = false;
     }
   }
-  setInterval(save, 10000);
+  setInterval(save, 5000);
   window.addEventListener('beforeunload', () => {
     if (dirty) {
       navigator.sendBeacon('/api/game/save', new Blob([JSON.stringify({

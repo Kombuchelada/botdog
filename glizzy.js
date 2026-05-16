@@ -29,16 +29,36 @@ const BUILDING_IDS = BUILDINGS.map((b) => b.id);
 const COST_SCALE = 1.15;
 
 export const UPGRADES = [
-  { id: "sharper_knife", name: "Sharper Knife", emoji: "🔪", cost: 100, effect: { type: "click_mult", value: 2 } },
-  { id: "better_mustard", name: "Better Mustard", emoji: "🟡", cost: 1000, effect: { type: "building_mult", building: "mustard_stand", value: 2 } },
-  { id: "fresh_buns", name: "Fresh Buns", emoji: "🌾", cost: 11000, effect: { type: "building_mult", building: "bun_factory", value: 2 } },
-  { id: "premium_cart", name: "Premium Cart", emoji: "🛍️", cost: 120000, effect: { type: "building_mult", building: "glizzy_cart", value: 2 } },
-  { id: "fancy_truck", name: "Fancy Truck", emoji: "🏎️", cost: 1300000, effect: { type: "building_mult", building: "food_truck", value: 2 } },
-  { id: "sponsorship_deal", name: "Sponsorship Deal", emoji: "💼", cost: 14000000, effect: { type: "building_mult", building: "stadium", value: 2 } },
-  { id: "faster_hands", name: "Faster Hands", emoji: "⚡", cost: 50000, effect: { type: "click_mult", value: 4 } },
-  { id: "brand_loyalty", name: "Brand Loyalty", emoji: "🤝", cost: 500000, effect: { type: "global_mult", value: 1.1 } },
-  { id: "ketchup_sin", name: "Ketchup Sin", emoji: "🍅", cost: 100000, effect: { type: "click_per_building", value: 0.01 } },
-  { id: "hot_dog_pope", name: "Hot Dog Pope", emoji: "⛪", cost: 50000000, effect: { type: "global_mult", value: 2 } },
+  { id: "sharper_knife", name: "Sharper Knife", emoji: "🔪", cost: 100,
+    description: "Doubles your click power.",
+    effect: { type: "click_mult", value: 2 } },
+  { id: "better_mustard", name: "Better Mustard", emoji: "🟡", cost: 1000,
+    description: "Mustard Stand production ×2.",
+    effect: { type: "building_mult", building: "mustard_stand", value: 2 } },
+  { id: "fresh_buns", name: "Fresh Buns", emoji: "🌾", cost: 11000,
+    description: "Bun Factory production ×2.",
+    effect: { type: "building_mult", building: "bun_factory", value: 2 } },
+  { id: "premium_cart", name: "Premium Cart", emoji: "🛍️", cost: 120000,
+    description: "Glizzy Cart production ×2.",
+    effect: { type: "building_mult", building: "glizzy_cart", value: 2 } },
+  { id: "fancy_truck", name: "Fancy Truck", emoji: "🏎️", cost: 1300000,
+    description: "Food Truck production ×2.",
+    effect: { type: "building_mult", building: "food_truck", value: 2 } },
+  { id: "sponsorship_deal", name: "Sponsorship Deal", emoji: "💼", cost: 14000000,
+    description: "Stadium Vendor production ×2.",
+    effect: { type: "building_mult", building: "stadium", value: 2 } },
+  { id: "faster_hands", name: "Faster Hands", emoji: "⚡", cost: 50000,
+    description: "Click power ×4 (stacks with Sharper Knife).",
+    effect: { type: "click_mult", value: 4 } },
+  { id: "brand_loyalty", name: "Brand Loyalty", emoji: "🤝", cost: 500000,
+    description: "All production +10% (multiplicative).",
+    effect: { type: "global_mult", value: 1.1 } },
+  { id: "ketchup_sin", name: "Ketchup Sin", emoji: "🍅", cost: 100000,
+    description: "Click power gains +0.01 per building owned (additive). Scales with your building count.",
+    effect: { type: "click_per_building", value: 0.01 } },
+  { id: "hot_dog_pope", name: "Hot Dog Pope", emoji: "⛪", cost: 50000000,
+    description: "Doubles everything — all buildings AND click power. The endgame.",
+    effect: { type: "global_mult", value: 2 } },
 ];
 
 const UPGRADE_BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -62,6 +82,76 @@ function blankState() {
     last_seen_at: new Date().toISOString(),
   };
 }
+
+// ============================================================================
+// Bonuses
+// ============================================================================
+
+/**
+ * Static catalogue of every bonus the game knows about — used both by
+ * computeBonuses (to figure out which are active) and by the UI (to show
+ * locked bonuses with their trigger so players know how to earn them).
+ */
+export const ALL_BONUSES = [
+  {
+    id: "big_eater",
+    emoji: "🍽️",
+    name: "Big Eater",
+    description: "+0.25× click power",
+    trigger: "Eat more than 4 hot dogs in a single Pacific day",
+    duration: "24 hours after a qualifying day",
+  },
+  {
+    id: "breakfast_boon",
+    emoji: "🌅",
+    name: "Breakfast Boon",
+    description: "Mustard Stand production +50%",
+    trigger: "Log a hot dog before 8 AM Pacific",
+    duration: "24 hours after a qualifying day",
+  },
+  {
+    id: "night_owl",
+    emoji: "🦉",
+    name: "Night Owl",
+    description: "Glizzy Cart production +50%",
+    trigger: "Log a hot dog at or after 10 PM Pacific",
+    duration: "24 hours after a qualifying day",
+  },
+  {
+    id: "streak",
+    emoji: "🔥",
+    name: "Streak (uncapped)",
+    description: "+2% production per consecutive day — no cap, scales forever",
+    trigger: "Maintain a hot dog eating streak of 3 or more days",
+    duration: "While the streak is alive",
+  },
+  {
+    id: "centurion",
+    emoji: "💯",
+    name: "Centurion",
+    description: "+10% all production (permanent)",
+    trigger: "Eat 100 lifetime hot dogs",
+    duration: "Permanent (replaced by higher tier)",
+  },
+  {
+    id: "half_grand",
+    emoji: "🏆",
+    name: "Half-Grand",
+    description: "+25% all production (permanent)",
+    trigger: "Eat 500 lifetime hot dogs",
+    duration: "Permanent (replaces Centurion)",
+  },
+  {
+    id: "glizzy_pope",
+    emoji: "👑",
+    name: "Glizzy Pope",
+    description: "+50% all production (permanent)",
+    trigger: "Eat 1,000 lifetime hot dogs",
+    duration: "Permanent (replaces Half-Grand)",
+  },
+];
+
+const BONUS_DEF_BY_ID = new Map(ALL_BONUSES.map((b) => [b.id, b]));
 
 // ============================================================================
 // Bonus computation from hotdog_events
@@ -105,39 +195,52 @@ export function computeBonuses(userId) {
 
   const active = [];
 
+  function activate(id, overrides) {
+    const def = BONUS_DEF_BY_ID.get(id);
+    active.push({ ...def, ...overrides });
+  }
+
   if (yesterdayTotal > 4) {
-    active.push({ id: "big_eater", emoji: "🍽️", name: "Big Eater",
-      explanation: `Ate ${yesterdayTotal} dogs yesterday`, expires: "24h",
-      effect: { type: "click_mult", value: 1.25 } });
+    activate("big_eater", {
+      explanation: `Ate ${yesterdayTotal} dogs yesterday`,
+      effect: { type: "click_mult", value: 1.25 },
+    });
   }
   if (hadEarlyDog) {
-    active.push({ id: "breakfast_boon", emoji: "🌅", name: "Breakfast Boon",
-      explanation: "Ate a dog before 8 AM yesterday", expires: "24h",
-      effect: { type: "building_mult", building: "mustard_stand", value: 1.5 } });
+    activate("breakfast_boon", {
+      explanation: "Ate a dog before 8 AM yesterday",
+      effect: { type: "building_mult", building: "mustard_stand", value: 1.5 },
+    });
   }
   if (hadLateDog) {
-    active.push({ id: "night_owl", emoji: "🦉", name: "Night Owl",
-      explanation: "Ate a dog after 10 PM yesterday", expires: "24h",
-      effect: { type: "building_mult", building: "glizzy_cart", value: 1.5 } });
+    activate("night_owl", {
+      explanation: "Ate a dog after 10 PM yesterday",
+      effect: { type: "building_mult", building: "glizzy_cart", value: 1.5 },
+    });
   }
   if (streak >= 3) {
-    active.push({ id: "streak", emoji: "🔥", name: `Streak ×${streak}`,
-      explanation: `${streak}-day active streak`, expires: "live",
-      effect: { type: "global_mult", value: 1 + streak * 0.02 } });
+    activate("streak", {
+      name: `Streak ×${streak}`,
+      explanation: `${streak}-day active streak (+${streak * 2}% production)`,
+      effect: { type: "global_mult", value: 1 + streak * 0.02 },
+    });
   }
   // Permanent milestones: only the highest tier applies.
   if (userTotal >= 1000) {
-    active.push({ id: "glizzy_pope", emoji: "👑", name: "Glizzy Pope",
-      explanation: `${userTotal} lifetime dogs`, expires: "permanent",
-      effect: { type: "global_mult", value: 1.5 } });
+    activate("glizzy_pope", {
+      explanation: `${userTotal} lifetime dogs`,
+      effect: { type: "global_mult", value: 1.5 },
+    });
   } else if (userTotal >= 500) {
-    active.push({ id: "half_grand", emoji: "🏆", name: "Half-Grand",
-      explanation: `${userTotal} lifetime dogs`, expires: "permanent",
-      effect: { type: "global_mult", value: 1.25 } });
+    activate("half_grand", {
+      explanation: `${userTotal} lifetime dogs`,
+      effect: { type: "global_mult", value: 1.25 },
+    });
   } else if (userTotal >= 100) {
-    active.push({ id: "centurion", emoji: "💯", name: "Centurion",
-      explanation: `${userTotal} lifetime dogs`, expires: "permanent",
-      effect: { type: "global_mult", value: 1.1 } });
+    activate("centurion", {
+      explanation: `${userTotal} lifetime dogs`,
+      effect: { type: "global_mult", value: 1.1 },
+    });
   }
 
   return active;
