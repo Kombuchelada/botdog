@@ -18,11 +18,16 @@ import {
 // ============================================================================
 
 export const BUILDINGS = [
-  { id: "mustard_stand", name: "Mustard Stand", emoji: "🌭", base_cost: 15, base_rate: 0.1 },
-  { id: "bun_factory", name: "Bun Factory", emoji: "🍞", base_cost: 100, base_rate: 1.0 },
-  { id: "glizzy_cart", name: "Glizzy Cart", emoji: "🛒", base_cost: 1100, base_rate: 8.0 },
-  { id: "food_truck", name: "Food Truck", emoji: "🚚", base_cost: 12000, base_rate: 47.0 },
-  { id: "stadium", name: "Stadium Vendor", emoji: "🏟️", base_cost: 130000, base_rate: 260.0 },
+  { id: "mustard_stand", name: "Mustard Stand", emoji: "🌭", base_cost: 15, base_rate: 0.1,
+    description: "A humble corner stand. The classic. Boosted by Breakfast Boon (eat a dog before 8 AM)." },
+  { id: "bun_factory", name: "Bun Factory", emoji: "🍞", base_cost: 100, base_rate: 1.0,
+    description: "Industrial-scale bun production. A reliable steady earner. Buffed only by global multipliers." },
+  { id: "glizzy_cart", name: "Glizzy Cart", emoji: "🛒", base_cost: 1100, base_rate: 8.0,
+    description: "Wheeled street vendor with a striped umbrella. Boosted by Night Owl (eat a dog after 10 PM)." },
+  { id: "food_truck", name: "Food Truck", emoji: "🚚", base_cost: 12000, base_rate: 47.0,
+    description: "Mobile vendor that chases the crowds. Mid-tier earner — the workhorse of mid-game." },
+  { id: "stadium", name: "Stadium Vendor", emoji: "🏟️", base_cost: 130000, base_rate: 260.0,
+    description: "Concession empire. Top-tier production — the endgame goal until you unlock Hot Dog Pope." },
 ];
 
 const BUILDING_IDS = BUILDINGS.map((b) => b.id);

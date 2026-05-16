@@ -512,6 +512,7 @@ const GAME_CLIENT_JS = `
                 <div class="text-xs text-slate-500 tabular-nums">×\${owned}</div>
               </div>
               <div class="text-xs text-slate-400 mt-0.5">\${production}/s · cost \${fmt(cost)}</div>
+              \${b.description ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
             </div>
           </div>
         </div>\`;
