@@ -10,6 +10,7 @@ import {
   getArchiveAttachmentsForMessageStmt,
   getUserProfileStmt,
 } from "./database.js";
+import { getLeaderboardRows as getGlizzyLeaderboardRows } from "./game.js";
 import {
   buildUserDatesMap,
   getCurrentStreak,
@@ -277,6 +278,7 @@ function buildOverview() {
     heatmap,
     when: buildWhenHeatmap(events),
     topUsersComparison,
+    glizzyLeaders: getGlizzyLeaderboardRows(10),
   };
 }
 
@@ -565,6 +567,69 @@ function heatmapSVG(heatmap, cellSize = 14, gap = 3) {
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="xMidYMid meet" class="block">${rects}</svg>`;
 }
 
+function renderGlizzyLeadersSection(leaders) {
+  if (!leaders || leaders.length === 0) {
+    return `
+      <section class="card p-6 mb-8">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="stat-label">🌭 GlizzyClicker Leaders</div>
+            <div class="text-slate-300 text-sm mt-1">Top players by lifetime glizzies</div>
+          </div>
+          <a href="/game" class="text-xs text-accent hover:text-accent-soft">Play →</a>
+        </div>
+        <div class="text-center py-8 text-slate-400">
+          <div class="text-4xl mb-2">🌭</div>
+          <div class="text-slate-200 font-semibold">Be the first to play</div>
+          <div class="text-sm mt-1"><a href="/game" class="text-accent hover:text-accent-soft">Open GlizzyClicker</a> and start clicking.</div>
+        </div>
+      </section>`;
+  }
+  const topLifetime = leaders[0].lifetime || 1;
+  const rows = leaders.map((r, i) => {
+    const profile = getUserProfileStmt.get(r.user_id);
+    const name = profile && (profile.global_name || profile.username) || `User ${String(r.user_id).slice(-4)}`;
+    const avatar = profile && profile.avatar_url
+      ? `<img src="${esc(profile.avatar_url)}" alt="" loading="lazy" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;background:#1e293b;">`
+      : `<span style="width:32px;height:32px;border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;flex-shrink:0;">${esc((name[0] || "?").toUpperCase())}</span>`;
+    const rankColor = i === 0 ? "#ffd166" : i === 1 ? "#cbd5e1" : i === 2 ? "#d4a574" : "#6b7280";
+    const ratio = Math.max(0.02, r.lifetime / topLifetime);
+    const barWidthPct = (ratio * 100).toFixed(1);
+    return `
+      <div class="flex items-center gap-3 px-3 py-2.5 ${i % 2 === 0 ? "bg-slate-900/40" : ""} rounded-lg">
+        <div class="text-base font-bold tabular-nums w-6 text-right" style="color:${rankColor}">${esc(i + 1)}</div>
+        ${avatar}
+        <div class="flex-1 min-w-0">
+          <div class="flex items-baseline gap-2">
+            <div class="font-semibold text-slate-100 truncate">${esc(name)}</div>
+            <div class="text-xs text-slate-500 flex-shrink-0">${esc(r.total_buildings)} buildings · ${esc(r.total_clicks.toLocaleString())} clicks</div>
+          </div>
+          <div class="mt-1 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
+            <div class="h-full rounded-full" style="width:${barWidthPct}%;background:linear-gradient(90deg, #ff6b35, #ffa07a);"></div>
+          </div>
+        </div>
+        <div class="text-right flex-shrink-0">
+          <div class="text-lg font-bold accent tabular-nums">${esc(r.lifetime.toLocaleString())}</div>
+          <div class="text-[10px] text-slate-500 uppercase tracking-widest">lifetime</div>
+        </div>
+      </div>`;
+  }).join("");
+  return `
+    <section class="card p-6 mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="stat-label">🌭 GlizzyClicker Leaders</div>
+          <div class="text-slate-300 text-sm mt-1">Top players by lifetime glizzies</div>
+        </div>
+        <div class="flex items-center gap-3 text-xs">
+          <a href="/game/leaderboard" class="text-slate-400 hover:text-white">Full board →</a>
+          <a href="/game" class="text-accent hover:text-accent-soft">Play →</a>
+        </div>
+      </div>
+      <div class="space-y-1">${rows}</div>
+    </section>`;
+}
+
 function renderOverviewPage(data) {
   const usersForPicker = JSON.stringify(data.userList);
   const body = `
@@ -645,6 +710,8 @@ function renderOverviewPage(data) {
         <span>More</span>
       </div>
     </section>
+
+    ${renderGlizzyLeadersSection(data.glizzyLeaders)}
 
     <section class="grid md:grid-cols-2 gap-6 mb-8">
       <div class="card p-6">

@@ -468,13 +468,16 @@ const GAME_CLIENT_JS = `
     const perClick = (clickPower + clickAdd) * globalMult;
     let perSecond = 0;
     const bp = {};
+    const perUnit = {};
     for (const b of BUILDINGS) {
       const owned = state.buildings[b.id] || 0;
-      const r = owned * b.base_rate * buildingMult[b.id] * globalMult;
+      const oneRate = b.base_rate * buildingMult[b.id] * globalMult;
+      perUnit[b.id] = oneRate;
+      const r = owned * oneRate;
       bp[b.id] = r;
       perSecond += r;
     }
-    rates = { perClick, perSecond, buildingProduction: bp };
+    rates = { perClick, perSecond, buildingProduction: bp, perUnitRate: perUnit };
   }
 
   function buildingCost(id) {
@@ -502,6 +505,9 @@ const GAME_CLIENT_JS = `
       const affordable = state.glizzies >= cost;
       const cls = affordable ? 'building-card affordable card p-3' : 'building-card locked card p-3';
       const production = (rates.buildingProduction[b.id] || 0).toFixed(2);
+      const perUnit = rates.perUnitRate[b.id] || 0;
+      const perUnitStr = perUnit < 0.1 ? perUnit.toFixed(2) : perUnit < 10 ? perUnit.toFixed(1) : fmt(perUnit);
+      const productionStr = production < 0.1 ? production.toFixed(2) : production < 10 ? production.toFixed(1) : fmt(production);
       return \`
         <div class="\${cls}" data-buy="\${b.id}">
           <div class="flex items-center gap-3">
@@ -511,7 +517,12 @@ const GAME_CLIENT_JS = `
                 <div class="font-semibold text-white truncate">\${b.name}</div>
                 <div class="text-xs text-slate-500 tabular-nums">×\${owned}</div>
               </div>
-              <div class="text-xs text-slate-400 mt-0.5">\${production}/s · cost \${fmt(cost)}</div>
+              <div class="text-xs mt-0.5">
+                <span class="accent font-semibold">+\${perUnitStr}/s</span>
+                <span class="text-slate-500"> each · cost </span>
+                <span class="text-slate-200 font-semibold">\${fmt(cost)}</span>
+              </div>
+              \${owned > 0 ? \`<div class="text-[11px] text-slate-500 mt-0.5">currently making \${productionStr}/s</div>\` : ''}
               \${b.description ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
             </div>
           </div>
