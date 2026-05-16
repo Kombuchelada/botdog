@@ -262,6 +262,12 @@ const STYLES = `
     0% { box-shadow: 0 0 0 0 rgba(255,107,53,0.5); }
     100% { box-shadow: 0 0 0 24px rgba(255,107,53,0); }
   }
+  /* Subtle scrollbars on the sticky side panels — invisible until you hover/scroll */
+  .game-scrollcol { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.2) transparent; }
+  .game-scrollcol::-webkit-scrollbar { width: 6px; }
+  .game-scrollcol::-webkit-scrollbar-track { background: transparent; }
+  .game-scrollcol::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.15); border-radius: 3px; }
+  .game-scrollcol:hover::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.35); }
 </style>`;
 
 function renderLoginGate() {
@@ -321,9 +327,9 @@ ${NAV}
     </div>
   </div>
 
-  <div class="grid md:grid-cols-3 gap-6">
-    <!-- LEFT: bonuses -->
-    <section class="md:col-span-1">
+  <div class="grid md:grid-cols-3 gap-6 md:items-start">
+    <!-- LEFT: bonuses (sticky, internal scroll) -->
+    <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
         <div class="flex items-center justify-between mb-3">
           <div class="text-xs uppercase tracking-widest text-slate-400">Bonuses</div>
@@ -367,14 +373,14 @@ ${NAV}
       </div>
     </section>
 
-    <!-- CENTER: hero -->
-    <section class="md:col-span-1 flex flex-col items-center justify-center min-h-[500px]">
+    <!-- CENTER: hero (sticky, vertically centered) -->
+    <section class="md:col-span-1 md:sticky md:top-20 md:h-[calc(100vh-6rem)] flex flex-col items-center justify-center min-h-[500px]">
       <div id="click-area" class="click-target relative">${HERO_SVG}</div>
       <div class="mt-6 text-slate-400 text-sm">Click the glizzy!</div>
     </section>
 
-    <!-- RIGHT: upgrades + buildings -->
-    <section class="md:col-span-1">
+    <!-- RIGHT: upgrades + buildings (sticky, internal scroll) -->
+    <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
         <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Upgrades</div>
         <div id="upgrades-list" class="space-y-2"></div>
