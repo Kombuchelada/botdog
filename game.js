@@ -34,6 +34,16 @@ function esc(value) {
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+const RATE_SCALES = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+export function fmtRate(n) {
+  if (!Number.isFinite(n) || n <= 0) return "0/s";
+  if (n < 1) return n.toFixed(2) + "/s";
+  if (n < 1000) return n.toFixed(1) + "/s";
+  const tier = Math.floor(Math.log10(n) / 3);
+  if (tier >= RATE_SCALES.length) return n.toExponential(2) + "/s";
+  return (n / Math.pow(1000, tier)).toFixed(2) + RATE_SCALES[tier] + "/s";
+}
+
 const HEAD = `
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -354,13 +364,13 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
 <body class="font-sans antialiased">
 ${NAV}
 <main class="max-w-7xl mx-auto px-4 md:px-6 py-6">
-  <div class="flex items-center justify-between mb-4">
+  <div class="sticky top-14 z-40 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 mb-4 bg-slate-950/95 backdrop-blur border-b border-slate-800/60 flex items-center justify-between">
     <div class="flex items-baseline gap-3">
-      <div class="text-5xl font-bold text-white tabular-nums" id="glizzies-display">0</div>
-      <div class="text-slate-400">glizzies · <span id="pps-display" class="text-accent">0/s</span></div>
+      <div class="text-4xl font-bold text-white tabular-nums" id="glizzies-display">0</div>
+      <div class="text-slate-400 text-sm">glizzies · <span id="pps-display" class="text-accent">0/s</span></div>
     </div>
     <div class="flex items-center gap-3">
-      <span class="text-sm text-slate-300">${esc(displayName)}</span>
+      <span class="hidden sm:inline text-sm text-slate-300">${esc(displayName)}</span>
       ${avatarHtml}
       <form method="post" action="/oauth/logout" class="inline">
         <button class="text-xs text-slate-500 hover:text-slate-300" type="submit">Log out</button>
@@ -370,7 +380,7 @@ ${NAV}
 
   <div class="grid md:grid-cols-3 gap-6 md:items-start">
     <!-- LEFT: bonuses (sticky, internal scroll) -->
-    <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
+    <section class="md:col-span-1 md:sticky md:top-28 md:max-h-[calc(100vh-8rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
         <button type="button" class="collapse-toggle flex items-center justify-between w-full mb-3" data-collapse="bonuses">
           <div class="flex items-center gap-2">
@@ -420,29 +430,29 @@ ${NAV}
     </section>
 
     <!-- CENTER: hero (sticky, vertically centered) -->
-    <section class="md:col-span-1 md:sticky md:top-20 md:h-[calc(100vh-6rem)] flex flex-col items-center justify-center min-h-[500px]">
+    <section class="md:col-span-1 md:sticky md:top-28 md:h-[calc(100vh-8rem)] flex flex-col items-center justify-center min-h-[500px]">
       <div id="click-area" class="click-target relative">${HERO_SVG}</div>
       <div class="mt-6 text-slate-400 text-sm">Click the glizzy!</div>
     </section>
 
     <!-- RIGHT: upgrades + buildings (sticky, internal scroll) -->
-    <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
+    <section class="md:col-span-1 md:sticky md:top-28 md:max-h-[calc(100vh-8rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
-        <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="upgrades">
-          <span class="chev">▾</span>
-          <span class="text-xs uppercase tracking-widest text-slate-400">Upgrades</span>
-        </button>
-        <div data-collapse-body="upgrades">
-          <div id="upgrades-list" class="space-y-2"></div>
-        </div>
-      </div>
-      <div class="card p-4">
         <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="buildings">
           <span class="chev">▾</span>
           <span class="text-xs uppercase tracking-widest text-slate-400">Buildings</span>
         </button>
         <div data-collapse-body="buildings">
           <div id="buildings-list" class="space-y-2"></div>
+        </div>
+      </div>
+      <div class="card p-4">
+        <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="upgrades">
+          <span class="chev">▾</span>
+          <span class="text-xs uppercase tracking-widest text-slate-400">Upgrades</span>
+        </button>
+        <div data-collapse-body="upgrades">
+          <div id="upgrades-list" class="space-y-2"></div>
         </div>
       </div>
     </section>
@@ -563,26 +573,26 @@ const GAME_CLIENT_JS = `
       const owned = state.buildings[b.id] || 0;
       const cost = buildingCost(b.id);
       const affordable = state.glizzies >= cost;
-      const cls = affordable ? 'building-card affordable card p-3' : 'building-card locked card p-3';
+      const cls = affordable ? 'building-card affordable card p-2.5' : 'building-card locked card p-2.5';
       const productionNum = rates.buildingProduction[b.id] || 0;
       const perUnit = (rates.perUnitRate && rates.perUnitRate[b.id]) || 0;
       const perUnitStr = perUnit < 0.1 ? perUnit.toFixed(2) : perUnit < 10 ? perUnit.toFixed(1) : fmt(perUnit);
       const productionStr = productionNum < 0.1 ? productionNum.toFixed(2) : productionNum < 10 ? productionNum.toFixed(1) : fmt(productionNum);
       return \`
         <div class="\${cls}" data-buy="\${b.id}">
-          <div class="flex items-center gap-3">
-            <div style="width:48px;height:48px;flex-shrink:0">\${BUILDING_SVGS[b.id]}</div>
+          <div class="flex items-center gap-2.5">
+            <div style="width:40px;height:40px;flex-shrink:0">\${BUILDING_SVGS[b.id]}</div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2">
-                <div class="font-semibold text-white truncate">\${b.name}</div>
+                <div class="font-semibold text-white truncate text-sm">\${b.name}</div>
                 <div class="text-xs text-slate-500 tabular-nums">×\${owned}</div>
               </div>
-              <div class="text-xs mt-0.5">
+              <div class="text-[11px] mt-0.5">
                 <span class="accent font-semibold">+\${perUnitStr}/s</span>
-                <span class="text-slate-500"> each · cost </span>
+                <span class="text-slate-500"> each · </span>
                 <span class="text-slate-200 font-semibold">\${fmt(cost)}</span>
+                \${owned > 0 ? \`<span class="text-slate-500"> · \${productionStr}/s total</span>\` : ''}
               </div>
-              \${owned > 0 ? \`<div class="text-[11px] text-slate-500 mt-0.5">currently making \${productionStr}/s</div>\` : ''}
               \${(b.description && owned === 0) ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
             </div>
           </div>
@@ -775,6 +785,7 @@ const GAME_CLIENT_JS = `
 
   // ----- collapsible section panels (persisted per-section) -----
   function initCollapsibles() {
+    const DEFAULT_COLLAPSED = { upgrades: true };
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem('glizzy_collapsed') || '{}'); } catch (e) {}
     document.querySelectorAll('[data-collapse]').forEach(btn => {
@@ -784,7 +795,7 @@ const GAME_CLIENT_JS = `
         btn.classList.toggle('collapsed', collapsed);
         if (body) body.classList.toggle('hidden', collapsed);
       }
-      apply(!!saved[key]);
+      apply(key in saved ? !!saved[key] : !!DEFAULT_COLLAPSED[key]);
       btn.addEventListener('click', () => {
         const collapsed = !btn.classList.contains('collapsed');
         apply(collapsed);
@@ -817,7 +828,7 @@ function renderLeaderboardPage(rows) {
             ${avatar}
             <div class="flex-1">
               <div class="font-semibold text-white">${esc(name)}</div>
-              <div class="text-xs text-slate-400">${esc(r.total_buildings)} buildings · ${esc(r.total_clicks.toLocaleString())} clicks</div>
+              <div class="text-xs text-slate-400">${esc(r.total_buildings)} buildings · ${esc(r.total_clicks.toLocaleString())} clicks · <span class="accent font-semibold" data-prod="${esc(r.user_id)}">${esc(fmtRate(r.per_second))}</span></div>
             </div>
             <div class="text-right">
               <div class="text-2xl font-bold accent tabular-nums">${esc(r.lifetime.toLocaleString())}</div>
@@ -841,6 +852,37 @@ ${NAV}
     <a href="/game" class="text-accent hover:text-accent-soft">← back to the game</a>
   </div>
 </main>
+<script>
+(function () {
+  const SCALES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
+  function fmt(n) {
+    if (!Number.isFinite(n)) return String(n);
+    n = Math.floor(n);
+    if (n < 1000) return n.toLocaleString();
+    const t = Math.floor(Math.log10(n) / 3);
+    if (t >= SCALES.length) return n.toExponential(2);
+    return (n / Math.pow(1000, t)).toFixed(2) + SCALES[t];
+  }
+  function fmtRate(n) {
+    if (!Number.isFinite(n) || n <= 0) return '0/s';
+    if (n < 1) return n.toFixed(2) + '/s';
+    if (n < 1000) return n.toFixed(1) + '/s';
+    return fmt(n) + '/s';
+  }
+  async function poll() {
+    try {
+      const res = await fetch('/api/game/leaderboard');
+      if (!res.ok) return;
+      const rows = await res.json();
+      for (const r of rows) {
+        const el = document.querySelector('[data-prod="' + r.user_id + '"]');
+        if (el) el.textContent = fmtRate(r.per_second || 0);
+      }
+    } catch (e) {}
+  }
+  setInterval(poll, 10000);
+})();
+</script>
 </body></html>`;
 }
 

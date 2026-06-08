@@ -18,7 +18,7 @@ import {
   renderStatCard,
   renderWhenHeatmap,
 } from "./charts.js";
-import { getLeaderboardRows, getPlayerSummary } from "./game.js";
+import { getLeaderboardRows, getPlayerSummary, fmtRate } from "./game.js";
 import { getUserProfileStmt } from "./database.js";
 import {
   getLeaderboard,
@@ -619,7 +619,7 @@ function handleGlizzyCommand(res, req) {
       }
       const lines = rows.map((r, i) => {
         const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `**${i + 1}.**`;
-        return `${medal} <@${r.user_id}> — **${r.lifetime.toLocaleString()}** lifetime · ${r.total_buildings} buildings`;
+        return `${medal} <@${r.user_id}> — **${r.lifetime.toLocaleString()}** lifetime · ${r.total_buildings} buildings · ${fmtRate(r.per_second)}`;
       });
       const embed = {
         title: "🌭 GlizzyClicker Leaderboard",

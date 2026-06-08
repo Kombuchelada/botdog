@@ -201,8 +201,8 @@ function yesterdayPacificKey(now = new Date()) {
   return toPacificDateKey(d);
 }
 
-export function computeBonuses(userId) {
-  const allEvents = getAllEventsStmt.all();
+export function computeBonuses(userId, ctx) {
+  const allEvents = ctx?.allEvents || getAllEventsStmt.all();
   const userEvents = allEvents.filter((e) => e.user_id === userId && e.amount > 0);
   const yesterday = yesterdayPacificKey();
   const yesterdayEvents = userEvents.filter(
@@ -212,7 +212,7 @@ export function computeBonuses(userId) {
   const hadEarlyDog = yesterdayEvents.some((e) => pacificHour(parseUtcTimestamp(e.timestamp)) < 8);
   const hadLateDog = yesterdayEvents.some((e) => pacificHour(parseUtcTimestamp(e.timestamp)) >= 22);
 
-  const datesMap = buildUserDatesMap(allEvents);
+  const datesMap = ctx?.datesMap || buildUserDatesMap(allEvents);
   const streak = getCurrentStreak(datesMap.get(userId) || new Set());
 
   const userTotal = getUserTotalStmt.get(userId)?.total_count || 0;
@@ -494,13 +494,20 @@ export function validateAndClampSave(userId, incoming) {
 
 export function getLeaderboardRows(limit = 50) {
   const rows = topByLifetimeStmt.all(limit);
+  // Shared context so we scan the events table once for the whole board,
+  // not once per user. Production includes each user's live bonuses.
+  const allEvents = getAllEventsStmt.all();
+  const datesMap = buildUserDatesMap(allEvents);
   return rows.map((row) => {
     let state = {};
     try { state = JSON.parse(row.state); } catch {}
+    const bonuses = computeBonuses(row.user_id, { allEvents, datesMap });
+    const rates = computeEffectiveRates(state, bonuses);
     return {
       user_id: row.user_id,
       lifetime: Number(row.lifetime_glizzies) || 0,
       current: state.glizzies || 0,
+      per_second: rates.perSecond,
       total_clicks: state.total_clicks || 0,
       total_buildings: BUILDING_IDS.reduce((s, id) => s + (state.buildings?.[id] || 0), 0),
       updated_at: row.updated_at,
