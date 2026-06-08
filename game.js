@@ -206,6 +206,43 @@ const BUILDING_SVGS = {
   <circle cx="40" cy="40" r="2.5" fill="#fff4cc"/>
   <circle cx="66" cy="44" r="2.5" fill="#fff4cc"/>
 </svg>`,
+  franchise: `
+<svg viewBox="0 0 80 80">
+  <!-- Storefront block -->
+  <rect x="10" y="34" width="60" height="34" fill="#7a2f1c"/>
+  <rect x="10" y="34" width="60" height="34" fill="#e25822" opacity="0.85"/>
+  <!-- Striped awning -->
+  <path d="M 8 34 L 72 34 L 66 22 L 14 22 Z" fill="#ff6b35"/>
+  <path d="M 22 34 L 28 22 L 34 22 L 28 34 Z" fill="#fff" opacity="0.9"/>
+  <path d="M 40 34 L 46 22 L 52 22 L 46 34 Z" fill="#fff" opacity="0.9"/>
+  <!-- Sign -->
+  <text x="40" y="20" text-anchor="middle" fill="#f7c02e" font-size="7" font-weight="800" font-family="Inter">GLIZZY CO.</text>
+  <!-- Windows + door -->
+  <rect x="16" y="42" width="14" height="14" fill="#f7c02e" opacity="0.85"/>
+  <rect x="50" y="42" width="14" height="14" fill="#f7c02e" opacity="0.85"/>
+  <rect x="34" y="48" width="12" height="20" fill="#3a1a0e"/>
+  <circle cx="43" cy="58" r="1" fill="#f7c02e"/>
+</svg>`,
+  orbital_station: `
+<svg viewBox="0 0 80 80">
+  <!-- Stars -->
+  <circle cx="14" cy="16" r="1.2" fill="#fff" opacity="0.8"/>
+  <circle cx="66" cy="12" r="1.5" fill="#fff" opacity="0.7"/>
+  <circle cx="60" cy="30" r="1" fill="#fff" opacity="0.6"/>
+  <!-- Solar panels -->
+  <rect x="6" y="36" width="16" height="10" fill="#2b4a8a" rx="1"/>
+  <rect x="58" y="36" width="16" height="10" fill="#2b4a8a" rx="1"/>
+  <line x1="22" y1="41" x2="30" y2="41" stroke="#888" stroke-width="2"/>
+  <line x1="50" y1="41" x2="58" y2="41" stroke="#888" stroke-width="2"/>
+  <!-- Core module shaped like a dog -->
+  <rect x="28" y="32" width="24" height="18" rx="9" fill="#c44536"/>
+  <rect x="30" y="30" width="20" height="10" rx="5" fill="#fadc9c"/>
+  <path d="M 32 36 L 36 33 L 40 36 L 44 33 L 48 36" stroke="#f7c02e" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Porthole + thruster glow -->
+  <circle cx="40" cy="50" r="3" fill="#1a1a2e" stroke="#888" stroke-width="1"/>
+  <ellipse cx="40" cy="62" rx="6" ry="9" fill="#ff6b35" opacity="0.7"/>
+  <ellipse cx="40" cy="60" rx="3" ry="5" fill="#fff4cc" opacity="0.9"/>
+</svg>`,
 };
 
 const STYLES = `
@@ -253,6 +290,10 @@ const STYLES = `
   .upgrade-card.affordable .u-cost { color: #ffa07a; }
   .upgrade-card.locked .u-cost { color: #94a3b8; }
   .upgrade-card.owned .u-cost { color: #6ee7b7; }
+  .collapse-toggle { cursor: pointer; }
+  .collapse-toggle .chev { display:inline-block; transition: transform 0.15s; color:#64748b; font-size:10px; }
+  .collapse-toggle.collapsed .chev { transform: rotate(-90deg); }
+  .disclosure-toggle { cursor: pointer; width: 100%; }
   .bonus-card { background:#0b1220; border: 1px solid rgba(148,163,184,0.08); border-radius: 10px; padding: 10px 12px; transition: all 0.15s; }
   .bonus-card.active { background: linear-gradient(135deg, rgba(255,107,53,0.12), rgba(255,107,53,0.02)); border-color: rgba(255,107,53,0.4); }
   .bonus-card.locked { opacity: 0.55; }
@@ -331,10 +372,14 @@ ${NAV}
     <!-- LEFT: bonuses (sticky, internal scroll) -->
     <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
-        <div class="flex items-center justify-between mb-3">
-          <div class="text-xs uppercase tracking-widest text-slate-400">Bonuses</div>
+        <button type="button" class="collapse-toggle flex items-center justify-between w-full mb-3" data-collapse="bonuses">
+          <div class="flex items-center gap-2">
+            <span class="chev">▾</span>
+            <span class="text-xs uppercase tracking-widest text-slate-400">Bonuses</span>
+          </div>
           <div class="text-xs text-slate-500"><span class="accent">${esc(bonuses.length)}</span> / ${esc(ALL_BONUSES.length)} active</div>
-        </div>
+        </button>
+        <div data-collapse-body="bonuses">
         <div class="space-y-2">
           ${ALL_BONUSES.map((def) => {
             const active = bonuses.find((b) => b.id === def.id);
@@ -357,6 +402,7 @@ ${NAV}
         </div>
         <div class="text-[11px] text-slate-500 mt-3">
           Bonuses derive from your real hot dog activity in Discord. Log dogs there → bonuses appear here next refresh.
+        </div>
         </div>
       </div>
       <div class="card p-4">
@@ -382,12 +428,22 @@ ${NAV}
     <!-- RIGHT: upgrades + buildings (sticky, internal scroll) -->
     <section class="md:col-span-1 md:sticky md:top-20 md:max-h-[calc(100vh-6rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
-        <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Upgrades</div>
-        <div id="upgrades-list" class="space-y-2"></div>
+        <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="upgrades">
+          <span class="chev">▾</span>
+          <span class="text-xs uppercase tracking-widest text-slate-400">Upgrades</span>
+        </button>
+        <div data-collapse-body="upgrades">
+          <div id="upgrades-list" class="space-y-2"></div>
+        </div>
       </div>
       <div class="card p-4">
-        <div class="text-xs uppercase tracking-widest text-slate-400 mb-3">Buildings</div>
-        <div id="buildings-list" class="space-y-2"></div>
+        <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="buildings">
+          <span class="chev">▾</span>
+          <span class="text-xs uppercase tracking-widest text-slate-400">Buildings</span>
+        </button>
+        <div data-collapse-body="buildings">
+          <div id="buildings-list" class="space-y-2"></div>
+        </div>
       </div>
     </section>
   </div>
@@ -422,6 +478,8 @@ const GAME_CLIENT_JS = `
 
   let dirty = false;
   let saveInFlight = false;
+  let showAllUpgrades = false;
+  let showOwnedUpgrades = false;
 
   // ----- formatting -----
   const SCALES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
@@ -455,6 +513,10 @@ const GAME_CLIENT_JS = `
       else if (e.type === 'click_per_building') {
         let total = 0; for (const b of BUILDINGS) total += state.buildings[b.id] || 0;
         clickAdd += total * e.value;
+      }
+      else if (e.type === 'global_per_building') {
+        let total = 0; for (const b of BUILDINGS) total += state.buildings[b.id] || 0;
+        globalMult *= 1 + total * e.value;
       }
     }
     for (const b of bonuses) {
@@ -521,7 +583,7 @@ const GAME_CLIENT_JS = `
                 <span class="text-slate-200 font-semibold">\${fmt(cost)}</span>
               </div>
               \${owned > 0 ? \`<div class="text-[11px] text-slate-500 mt-0.5">currently making \${productionStr}/s</div>\` : ''}
-              \${b.description ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
+              \${(b.description && owned === 0) ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
             </div>
           </div>
         </div>\`;
@@ -532,17 +594,14 @@ const GAME_CLIENT_JS = `
     });
   }
 
-  function renderUpgrades() {
-    const root = document.getElementById('upgrades-list');
-    const owned = new Set(state.upgrades_owned);
-    const html = UPGRADES.map(u => {
-      let cls = 'upgrade-card';
-      let costLabel = '';
-      if (owned.has(u.id)) { cls += ' owned'; costLabel = '✓ Owned'; }
-      else if (state.glizzies >= u.cost) { cls += ' affordable'; costLabel = 'Cost: ' + fmt(u.cost); }
-      else { cls += ' locked'; costLabel = 'Cost: ' + fmt(u.cost); }
-      const desc = u.description || '';
-      return \`<button class="\${cls}" data-upgrade="\${u.id}">
+  function upgradeCardHtml(u, isOwned) {
+    let cls = 'upgrade-card';
+    let costLabel = '';
+    if (isOwned) { cls += ' owned'; costLabel = '✓ Owned'; }
+    else if (state.glizzies >= u.cost) { cls += ' affordable'; costLabel = 'Cost: ' + fmt(u.cost); }
+    else { cls += ' locked'; costLabel = 'Cost: ' + fmt(u.cost); }
+    const desc = u.description || '';
+    return \`<button class="\${cls}" data-upgrade="\${u.id}">
         <div class="flex items-start gap-2">
           <span class="u-emoji">\${u.emoji}</span>
           <div class="flex-1 min-w-0">
@@ -552,11 +611,47 @@ const GAME_CLIENT_JS = `
           </div>
         </div>
       </button>\`;
-    }).join('');
+  }
+
+  function renderUpgrades() {
+    const root = document.getElementById('upgrades-list');
+    const owned = new Set(state.upgrades_owned);
+    const ownedUps = UPGRADES.filter(u => owned.has(u.id));
+    const unowned = UPGRADES.filter(u => !owned.has(u.id)).sort((a, b) => a.cost - b.cost);
+
+    // "In reach" = affordable or within ~4x of current glizzies; the cheapest
+    // unowned upgrade is always revealed so the list is never empty early on.
+    const cheapest = unowned.length ? unowned[0].cost : 0;
+    const threshold = Math.max(state.glizzies * 4, cheapest);
+    const reach = unowned.filter(u => u.cost <= threshold);
+    const far = unowned.filter(u => u.cost > threshold);
+
+    let html = reach.map(u => upgradeCardHtml(u, false)).join('');
+
+    if (far.length) {
+      html += showAllUpgrades
+        ? far.map(u => upgradeCardHtml(u, false)).join('') +
+          \`<button type="button" id="upg-showall" class="disclosure-toggle text-[11px] text-slate-500 hover:text-slate-300 py-1">show fewer ▴</button>\`
+        : \`<button type="button" id="upg-showall" class="disclosure-toggle text-[11px] text-slate-500 hover:text-slate-300 py-1">+ \${far.length} more upgrade\${far.length > 1 ? 's' : ''} ▾</button>\`;
+    }
+
+    if (ownedUps.length) {
+      html += \`<button type="button" id="upg-owned-toggle" class="disclosure-toggle flex items-center justify-between text-[11px] text-emerald-300/70 hover:text-emerald-300 py-1 mt-1">
+          <span>Owned ✓ (\${ownedUps.length})</span><span>\${showOwnedUpgrades ? '▾' : '▸'}</span>
+        </button>\`;
+      if (showOwnedUpgrades) {
+        html += '<div class="space-y-2 mt-1">' + ownedUps.map(u => upgradeCardHtml(u, true)).join('') + '</div>';
+      }
+    }
+
     root.innerHTML = html;
     root.querySelectorAll('[data-upgrade]').forEach(el => {
       el.addEventListener('click', () => buyUpgrade(el.dataset.upgrade));
     });
+    const sa = document.getElementById('upg-showall');
+    if (sa) sa.addEventListener('click', () => { showAllUpgrades = !showAllUpgrades; renderUpgrades(); });
+    const ot = document.getElementById('upg-owned-toggle');
+    if (ot) ot.addEventListener('click', () => { showOwnedUpgrades = !showOwnedUpgrades; renderUpgrades(); });
   }
 
   function rerender() {
@@ -678,9 +773,31 @@ const GAME_CLIENT_JS = `
     });
   }
 
+  // ----- collapsible section panels (persisted per-section) -----
+  function initCollapsibles() {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('glizzy_collapsed') || '{}'); } catch (e) {}
+    document.querySelectorAll('[data-collapse]').forEach(btn => {
+      const key = btn.dataset.collapse;
+      const body = document.querySelector('[data-collapse-body="' + key + '"]');
+      function apply(collapsed) {
+        btn.classList.toggle('collapsed', collapsed);
+        if (body) body.classList.toggle('hidden', collapsed);
+      }
+      apply(!!saved[key]);
+      btn.addEventListener('click', () => {
+        const collapsed = !btn.classList.contains('collapsed');
+        apply(collapsed);
+        saved[key] = collapsed;
+        try { localStorage.setItem('glizzy_collapsed', JSON.stringify(saved)); } catch (e) {}
+      });
+    });
+  }
+
   // Initial render
   recomputeRates();
   rerender();
+  initCollapsibles();
 })();
 </script>`;
 

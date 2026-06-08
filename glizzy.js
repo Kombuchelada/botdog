@@ -28,6 +28,10 @@ export const BUILDINGS = [
     description: "Mobile vendor that chases the crowds. Mid-tier earner — the workhorse of mid-game." },
   { id: "stadium", name: "Stadium Vendor", emoji: "🏟️", base_cost: 130000, base_rate: 260.0,
     description: "Concession empire. Top-tier production — the endgame goal until you unlock Hot Dog Pope." },
+  { id: "franchise", name: "Glizzy Franchise", emoji: "🏪", base_cost: 1500000, base_rate: 1400.0,
+    description: "A nationwide chain of glizzy joints. Royalties roll in 24/7 — the late-game workhorse." },
+  { id: "orbital_station", name: "Orbital Glizzy Station", emoji: "🛰️", base_cost: 20000000, base_rate: 8000.0,
+    description: "Zero-G dogs, mass-produced in orbit. The frontier of frankfurters." },
 ];
 
 const BUILDING_IDS = BUILDINGS.map((b) => b.id);
@@ -64,6 +68,21 @@ export const UPGRADES = [
   { id: "hot_dog_pope", name: "Hot Dog Pope", emoji: "⛪", cost: 50000000,
     description: "Doubles everything — all buildings AND click power. The endgame.",
     effect: { type: "global_mult", value: 2 } },
+  { id: "franchise_playbook", name: "Franchise Playbook", emoji: "📈", cost: 160000000,
+    description: "Glizzy Franchise production ×2.",
+    effect: { type: "building_mult", building: "franchise", value: 2 } },
+  { id: "reinforced_casing", name: "Reinforced Casing", emoji: "🚀", cost: 2100000000,
+    description: "Orbital Glizzy Station production ×2.",
+    effect: { type: "building_mult", building: "orbital_station", value: 2 } },
+  { id: "golden_tongs", name: "Golden Tongs", emoji: "🥇", cost: 5000000,
+    description: "Click power ×7 (stacks with other click upgrades).",
+    effect: { type: "click_mult", value: 7 } },
+  { id: "assembly_line", name: "Assembly Line", emoji: "⚙️", cost: 8000000,
+    description: "All production +25% (multiplicative).",
+    effect: { type: "global_mult", value: 1.25 } },
+  { id: "vertical_integration", name: "Vertical Integration", emoji: "🔗", cost: 12000000,
+    description: "All production +0.1% per building owned. Scales with your total building count.",
+    effect: { type: "global_per_building", value: 0.001 } },
 ];
 
 const UPGRADE_BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -273,6 +292,10 @@ export function computeEffectiveRates(state, bonuses) {
     else if (e.type === "click_per_building") {
       const totalBuildings = BUILDING_IDS.reduce((s, b) => s + (state.buildings?.[b] || 0), 0);
       clickAdditive += totalBuildings * e.value;
+    }
+    else if (e.type === "global_per_building") {
+      const totalBuildings = BUILDING_IDS.reduce((s, b) => s + (state.buildings?.[b] || 0), 0);
+      globalMult *= 1 + totalBuildings * e.value;
     }
   }
 
