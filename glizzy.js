@@ -103,6 +103,8 @@ function blankState() {
     total_clicks: 0,
     buildings,
     upgrades_owned: [],
+    golden_effects: [],
+    last_golden_at: null,
     last_seen_at: new Date().toISOString(),
   };
 }
@@ -176,6 +178,196 @@ export const ALL_BONUSES = [
 ];
 
 const BONUS_DEF_BY_ID = new Map(ALL_BONUSES.map((b) => [b.id, b]));
+
+// ============================================================================
+// Golden Glizzy — random spawn the player clicks for a one-shot reward
+// ============================================================================
+//
+// A golden glizzy fades onto the screen, stays clickable for ~30s, then fades
+// away. Clicking it calls the server, which rolls ONE reward from the weighted
+// table below. Rewards are server-authoritative: timed multipliers are written
+// into state.golden_effects (so the anti-cheat budget accounts for the buffed
+// earnings) and instant grants are credited directly. The client never decides
+// the reward — it only renders what the server returns.
+//
+// `weight` is out of GOLDEN_TOTAL_WEIGHT (1000). The mega reward is 1/1000.
+
+// Local-only fast mode for demoing the feature (set GLIZZY_TEST_MODE=1). Spawns
+// golden glizzies every few seconds and drops the server claim floor so every
+// reward type can be seen quickly. NEVER set this in production.
+const GOLDEN_TEST_MODE = process.env.GLIZZY_TEST_MODE === "1";
+
+export const GOLDEN_SPAWN = GOLDEN_TEST_MODE
+  ? { minIntervalSec: 6, maxIntervalSec: 14, visibleSec: 30 }
+  : {
+      // Client-side spawn cadence (random in this range) + how long it stays clickable.
+      minIntervalSec: 240,
+      maxIntervalSec: 720,
+      visibleSec: 30,
+    };
+
+// Server floor between two accepted claims — stops a script from farming the
+// endpoint faster than golden glizzies could ever legitimately appear.
+const GOLDEN_CLAIM_FLOOR_MS = (GOLDEN_TEST_MODE ? 3 : 200) * 1000;
+
+// Rarest → commonest. Weights sum to 1000 (mega = exactly 1/1000). Magnitudes
+// are tuned against real player data: every reward scales with PRODUCTION (not
+// hoarded bank — most active players keep tiny banks), rarer rewards pay more,
+// and no single common reward dominates expected value. The trailing comment on
+// each line is roughly what it's worth in "minutes of production".
+export const GOLDEN_BONUSES = [
+  {
+    id: "golden_rush", emoji: "🌠", name: "GOLDEN RUSH", weight: 1, mega: true,
+    kind: "prod_mult", mult: 500, durationSec: 10,
+    blurb: "×500 production for 10 seconds",
+  }, // ≈ 83 min
+  {
+    id: "super_frenzy", emoji: "⚡", name: "Super Frenzy", weight: 90,
+    kind: "prod_mult", mult: 13, durationSec: 120,
+    blurb: "×13 production for 2 minutes",
+  }, // ≈ 24 min
+  {
+    id: "overdrive", emoji: "⚙️", name: "Overdrive", weight: 180,
+    kind: "building_mult", mult: 7, durationSec: 180,
+    blurb: "Your best building ×7 for 3 minutes",
+  }, // ≈ 14 min
+  {
+    id: "frenzy", emoji: "🔥", name: "Frenzy", weight: 280,
+    kind: "prod_mult", mult: 4, durationSec: 180,
+    blurb: "×4 production for 3 minutes",
+  }, // ≈ 9 min
+  {
+    id: "cash_splash", emoji: "💰", name: "Cash Splash", weight: 200,
+    kind: "prod_seconds", seconds: 360,
+    blurb: "Instant glizzies — 6 minutes of production",
+  }, // ≈ 6 min
+  {
+    id: "lucky", emoji: "🍀", name: "Lucky!", weight: 249,
+    kind: "bank_pct", pct: 0.20, capSec: 600, floorSec: 120,
+    blurb: "Free glizzies — 20% of your bank",
+  }, // 2–10 min (floored/capped to production)
+];
+
+const GOLDEN_TOTAL_WEIGHT = GOLDEN_BONUSES.reduce((s, b) => s + b.weight, 0);
+const GOLDEN_BY_ID = new Map(GOLDEN_BONUSES.map((b) => [b.id, b]));
+
+function rollGoldenBonus() {
+  let r = Math.random() * GOLDEN_TOTAL_WEIGHT;
+  for (const b of GOLDEN_BONUSES) {
+    if ((r -= b.weight) < 0) return b;
+  }
+  return GOLDEN_BONUSES[GOLDEN_BONUSES.length - 1];
+}
+
+/** Drop expired buffs from a state's golden_effects array (mutates + returns). */
+function pruneGoldenEffects(state, now = Date.now()) {
+  state.golden_effects = (state.golden_effects || []).filter(
+    (g) => g && new Date(g.expires_at).getTime() > now,
+  );
+  return state.golden_effects;
+}
+
+// Buffs in the same group don't stack — a new one replaces the old (newest
+// wins). All global production multipliers (Frenzy/Super Frenzy/Golden Rush)
+// share the "prod" group, so e.g. two ×4 Frenzies never compound to ×16.
+// Building boosts only conflict with another boost on the *same* building, and a
+// building boost still combines with a global Frenzy (different effect, not a stack).
+function buffGroup(e) {
+  if (e.kind === "building_mult") return "building:" + e.building;
+  if (e.kind === "click_mult") return "click";
+  return "prod"; // prod_mult
+}
+function addGoldenBuff(state, effect) {
+  const group = buffGroup(effect);
+  state.golden_effects = (state.golden_effects || []).filter((x) => buffGroup(x) !== group);
+  state.golden_effects.push(effect);
+}
+
+/**
+ * Roll + apply a golden glizzy reward for a user. Server-authoritative.
+ * Returns { ok, ...reward, state, bonuses, rates } on success, or
+ * { ok: false, reason, retryAfterMs } if claimed too soon.
+ */
+export function claimGoldenGlizzy(userId) {
+  const state = readStateFromDb(userId) || blankState();
+  const now = Date.now();
+
+  const last = state.last_golden_at ? new Date(state.last_golden_at).getTime() : 0;
+  if (Number.isFinite(last) && now - last < GOLDEN_CLAIM_FLOOR_MS) {
+    return { ok: false, reason: "too_soon", retryAfterMs: GOLDEN_CLAIM_FLOOR_MS - (now - last) };
+  }
+
+  pruneGoldenEffects(state, now);
+  let def = rollGoldenBonus();
+
+  const reward = { ok: true, id: def.id, name: def.name, emoji: def.emoji, mega: !!def.mega };
+
+  if (def.kind === "bank_pct") {
+    // A % of the bank, but floored/capped to a band of current production so it
+    // is never a dud for active (low-bank) players nor a jackpot for hoarders.
+    const r = computeEffectiveRates(state, computeBonuses(userId));
+    const raw = (state.glizzies || 0) * def.pct;
+    const grant = Math.floor(
+      Math.min(Math.max(raw, r.perSecond * def.floorSec), r.perSecond * def.capSec),
+    );
+    state.glizzies = (state.glizzies || 0) + grant;
+    state.lifetime = (state.lifetime || 0) + grant;
+    reward.granted = grant;
+    reward.message = `+${grant.toLocaleString()} glizzies`;
+  } else if (def.kind === "prod_seconds") {
+    // Instant grant worth N seconds of the player's current production.
+    const bonuses = computeBonuses(userId);
+    const r = computeEffectiveRates(state, bonuses);
+    const grant = Math.floor(r.perSecond * def.seconds);
+    state.glizzies = (state.glizzies || 0) + grant;
+    state.lifetime = (state.lifetime || 0) + grant;
+    reward.granted = grant;
+    reward.message = `+${grant.toLocaleString()} glizzies (${Math.round(def.seconds / 60)} min of production)`;
+  } else if (def.kind === "building_mult") {
+    // Boost the player's top-producing owned building. If they own nothing yet,
+    // fall back to a Frenzy so the reward is never a complete dud.
+    const bonuses = computeBonuses(userId);
+    const r = computeEffectiveRates(state, bonuses);
+    let top = null, topProd = -1;
+    for (const b of BUILDINGS) {
+      if ((state.buildings?.[b.id] || 0) > 0 && r.buildingProduction[b.id] > topProd) {
+        topProd = r.buildingProduction[b.id];
+        top = b;
+      }
+    }
+    if (top) {
+      const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+      addGoldenBuff(state, { kind: "building_mult", building: top.id, mult: def.mult, expires_at });
+      reward.building = top.id;
+      reward.buildingName = top.name;
+      reward.mult = def.mult;
+      reward.durationSec = def.durationSec;
+      reward.expires_at = expires_at;
+      reward.message = `${top.name} ×${def.mult} for ${Math.round(def.durationSec / 60)} min`;
+    } else {
+      def = GOLDEN_BY_ID.get("frenzy");
+      const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+      addGoldenBuff(state, { kind: "prod_mult", mult: def.mult, expires_at });
+      reward.id = def.id; reward.name = def.name; reward.emoji = def.emoji;
+      reward.mult = def.mult; reward.durationSec = def.durationSec; reward.expires_at = expires_at;
+      reward.message = def.blurb;
+    }
+  } else {
+    // Timed global / click multiplier.
+    const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+    addGoldenBuff(state, { kind: def.kind, mult: def.mult, expires_at });
+    reward.mult = def.mult;
+    reward.durationSec = def.durationSec;
+    reward.expires_at = expires_at;
+    reward.message = def.blurb;
+  }
+
+  state.last_golden_at = new Date(now).toISOString();
+  writeStateToDb(userId, state);
+
+  const bonuses = computeBonuses(userId);
+  return { ...reward, state, bonuses, rates: computeEffectiveRates(state, bonuses) };
+}
 
 // ============================================================================
 // Bonus computation from hotdog_events
@@ -307,6 +499,17 @@ export function computeEffectiveRates(state, bonuses) {
     else if (e.type === "global_mult") globalMult *= e.value;
   }
 
+  // Active golden-glizzy buffs (server-recorded in state, expire by timestamp).
+  const goldNow = Date.now();
+  for (const g of state.golden_effects || []) {
+    if (!g || new Date(g.expires_at).getTime() <= goldNow) continue;
+    if (g.kind === "prod_mult") globalMult *= g.mult;
+    else if (g.kind === "click_mult") clickPower *= g.mult;
+    else if (g.kind === "building_mult" && buildingMult[g.building] !== undefined) {
+      buildingMult[g.building] *= g.mult;
+    }
+  }
+
   const effectivePerClick = (clickPower + clickAdditive) * globalMult;
 
   let perSecond = 0;
@@ -374,6 +577,7 @@ export function loadGameForUser(userId) {
     isNew = true;
     writeStateToDb(userId, state);
   }
+  pruneGoldenEffects(state);
   const bonuses = computeBonuses(userId);
   const rates = computeEffectiveRates(state, bonuses);
   const offlineEarned = isNew ? 0 : computeOfflineEarned(state, rates.perSecond);
@@ -482,6 +686,12 @@ export function validateAndClampSave(userId, incoming) {
   const earningsThisTick = Math.max(0, out.glizzies - prevGlizzies) + finalSpending;
   const cappedEarnings = Math.min(earningsThisTick, maxEarnedSincePrev);
   out.lifetime = Math.max(previous.lifetime || 0, (previous.lifetime || 0) + cappedEarnings);
+
+  // ----- 8. Golden glizzy fields are server-owned — never trust the client.
+  //          Carry them forward from the previous state (pruning expired buffs).
+  out.last_golden_at = previous.last_golden_at || null;
+  out.golden_effects = previous.golden_effects || [];
+  pruneGoldenEffects(out);
 
   out.last_seen_at = new Date().toISOString();
   writeStateToDb(userId, out);

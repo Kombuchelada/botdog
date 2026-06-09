@@ -3,11 +3,13 @@ import { getSessionUserId, requireGameSession } from "./oauth.js";
 import {
   loadGameForUser,
   validateAndClampSave,
+  claimGoldenGlizzy,
   getLeaderboardRows,
   getPlayerSummary,
   BUILDINGS,
   UPGRADES,
   ALL_BONUSES,
+  GOLDEN_SPAWN,
 } from "./glizzy.js";
 import { getUserProfileStmt } from "./database.js";
 
@@ -132,6 +134,45 @@ const HERO_SVG = `
     <path d="M 145 136 Q 160 145 175 136" stroke="#1a1a1a" stroke-width="3" fill="none" stroke-linecap="round"/>
     <circle cx="105" cy="135" r="5" fill="#e25822" opacity="0.45"/>
     <circle cx="215" cy="135" r="5" fill="#e25822" opacity="0.45"/>
+  </g>
+</svg>`;
+
+const GOLDEN_SVG = `
+<svg viewBox="0 0 320 240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="goldBun" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#fff6c2"/>
+      <stop offset="50%" stop-color="#ffd24a"/>
+      <stop offset="100%" stop-color="#b8860b"/>
+    </linearGradient>
+    <linearGradient id="goldSausage" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#ffe89a"/>
+      <stop offset="55%" stop-color="#e8b923"/>
+      <stop offset="100%" stop-color="#9a6b04"/>
+    </linearGradient>
+    <radialGradient id="goldHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fff7cc" stop-opacity="0.95"/>
+      <stop offset="55%" stop-color="#ffd24a" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#ffd24a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <ellipse cx="160" cy="150" rx="150" ry="110" fill="url(#goldHalo)"/>
+  <g>
+    <rect x="22" y="125" width="276" height="78" rx="39" fill="url(#goldBun)"/>
+    <rect x="38" y="92" width="244" height="58" rx="29" fill="url(#goldSausage)"/>
+  </g>
+  <ellipse cx="160" cy="105" rx="105" ry="5" fill="rgba(255,255,230,0.7)"/>
+  <path d="M 60 116 L 80 100 L 100 116 L 120 100 L 140 116 L 160 100 L 180 116 L 200 100 L 220 116 L 240 100 L 260 116"
+        stroke="#fff7cc" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>
+  <g>
+    <circle cx="125" cy="122" r="7" fill="#fff"/><circle cx="127" cy="124" r="3.5" fill="#3a2a08"/>
+    <circle cx="195" cy="122" r="7" fill="#fff"/><circle cx="197" cy="124" r="3.5" fill="#3a2a08"/>
+    <path d="M 142 134 Q 160 150 178 134" stroke="#3a2a08" stroke-width="3" fill="none" stroke-linecap="round"/>
+  </g>
+  <g fill="#fff7cc">
+    <path d="M 50 40 l 4 10 l 10 4 l -10 4 l -4 10 l -4 -10 l -10 -4 l 10 -4 z"/>
+    <path d="M 270 50 l 3 8 l 8 3 l -8 3 l -3 8 l -3 -8 l -8 -3 l 8 -3 z"/>
+    <path d="M 240 30 l 2 6 l 6 2 l -6 2 l -2 6 l -2 -6 l -6 -2 l 6 -2 z"/>
   </g>
 </svg>`;
 
@@ -313,6 +354,37 @@ const STYLES = `
     0% { box-shadow: 0 0 0 0 rgba(255,107,53,0.5); }
     100% { box-shadow: 0 0 0 24px rgba(255,107,53,0); }
   }
+  /* Golden glizzy — random spawn the player clicks for a reward */
+  #golden-glizzy {
+    position: fixed; z-index: 60; width: 150px; max-width: 40vw; cursor: pointer;
+    opacity: 0; transform: scale(0.6) rotate(-8deg);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+    filter: drop-shadow(0 0 18px rgba(255,210,74,0.7)) drop-shadow(0 0 40px rgba(255,210,74,0.4));
+    pointer-events: none; user-select: none; -webkit-user-select: none;
+  }
+  #golden-glizzy.show { opacity: 1; transform: scale(1) rotate(0deg); pointer-events: auto; }
+  #golden-glizzy.show { animation: goldenbob 2.4s ease-in-out infinite; }
+  #golden-glizzy:active { transform: scale(0.9); }
+  @keyframes goldenbob {
+    0%,100% { translate: 0 0; } 50% { translate: 0 -12px; }
+  }
+  #golden-toast {
+    position: fixed; left: 50%; top: 80px; transform: translateX(-50%) translateY(-20px);
+    z-index: 70; opacity: 0; pointer-events: none; transition: opacity 0.4s ease, transform 0.4s ease;
+    background: linear-gradient(135deg, #1a1407, #2a1e08);
+    border: 1px solid rgba(255,210,74,0.6); border-radius: 14px;
+    padding: 14px 22px; text-align: center; box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    max-width: 90vw;
+  }
+  #golden-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #golden-toast.mega { border-color: #ffd24a; box-shadow: 0 0 50px rgba(255,210,74,0.6); animation: megapulse 0.8s ease-out infinite; }
+  @keyframes megapulse { 0%,100% { box-shadow: 0 0 40px rgba(255,210,74,0.5); } 50% { box-shadow: 0 0 70px rgba(255,210,74,0.9); } }
+  .buff-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; color: #1a1407;
+    background: linear-gradient(135deg, #ffe89a, #ffd24a); white-space: nowrap;
+  }
+  .buff-chip.mega { background: linear-gradient(135deg, #fff, #ffd24a); animation: megapulse 0.8s ease-out infinite; }
   /* Subtle scrollbars on the sticky side panels — invisible until you hover/scroll */
   .game-scrollcol { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.2) transparent; }
   .game-scrollcol::-webkit-scrollbar { width: 6px; }
@@ -355,6 +427,7 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
     state, bonuses, rates, offlineEarned,
     buildings: BUILDINGS, upgrades: UPGRADES,
     buildingSvgs: BUILDING_SVGS,
+    goldenSpawn: GOLDEN_SPAWN,
   }).replace(/</g, "\\u003c");
 
   return `<!doctype html>
@@ -365,9 +438,10 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
 ${NAV}
 <main class="max-w-7xl mx-auto px-4 md:px-6 py-6">
   <div class="sticky top-14 z-40 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 mb-4 bg-slate-950/95 backdrop-blur border-b border-slate-800/60 flex items-center justify-between">
-    <div class="flex items-baseline gap-3">
+    <div class="flex items-baseline gap-3 flex-wrap">
       <div class="text-4xl font-bold text-white tabular-nums" id="glizzies-display">0</div>
       <div class="text-slate-400 text-sm">glizzies · <span id="pps-display" class="text-accent">0/s</span></div>
+      <div id="buffs-bar" class="flex items-center gap-1.5"></div>
     </div>
     <div class="flex items-center gap-3">
       <span class="hidden sm:inline text-sm text-slate-300">${esc(displayName)}</span>
@@ -459,6 +533,9 @@ ${NAV}
   </div>
 </main>
 
+<div id="golden-glizzy" title="A golden glizzy! Click it!">${GOLDEN_SVG}</div>
+<div id="golden-toast"></div>
+
 <div id="offline-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
   <div class="card p-8 max-w-md text-center mx-4">
     <div class="text-5xl mb-3">🌭</div>
@@ -534,6 +611,14 @@ const GAME_CLIENT_JS = `
       if (e.type === 'click_mult') clickPower *= e.value;
       else if (e.type === 'building_mult') buildingMult[e.building] *= e.value;
       else if (e.type === 'global_mult') globalMult *= e.value;
+    }
+    // Active golden-glizzy buffs (mirrors glizzy.js — expire by timestamp).
+    const gNow = Date.now();
+    for (const g of (state.golden_effects || [])) {
+      if (!g || new Date(g.expires_at).getTime() <= gNow) continue;
+      if (g.kind === 'prod_mult') globalMult *= g.mult;
+      else if (g.kind === 'click_mult') clickPower *= g.mult;
+      else if (g.kind === 'building_mult' && buildingMult[g.building] !== undefined) buildingMult[g.building] *= g.mult;
     }
     const perClick = (clickPower + clickAdd) * globalMult;
     let perSecond = 0;
@@ -805,9 +890,120 @@ const GAME_CLIENT_JS = `
     });
   }
 
+  // ----- golden glizzy: active buff chips -----
+  function buffLabel(g) {
+    const secs = Math.max(0, Math.ceil((new Date(g.expires_at).getTime() - Date.now()) / 1000));
+    const t = secs >= 60 ? Math.ceil(secs / 60) + 'm' : secs + 's';
+    if (g.kind === 'prod_mult') {
+      const mega = g.mult >= 100;
+      return { mega, html: (mega ? '🌠' : '🔥') + ' ×' + fmt(g.mult) + ' prod · ' + t };
+    }
+    if (g.kind === 'click_mult') return { mega: false, html: '👆 ×' + fmt(g.mult) + ' click · ' + t };
+    if (g.kind === 'building_mult') {
+      const b = BUILDINGS.find(x => x.id === g.building);
+      return { mega: false, html: '⚙️ ' + (b ? b.name : 'Building') + ' ×' + fmt(g.mult) + ' · ' + t };
+    }
+    return { mega: false, html: '✨ buff · ' + t };
+  }
+  function renderBuffs() {
+    const bar = document.getElementById('buffs-bar');
+    if (!bar) return;
+    const now = Date.now();
+    const active = (state.golden_effects || []).filter(g => g && new Date(g.expires_at).getTime() > now);
+    if (active.length !== (state.golden_effects || []).length) {
+      state.golden_effects = active;  // prune client-side; rates recompute below
+      recomputeRates();
+    }
+    bar.innerHTML = active.map(g => {
+      const l = buffLabel(g);
+      return '<span class="buff-chip' + (l.mega ? ' mega' : '') + '">' + l.html + '</span>';
+    }).join('');
+  }
+  setInterval(renderBuffs, 1000);
+
+  // ----- golden glizzy: toast -----
+  let toastTimer = null;
+  function showGoldenToast(data) {
+    const toast = document.getElementById('golden-toast');
+    if (!toast) return;
+    const mega = !!data.mega;
+    toast.className = mega ? 'mega' : '';
+    toast.innerHTML =
+      '<div style="font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:' + (mega ? '#ffd24a' : '#ffe89a') + '">' +
+        (mega ? '✨ MEGA GOLDEN GLIZZY ✨' : 'Golden Glizzy') + '</div>' +
+      '<div style="font-size:22px;font-weight:800;color:#fff;margin-top:2px">' + data.emoji + ' ' + data.name + '</div>' +
+      '<div style="font-size:14px;color:#fde68a;margin-top:2px">' + (data.message || '') + '</div>';
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), mega ? 8000 : 5000);
+  }
+
+  // ----- golden glizzy: claim -----
+  async function claimGolden() {
+    try {
+      if (dirty) await save();  // flush local earnings so the server's bank is fresh (for Lucky!)
+      const res = await fetch('/api/game/golden', { method: 'POST' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || !data.ok) return;  // e.g. claimed too soon
+      state = data.state;
+      bonuses = data.bonuses;
+      recomputeRates();
+      rerender();
+      renderBuffs();
+      showGoldenToast(data);
+      try { localStorage.setItem('glizzy_backup', JSON.stringify(state)); } catch (e) {}
+    } catch (e) { console.warn('golden claim failed', e); }
+  }
+
+  // ----- golden glizzy: spawn scheduler -----
+  const GS = G.goldenSpawn || { minIntervalSec: 240, maxIntervalSec: 720, visibleSec: 30 };
+  const goldenEl = document.getElementById('golden-glizzy');
+  let goldenVisible = false;
+  let goldenHideTimer = null;
+
+  function placeGolden() {
+    // Keep clear of the sticky top bar and screen edges.
+    const w = goldenEl.offsetWidth || 150;
+    const h = goldenEl.offsetHeight || 112;
+    const maxLeft = Math.max(20, window.innerWidth - w - 20);
+    const minTop = 110;
+    const maxTop = Math.max(minTop + 1, window.innerHeight - h - 30);
+    goldenEl.style.left = (20 + Math.random() * (maxLeft - 20)) + 'px';
+    goldenEl.style.top = (minTop + Math.random() * (maxTop - minTop)) + 'px';
+  }
+  function hideGolden(reschedule) {
+    goldenVisible = false;
+    goldenEl.classList.remove('show');
+    clearTimeout(goldenHideTimer);
+    if (reschedule) scheduleGolden();
+  }
+  function spawnGolden() {
+    if (goldenVisible || document.hidden) { scheduleGolden(); return; }
+    goldenVisible = true;
+    placeGolden();
+    goldenEl.classList.add('show');
+    goldenHideTimer = setTimeout(() => hideGolden(true), (GS.visibleSec || 30) * 1000);
+  }
+  function scheduleGolden() {
+    const span = (GS.maxIntervalSec - GS.minIntervalSec) || 0;
+    const delay = (GS.minIntervalSec + Math.random() * span) * 1000;
+    setTimeout(spawnGolden, delay);
+  }
+  if (goldenEl) {
+    goldenEl.addEventListener('click', () => {
+      if (!goldenVisible) return;
+      hideGolden(true);
+      claimGolden();
+    });
+    scheduleGolden();
+    window.__spawnGolden = spawnGolden;  // manual trigger for testing from the console
+  }
+
   // Initial render
   recomputeRates();
   rerender();
+  renderBuffs();
   initCollapsibles();
 })();
 </script>`;
@@ -906,6 +1102,10 @@ export function registerGame(app) {
   app.post("/api/game/save", requireGameSession, express.json({ limit: "32kb" }), (req, res) => {
     const result = validateAndClampSave(req.gameUserId, req.body || {});
     res.json(result);
+  });
+
+  app.post("/api/game/golden", requireGameSession, (req, res) => {
+    res.json(claimGoldenGlizzy(req.gameUserId));
   });
 
   app.get("/api/game/leaderboard", (req, res) => {

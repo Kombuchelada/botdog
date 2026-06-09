@@ -46,8 +46,8 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` returns the public CDN URL. `deletePrefix(prefix)` for bulk cleanup. |
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
-| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS` (5), `UPGRADES` (10), `ALL_BONUSES` (7). `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat. |
-| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on close. Public leaderboard at `/game/leaderboard`. |
+| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
+| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on close. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`. |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -141,6 +141,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 | Var | Notes |
 |---|---|
 | `DB_PATH` | Defaults to `/database/data.db`. Override to `./hotdog-data.db` for local testing. |
+| `GLIZZY_TEST_MODE` | Local only. `=1` makes golden glizzies spawn every 6–14s and drops the claim floor so the feature is demoable in seconds. **Never set in prod.** See `docs/golden-glizzy.md`. |
 | `NIXPACKS_NODE_VERSION` | Pin to `22` (also in `package.json:engines.node`) |
 | `NPM_CONFIG_OMIT=dev` + `NPM_CONFIG_PRODUCTION=` (empty) | Cosmetic — silences the npm deprecation warning during deploy |
 
