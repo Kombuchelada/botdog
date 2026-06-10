@@ -294,6 +294,79 @@ const BUILDING_SVGS = {
   <ellipse cx="40" cy="62" rx="6" ry="9" fill="#ff6b35" opacity="0.7"/>
   <ellipse cx="40" cy="60" rx="3" ry="5" fill="#fff4cc" opacity="0.9"/>
 </svg>`,
+  glizzy_megaplex: `
+<svg viewBox="0 0 80 80">
+  <!-- Skyscraper -->
+  <rect x="24" y="10" width="32" height="60" fill="#e25822"/>
+  <rect x="24" y="10" width="32" height="60" fill="#ff6b35" opacity="0.5"/>
+  <rect x="20" y="6" width="40" height="6" fill="#c44536"/>
+  <!-- Window grid -->
+  <g fill="#f7c02e" opacity="0.85">
+    <rect x="28" y="16" width="6" height="6"/><rect x="38" y="16" width="6" height="6"/><rect x="48" y="16" width="6" height="6"/>
+    <rect x="28" y="26" width="6" height="6"/><rect x="38" y="26" width="6" height="6"/><rect x="48" y="26" width="6" height="6"/>
+    <rect x="28" y="36" width="6" height="6"/><rect x="38" y="36" width="6" height="6"/><rect x="48" y="36" width="6" height="6"/>
+    <rect x="28" y="46" width="6" height="6"/><rect x="38" y="46" width="6" height="6"/><rect x="48" y="46" width="6" height="6"/>
+  </g>
+  <rect x="36" y="58" width="8" height="12" fill="#3a1a0e"/>
+  <!-- Rooftop dog sign -->
+  <rect x="34" y="0" width="12" height="6" rx="3" fill="#c44536"/>
+</svg>`,
+  quantum_kitchen: `
+<svg viewBox="0 0 80 80">
+  <!-- Nucleus -->
+  <circle cx="40" cy="40" r="7" fill="#ff6b35"/>
+  <circle cx="40" cy="40" r="3" fill="#fff4cc"/>
+  <!-- Electron orbits -->
+  <g stroke="#f7c02e" stroke-width="2" fill="none" opacity="0.9">
+    <ellipse cx="40" cy="40" rx="30" ry="12"/>
+    <ellipse cx="40" cy="40" rx="30" ry="12" transform="rotate(60 40 40)"/>
+    <ellipse cx="40" cy="40" rx="30" ry="12" transform="rotate(120 40 40)"/>
+  </g>
+  <circle cx="70" cy="40" r="3" fill="#e25822"/>
+  <circle cx="25" cy="16" r="3" fill="#e25822"/>
+  <circle cx="25" cy="64" r="3" fill="#e25822"/>
+</svg>`,
+  dyson_grill: `
+<svg viewBox="0 0 80 80">
+  <!-- Star core -->
+  <circle cx="40" cy="40" r="16" fill="#ff6b35"/>
+  <circle cx="40" cy="40" r="10" fill="#f7c02e"/>
+  <circle cx="40" cy="40" r="5" fill="#fff4cc"/>
+  <!-- Collector ring -->
+  <ellipse cx="40" cy="40" rx="34" ry="12" fill="none" stroke="#5a5a78" stroke-width="4"/>
+  <ellipse cx="40" cy="40" rx="34" ry="12" fill="none" stroke="#2b4a8a" stroke-width="2"/>
+  <!-- Panel nodes on ring -->
+  <rect x="70" y="36" width="6" height="8" fill="#2b4a8a"/>
+  <rect x="4" y="36" width="6" height="8" fill="#2b4a8a"/>
+  <rect x="37" y="27" width="6" height="6" fill="#2b4a8a" opacity="0.7"/>
+</svg>`,
+  black_hole_bun: `
+<svg viewBox="0 0 80 80">
+  <!-- Accretion disk -->
+  <ellipse cx="40" cy="40" rx="34" ry="12" fill="none" stroke="#ff6b35" stroke-width="5" opacity="0.8"/>
+  <ellipse cx="40" cy="40" rx="26" ry="9" fill="none" stroke="#f7c02e" stroke-width="4" opacity="0.7"/>
+  <!-- Bun glow above/below the rim -->
+  <path d="M 14 40 Q 40 30 66 40" fill="none" stroke="#c98a3e" stroke-width="3" opacity="0.6"/>
+  <!-- Event horizon -->
+  <circle cx="40" cy="40" r="13" fill="#020617"/>
+  <circle cx="40" cy="40" r="13" fill="none" stroke="#ffae7a" stroke-width="1.5" opacity="0.8"/>
+</svg>`,
+  multiverse_glizzy: `
+<svg viewBox="0 0 80 80">
+  <!-- Portals -->
+  <ellipse cx="26" cy="30" rx="14" ry="16" fill="#3b2a6b"/>
+  <ellipse cx="26" cy="30" rx="8" ry="10" fill="#ff6b35" opacity="0.8"/>
+  <ellipse cx="54" cy="34" rx="13" ry="15" fill="#2b4a8a"/>
+  <ellipse cx="54" cy="34" rx="7" ry="9" fill="#f7c02e" opacity="0.8"/>
+  <ellipse cx="40" cy="56" rx="15" ry="14" fill="#7a2f1c"/>
+  <ellipse cx="40" cy="56" rx="9" ry="8" fill="#ffae7a" opacity="0.85"/>
+  <!-- Dogs through the portals -->
+  <rect x="22" y="27" width="10" height="6" rx="3" fill="#c44536"/>
+  <rect x="50" y="31" width="9" height="5" rx="2.5" fill="#c44536"/>
+  <!-- Sparks -->
+  <circle cx="14" cy="14" r="1.4" fill="#fff" opacity="0.8"/>
+  <circle cx="68" cy="16" r="1.4" fill="#fff" opacity="0.7"/>
+</svg>`,
 };
 
 const STYLES = `

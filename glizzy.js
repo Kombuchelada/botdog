@@ -32,12 +32,22 @@ export const BUILDINGS = [
     description: "A nationwide chain of glizzy joints. Royalties roll in 24/7 — the late-game workhorse." },
   { id: "orbital_station", name: "Orbital Glizzy Station", emoji: "🛰️", base_cost: 20000000, base_rate: 8000.0,
     description: "Zero-G dogs, mass-produced in orbit. The frontier of frankfurters." },
+  { id: "glizzy_megaplex", name: "Glizzy Megaplex", emoji: "🏢", base_cost: 250000000, base_rate: 44000.0,
+    description: "A 200-story tower that is glizzies all the way down. Where the orbital frontier becomes an empire." },
+  { id: "quantum_kitchen", name: "Quantum Kitchen", emoji: "⚛️", base_cost: 3300000000, base_rate: 250000.0,
+    description: "Cooks every possible hot dog at once, then collapses the wavefunction onto the tastiest. Probably." },
+  { id: "dyson_grill", name: "Dyson Grill", emoji: "☀️", base_cost: 45000000000, base_rate: 1400000.0,
+    description: "A megastructure that grills with the full output of a star. Char marks visible from neighboring systems." },
+  { id: "black_hole_bun", name: "Black Hole Bun", emoji: "🕳️", base_cost: 600000000000, base_rate: 8000000.0,
+    description: "Condiments fall in and never escape; glizzies radiate out forever. Late-late-game heavy hitter." },
+  { id: "multiverse_glizzy", name: "Multiverse Glizzy Cartel", emoji: "🌌", base_cost: 8000000000000, base_rate: 45000000.0,
+    description: "Franchises across every parallel universe, paying royalties into this one. The true endgame — owning even a few is a flex." },
 ];
 
 const BUILDING_IDS = BUILDINGS.map((b) => b.id);
 const COST_SCALE = 1.15;
 
-export const UPGRADES = [
+const CORE_UPGRADES = [
   { id: "sharper_knife", name: "Sharper Knife", emoji: "🔪", cost: 100,
     description: "Doubles your click power.",
     effect: { type: "click_mult", value: 2 } },
@@ -83,6 +93,125 @@ export const UPGRADES = [
   { id: "vertical_integration", name: "Vertical Integration", emoji: "🔗", cost: 12000000,
     description: "All production +0.1% per building owned. Scales with your total building count.",
     effect: { type: "global_per_building", value: 0.001 } },
+];
+
+// ----------------------------------------------------------------------------
+// Generated upgrade catalog (Cookie-Clicker-scale). The live data showed every
+// elite player had maxed all 15 CORE_UPGRADES while sitting on trillions of
+// lifetime glizzies — the whole tree cost <0.1% of their lifetime. These extend
+// the tree into the Qa/Qi range so "own every upgrade" is genuinely elite-only.
+// All of these use effect types the engine already understands, except the
+// building_synergy block (handled in computeEffectiveRates below).
+// ----------------------------------------------------------------------------
+
+const BUILDING_NAME = Object.fromEntries(BUILDINGS.map((b) => [b.id, b.name]));
+const BUILDING_BASE_COST = Object.fromEntries(BUILDINGS.map((b) => [b.id, b.base_cost]));
+const NEW_BUILDING_IDS = new Set([
+  "glizzy_megaplex", "quantum_kitchen", "dyson_grill", "black_hole_bun", "multiverse_glizzy",
+]);
+
+// Per-building ×2 production ladders. Old buildings already ship rung 1 (e.g.
+// "Better Mustard"), so they only get rungs 2–4; the five new buildings get the
+// full 1–4 ladder. Cost = base_cost × the rung's multiplier, so each building's
+// ladder naturally lands in the right magnitude band.
+const LADDER_COST_X = [100, 15000, 2_000_000, 300_000_000]; // rung 1..4
+const PROD_LADDER_NAMES = {
+  mustard_stand:    { e: "🌭", names: ["Better Mustard", "Spicy Brown Mustard", "Artisanal Mustard Lab", "Mustard Singularity"] },
+  bun_factory:      { e: "🍞", names: ["Fresh Buns", "Brioche Retooling", "Automated Bun Line", "Bun Replicator"] },
+  glizzy_cart:      { e: "🛒", names: ["Premium Cart", "Chrome Cart", "Self-Driving Cart", "Hypersonic Cart"] },
+  food_truck:       { e: "🚚", names: ["Fancy Truck", "Turbo Truck", "Fleet Logistics", "Convoy AI"] },
+  stadium:          { e: "🏟️", names: ["Sponsorship Deal", "Jumbotron Ads", "Naming Rights", "Global Broadcast Deal"] },
+  franchise:        { e: "🏪", names: ["Franchise Playbook", "Regional Rollout", "National Saturation", "Franchise Hegemony"] },
+  orbital_station:  { e: "🛰️", names: ["Reinforced Casing", "Ion Thrusters", "Orbital Ring", "Dyson Swarm Tap"] },
+  glizzy_megaplex:  { e: "🏢", names: ["Megaplex Grand Opening", "VIP Skyboxes", "Vertical Expansion", "Arcology Conversion"] },
+  quantum_kitchen:  { e: "⚛️", names: ["Quantum Prep", "Superposition Searing", "Entangled Inventory", "Many-Worlds Menu"] },
+  dyson_grill:      { e: "☀️", names: ["Mirror Array", "Stellar Lattice", "Photon Funnel", "Total Output Capture"] },
+  black_hole_bun:   { e: "🕳️", names: ["Event Horizon Glaze", "Hawking Seasoning", "Accretion Toppings", "Singularity Yield"] },
+  multiverse_glizzy:{ e: "🌌", names: ["Parallel Kitchens", "Brane Logistics", "Omniversal Supply", "Infinite Regress Profits"] },
+};
+
+const PROD_LADDER_UPGRADES = [];
+for (const b of BUILDINGS) {
+  const cfg = PROD_LADDER_NAMES[b.id];
+  if (!cfg) continue;
+  const startRung = NEW_BUILDING_IDS.has(b.id) ? 0 : 1; // old buildings already have rung 0
+  for (let r = startRung; r < 4; r++) {
+    PROD_LADDER_UPGRADES.push({
+      id: `${b.id}_p${r + 1}`,
+      name: cfg.names[r],
+      emoji: cfg.e,
+      cost: Math.round(BUILDING_BASE_COST[b.id] * LADDER_COST_X[r]),
+      description: `${BUILDING_NAME[b.id]} production ×2.`,
+      effect: { type: "building_mult", building: b.id, value: 2 },
+    });
+  }
+}
+
+// Global "+X% all production" flavor upgrades — Cookie-Clicker's bread and
+// butter. Pure money sinks at escalating fixed prices so maxed players always
+// have something to save toward. Stored as global_mult = 1 + pct/100.
+const GLOBAL_UPGRADES = [
+  ["condiment_council",  "🧂", "Condiment Council",     2e8,   5],
+  ["relish_renaissance", "🥒", "Relish Renaissance",    1.5e9, 5],
+  ["onion_optimization", "🧅", "Onion Optimization",    1.2e10, 6],
+  ["kraut_surplus",      "🥬", "Sauerkraut Surplus",    1e11,  7],
+  ["bacon_wrapping",     "🥓", "Bacon Wrapping",        8e11,  8],
+  ["cheese_cascade",     "🧀", "Cheese Cascade",        6e12,  9],
+  ["chili_empire",       "🌶️", "Chili Empire",          5e13, 10],
+  ["slaw_dynasty",       "🥗", "Slaw Dynasty",          4e14, 12],
+  ["glizzy_gospel",      "📖", "Glizzy Gospel",         3e15, 14],
+  ["frankfurter_fame",   "⭐", "Frankfurter Fame",      2.5e16, 16],
+  ["wiener_world_order", "🌍", "Wiener World Order",    2e17, 18],
+  ["sausage_sovereignty","👑", "Sausage Sovereignty",   1.5e18, 20],
+  ["encased_eternal",    "♾️", "Encased Meat Eternal",  1.2e19, 25],
+  ["the_final_frank",    "🏁", "The Final Frank",       1e20, 30],
+].map(([id, emoji, name, cost, pct]) => ({
+  id, emoji, name, cost,
+  description: `All production +${pct}% (multiplicative).`,
+  effect: { type: "global_mult", value: 1 + pct / 100 },
+}));
+
+// Click-power ladder extensions (existing types: click_mult, click_per_building).
+const CLICK_UPGRADES = [
+  { id: "titanium_tongs",  emoji: "🥢", name: "Titanium Tongs",   cost: 25e6,  description: "Click power ×3 (stacks with other click upgrades).", effect: { type: "click_mult", value: 3 } },
+  { id: "relish_per_tap",  emoji: "🥒", name: "Relish Per Tap",   cost: 20e6,  description: "Click power gains +0.05 per building owned (additive).", effect: { type: "click_per_building", value: 0.05 } },
+  { id: "mustard_reflexes",emoji: "🤺", name: "Mustard Reflexes", cost: 8e8,   description: "Click power ×5 (stacks with other click upgrades).", effect: { type: "click_mult", value: 5 } },
+  { id: "condiment_cascade",emoji: "💧",name: "Condiment Cascade",cost: 2e9,   description: "Click power gains +0.25 per building owned (additive).", effect: { type: "click_per_building", value: 0.25 } },
+  { id: "glizzy_grip",     emoji: "✊", name: "Glizzy Grip",      cost: 50e9,  description: "Click power ×8 (stacks with other click upgrades).", effect: { type: "click_mult", value: 8 } },
+  { id: "bun_per_tap",     emoji: "🍞", name: "Bun Per Tap",      cost: 200e9, description: "Click power gains +1 per building owned (additive).", effect: { type: "click_per_building", value: 1 } },
+  { id: "snap_reflex",     emoji: "⚡", name: "Snap Reflex",      cost: 5e12,  description: "Click power ×10 (stacks with other click upgrades).", effect: { type: "click_mult", value: 10 } },
+  { id: "divine_digit",    emoji: "☝️", name: "Divine Digit",     cost: 5e14,  description: "Click power ×20 (stacks with other click upgrades).", effect: { type: "click_mult", value: 20 } },
+];
+
+// Building synergies (Cookie-Clicker grandma-style): a building gains +0.1%
+// production per unit of the tier below it that you own. New effect type
+// `building_synergy`, applied in computeEffectiveRates. Chains the whole tree.
+const SYNERGY_CHAIN = [
+  ["bun_factory", "mustard_stand", "Bun Logistics", "🍞", 50e6],
+  ["glizzy_cart", "bun_factory", "Cart Supply Chain", "🛒", 5e8],
+  ["food_truck", "glizzy_cart", "Truck Dispatch", "🚚", 5e9],
+  ["stadium", "food_truck", "Stadium Catering", "🏟️", 5e10],
+  ["franchise", "stadium", "Franchise Network", "🏪", 5e11],
+  ["orbital_station", "franchise", "Orbital Logistics", "🛰️", 5e12],
+  ["glizzy_megaplex", "orbital_station", "Megaplex Pipeline", "🏢", 5e13],
+  ["quantum_kitchen", "glizzy_megaplex", "Quantum Tunnel", "⚛️", 5e14],
+  ["dyson_grill", "quantum_kitchen", "Stellar Feed", "☀️", 5e15],
+  ["black_hole_bun", "dyson_grill", "Horizon Drift", "🕳️", 5e16],
+  ["multiverse_glizzy", "black_hole_bun", "Multiverse Mesh", "🌌", 5e17],
+];
+const SYNERGY_UPGRADES = SYNERGY_CHAIN.map(([building, per, name, emoji, cost]) => ({
+  id: `syn_${building}_${per}`,
+  emoji, name, cost,
+  description: `${BUILDING_NAME[building]} gains +0.1% production per ${BUILDING_NAME[per]} owned.`,
+  effect: { type: "building_synergy", building, per, value: 0.001 },
+}));
+
+export const UPGRADES = [
+  ...CORE_UPGRADES,
+  ...PROD_LADDER_UPGRADES,
+  ...GLOBAL_UPGRADES,
+  ...CLICK_UPGRADES,
+  ...SYNERGY_UPGRADES,
 ];
 
 const UPGRADE_BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -488,6 +617,13 @@ export function computeEffectiveRates(state, bonuses) {
     else if (e.type === "global_per_building") {
       const totalBuildings = BUILDING_IDS.reduce((s, b) => s + (state.buildings?.[b] || 0), 0);
       globalMult *= 1 + totalBuildings * e.value;
+    }
+    else if (e.type === "building_synergy") {
+      // Boost one building's multiplier by +value per unit of another building owned.
+      if (buildingMult[e.building] !== undefined) {
+        const count = state.buildings?.[e.per] || 0;
+        buildingMult[e.building] *= 1 + count * e.value;
+      }
     }
   }
 
