@@ -9,7 +9,7 @@ import {
   BUILDINGS,
   UPGRADES,
   ALL_BONUSES,
-  GOLDEN_SPAWN,
+  goldenSpawnFor,
 } from "./glizzy.js";
 import { getUserProfileStmt } from "./database.js";
 
@@ -500,7 +500,7 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
     state, bonuses, rates, offlineEarned,
     buildings: BUILDINGS, upgrades: UPGRADES,
     buildingSvgs: BUILDING_SVGS,
-    goldenSpawn: GOLDEN_SPAWN,
+    goldenSpawn: goldenSpawnFor(state),
   }).replace(/</g, "\\u003c");
 
   return `<!doctype html>

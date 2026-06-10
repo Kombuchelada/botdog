@@ -206,15 +206,61 @@ const SYNERGY_UPGRADES = SYNERGY_CHAIN.map(([building, per, name, emoji, cost]) 
   effect: { type: "building_synergy", building, per, value: 0.001 },
 }));
 
+// Golden-glizzy upgrades (Cookie-Clicker's Lucky Day / Get Lucky line). Unlike
+// every other upgrade these don't feed computeEffectiveRates — they tune the
+// golden-glizzy system via computeGoldenModifiers (frequency = how often they
+// spawn, duration = how long timed buffs last, payout = how big instant grants
+// are). Multiple of the same kind multiply together. Priced as premium endgame.
+const GOLDEN_UPGRADES = [
+  { id: "lucky_day", emoji: "🍀", name: "Lucky Day", cost: 20e9,
+    description: "Golden glizzies appear ~33% more often.",
+    effect: { type: "golden_frequency", value: 1.33 } },
+  { id: "get_lucky", emoji: "🎰", name: "Get Lucky", cost: 50e9,
+    description: "Golden glizzy buff effects (Frenzy, Overdrive, etc.) last 50% longer.",
+    effect: { type: "golden_duration", value: 1.5 } },
+  { id: "golden_buns", emoji: "🥇", name: "Golden Buns", cost: 100e9,
+    description: "Instant golden glizzy rewards (Cash Splash, Lucky!) pay 50% more.",
+    effect: { type: "golden_payout", value: 1.5 } },
+  { id: "serendipity", emoji: "🌈", name: "Serendipity", cost: 2e12,
+    description: "Golden glizzies appear another ~33% more often (stacks with Lucky Day).",
+    effect: { type: "golden_frequency", value: 1.33 } },
+  { id: "four_leaf_frank", emoji: "☘️", name: "Four-Leaf Frank", cost: 5e12,
+    description: "Golden glizzy buff effects last another 50% longer (stacks with Get Lucky).",
+    effect: { type: "golden_duration", value: 1.5 } },
+  { id: "midas_mustard", emoji: "👑", name: "Midas Mustard", cost: 10e12,
+    description: "Instant golden glizzy rewards pay another 50% more (stacks with Golden Buns).",
+    effect: { type: "golden_payout", value: 1.5 } },
+];
+
 export const UPGRADES = [
   ...CORE_UPGRADES,
   ...PROD_LADDER_UPGRADES,
   ...GLOBAL_UPGRADES,
   ...CLICK_UPGRADES,
   ...SYNERGY_UPGRADES,
+  ...GOLDEN_UPGRADES,
 ];
 
 const UPGRADE_BY_ID = new Map(UPGRADES.map((u) => [u.id, u]));
+
+/**
+ * Golden-glizzy modifiers derived from a player's owned upgrades. Same-kind
+ * upgrades multiply together. frequency = spawn-rate multiplier (>1 = more
+ * often), duration = timed-buff length multiplier, payout = instant-grant size
+ * multiplier. Kept separate from computeEffectiveRates since these don't touch
+ * production — they tune the golden-glizzy system in claimGoldenGlizzy / spawn.
+ */
+export function computeGoldenModifiers(state) {
+  const mod = { frequency: 1, duration: 1, payout: 1 };
+  for (const upId of state?.upgrades_owned || []) {
+    const e = UPGRADE_BY_ID.get(upId)?.effect;
+    if (!e) continue;
+    if (e.type === "golden_frequency") mod.frequency *= e.value;
+    else if (e.type === "golden_duration") mod.duration *= e.value;
+    else if (e.type === "golden_payout") mod.payout *= e.value;
+  }
+  return mod;
+}
 
 const MAX_CLICKS_PER_SECOND = 25;
 const OFFLINE_CAP_SECONDS = 4 * 60 * 60;
@@ -335,6 +381,23 @@ export const GOLDEN_SPAWN = GOLDEN_TEST_MODE
       visibleSec: 30,
     };
 
+// Never let frequency upgrades push the spawn cadence below this — keeps the
+// page from feeling spammy even with every golden-frequency upgrade owned.
+const GOLDEN_MIN_SPAWN_FLOOR_SEC = GOLDEN_TEST_MODE ? 4 : 45;
+
+/**
+ * Per-player spawn cadence: the base GOLDEN_SPAWN with intervals shortened by
+ * the player's golden_frequency upgrades (floored so it never gets spammy).
+ * Sent to the client at page render so the spawn scheduler reflects upgrades.
+ */
+export function goldenSpawnFor(state) {
+  const freq = computeGoldenModifiers(state).frequency;
+  if (freq <= 1) return GOLDEN_SPAWN;
+  const minIntervalSec = Math.max(GOLDEN_MIN_SPAWN_FLOOR_SEC, Math.round(GOLDEN_SPAWN.minIntervalSec / freq));
+  const maxIntervalSec = Math.max(minIntervalSec + 30, Math.round(GOLDEN_SPAWN.maxIntervalSec / freq));
+  return { ...GOLDEN_SPAWN, minIntervalSec, maxIntervalSec };
+}
+
 // Server floor between two accepted claims — stops a script from farming the
 // endpoint faster than golden glizzies could ever legitimately appear.
 const GOLDEN_CLAIM_FLOOR_MS = (GOLDEN_TEST_MODE ? 3 : 200) * 1000;
@@ -388,6 +451,16 @@ function rollGoldenBonus() {
   return GOLDEN_BONUSES[GOLDEN_BONUSES.length - 1];
 }
 
+// Toast text for a timed buff. Uses the def's static blurb unless a Get
+// Lucky-style duration upgrade stretched it, in which case we render the real
+// duration so the toast matches the buff chip's live countdown.
+function goldenBuffMessage(def, durSec, durationMult) {
+  if (durationMult === 1) return def.blurb;
+  const durText = durSec >= 60 ? `${Math.round(durSec / 60)} min` : `${durSec} sec`;
+  const what = def.kind === "click_mult" ? "click power" : "production";
+  return `×${def.mult} ${what} for ${durText}`;
+}
+
 /** Drop expired buffs from a state's golden_effects array (mutates + returns). */
 function pruneGoldenEffects(state, now = Date.now()) {
   state.golden_effects = (state.golden_effects || []).filter(
@@ -429,6 +502,9 @@ export function claimGoldenGlizzy(userId) {
   pruneGoldenEffects(state, now);
   let def = rollGoldenBonus();
 
+  // Golden-glizzy upgrades: payout scales instant grants, duration scales timed buffs.
+  const gmod = computeGoldenModifiers(state);
+
   const reward = { ok: true, id: def.id, name: def.name, emoji: def.emoji, mega: !!def.mega };
 
   if (def.kind === "bank_pct") {
@@ -437,7 +513,7 @@ export function claimGoldenGlizzy(userId) {
     const r = computeEffectiveRates(state, computeBonuses(userId));
     const raw = (state.glizzies || 0) * def.pct;
     const grant = Math.floor(
-      Math.min(Math.max(raw, r.perSecond * def.floorSec), r.perSecond * def.capSec),
+      Math.min(Math.max(raw, r.perSecond * def.floorSec), r.perSecond * def.capSec) * gmod.payout,
     );
     state.glizzies = (state.glizzies || 0) + grant;
     state.lifetime = (state.lifetime || 0) + grant;
@@ -447,7 +523,7 @@ export function claimGoldenGlizzy(userId) {
     // Instant grant worth N seconds of the player's current production.
     const bonuses = computeBonuses(userId);
     const r = computeEffectiveRates(state, bonuses);
-    const grant = Math.floor(r.perSecond * def.seconds);
+    const grant = Math.floor(r.perSecond * def.seconds * gmod.payout);
     state.glizzies = (state.glizzies || 0) + grant;
     state.lifetime = (state.lifetime || 0) + grant;
     reward.granted = grant;
@@ -465,30 +541,33 @@ export function claimGoldenGlizzy(userId) {
       }
     }
     if (top) {
-      const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+      const durSec = Math.round(def.durationSec * gmod.duration);
+      const expires_at = new Date(now + durSec * 1000).toISOString();
       addGoldenBuff(state, { kind: "building_mult", building: top.id, mult: def.mult, expires_at });
       reward.building = top.id;
       reward.buildingName = top.name;
       reward.mult = def.mult;
-      reward.durationSec = def.durationSec;
+      reward.durationSec = durSec;
       reward.expires_at = expires_at;
-      reward.message = `${top.name} ×${def.mult} for ${Math.round(def.durationSec / 60)} min`;
+      reward.message = `${top.name} ×${def.mult} for ${Math.round(durSec / 60)} min`;
     } else {
       def = GOLDEN_BY_ID.get("frenzy");
-      const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+      const durSec = Math.round(def.durationSec * gmod.duration);
+      const expires_at = new Date(now + durSec * 1000).toISOString();
       addGoldenBuff(state, { kind: "prod_mult", mult: def.mult, expires_at });
       reward.id = def.id; reward.name = def.name; reward.emoji = def.emoji;
-      reward.mult = def.mult; reward.durationSec = def.durationSec; reward.expires_at = expires_at;
-      reward.message = def.blurb;
+      reward.mult = def.mult; reward.durationSec = durSec; reward.expires_at = expires_at;
+      reward.message = goldenBuffMessage(def, durSec, gmod.duration);
     }
   } else {
     // Timed global / click multiplier.
-    const expires_at = new Date(now + def.durationSec * 1000).toISOString();
+    const durSec = Math.round(def.durationSec * gmod.duration);
+    const expires_at = new Date(now + durSec * 1000).toISOString();
     addGoldenBuff(state, { kind: def.kind, mult: def.mult, expires_at });
     reward.mult = def.mult;
-    reward.durationSec = def.durationSec;
+    reward.durationSec = durSec;
     reward.expires_at = expires_at;
-    reward.message = def.blurb;
+    reward.message = goldenBuffMessage(def, durSec, gmod.duration);
   }
 
   state.last_golden_at = new Date(now).toISOString();
