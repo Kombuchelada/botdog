@@ -12,22 +12,9 @@ import {
   goldenSpawnFor,
 } from "./glizzy.js";
 import { getUserProfileStmt } from "./database.js";
+import { renderNav } from "./nav.js";
 
-const NAV = `
-  <header class="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 font-semibold">
-        <span class="text-2xl">🌭</span>
-        <span class="text-slate-100 tracking-tight">Hot Dog Hub</span>
-      </a>
-      <nav class="flex items-center gap-1 text-sm">
-        <a href="/" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Server</a>
-        <a href="/users" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Users</a>
-        <a href="/archive" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Archive</a>
-        <a href="/game" class="px-3 py-1.5 rounded-md text-white bg-accent/30 transition">Game</a>
-      </nav>
-    </div>
-  </header>`;
+const NAV = renderNav("game");
 
 function esc(value) {
   if (value === null || value === undefined) return "";
@@ -37,6 +24,21 @@ function esc(value) {
 }
 
 const RATE_SCALES = ["", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"];
+
+/**
+ * Compact number for leaderboards. Top players sit on 19-digit lifetime totals;
+ * printing those in full blows out every layout it touches (and on mobile it
+ * pushed the whole page sideways). Mirrors the client-side `fmt` in the game.
+ */
+export function fmtCompact(n) {
+  if (!Number.isFinite(n)) return "0";
+  n = Math.floor(n);
+  if (n < 1000) return n.toLocaleString();
+  const tier = Math.floor(Math.log10(n) / 3);
+  if (tier >= RATE_SCALES.length) return n.toExponential(2);
+  return (n / Math.pow(1000, tier)).toFixed(2) + RATE_SCALES[tier];
+}
+
 export function fmtRate(n) {
   if (!Number.isFinite(n) || n <= 0) return "0/s";
   if (n < 1) return n.toFixed(2) + "/s";
@@ -371,7 +373,10 @@ const BUILDING_SVGS = {
 
 const STYLES = `
 <style>
-  body { background:#020617; color:#e2e8f0; }
+  /* clip, not hidden: kills stray horizontal overflow without turning <html>
+     into a scroll container, which would break the sticky header. */
+  html { overflow-x: clip; }
+  body { background:#020617; color:#e2e8f0; max-width:100vw; }
   .card { background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:16px; }
   .accent { color:#ff6b35; }
   .hero-svg { width: 360px; max-width: 90vw; height: auto; display: block; }
@@ -421,6 +426,15 @@ const STYLES = `
   .upgrade-card.affordable .u-cost { color: #ffa07a; }
   .upgrade-card.locked .u-cost { color: #94a3b8; }
   .upgrade-card.owned .u-cost { color: #6ee7b7; }
+  .qty-btn {
+    font-size: 11px; font-weight: 700; line-height: 1;
+    padding: 5px 8px; border-radius: 6px; cursor: pointer;
+    background: #111a30; color: #94a3b8;
+    border: 1px solid rgba(148,163,184,0.14);
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .qty-btn:hover { color: #e2e8f0; }
+  .qty-btn.active { background: rgba(255,107,53,0.18); color: #ffa07a; border-color: rgba(255,107,53,0.55); }
   .collapse-toggle { cursor: pointer; }
   .collapse-toggle .chev { display:inline-block; transition: transform 0.15s; color:#64748b; font-size:10px; }
   .collapse-toggle.collapsed .chev { transform: rotate(-90deg); }
@@ -517,7 +531,7 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
 <body class="font-sans antialiased">
 ${NAV}
 <main class="max-w-7xl mx-auto px-4 md:px-6 py-6">
-  <div class="sticky top-14 z-40 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 mb-4 bg-slate-950/95 backdrop-blur border-b border-slate-800/60 flex items-center justify-between">
+  <div class="sticky top-14 z-40 -mx-4 md:-mx-6 px-4 md:px-6 py-2.5 mb-4 bg-slate-950 border-b border-slate-800/60 flex items-center justify-between">
     <div class="flex items-baseline gap-3 flex-wrap">
       <div class="text-4xl font-bold text-white tabular-nums" id="glizzies-display">0</div>
       <div class="text-slate-400 text-sm">glizzies · <span id="pps-display" class="text-accent">0/s</span></div>
@@ -592,10 +606,17 @@ ${NAV}
     <!-- RIGHT: upgrades + buildings (sticky, internal scroll) -->
     <section class="md:col-span-1 md:sticky md:top-28 md:max-h-[calc(100vh-8rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4">
-        <button type="button" class="collapse-toggle flex items-center gap-2 w-full mb-3" data-collapse="buildings">
-          <span class="chev">▾</span>
-          <span class="text-xs uppercase tracking-widest text-slate-400">Buildings</span>
-        </button>
+        <div class="flex items-center justify-between gap-2 mb-3">
+          <button type="button" class="collapse-toggle flex items-center gap-2 min-w-0" data-collapse="buildings">
+            <span class="chev">▾</span>
+            <span class="text-xs uppercase tracking-widest text-slate-400">Buildings</span>
+          </button>
+          <div id="buy-qty" class="flex items-center gap-1 flex-shrink-0">
+            <button type="button" class="qty-btn" data-qty="1">×1</button>
+            <button type="button" class="qty-btn" data-qty="10">×10</button>
+            <button type="button" class="qty-btn" data-qty="100">×100</button>
+          </div>
+        </div>
         <div data-collapse-body="buildings">
           <div id="buildings-list" class="space-y-2"></div>
         </div>
@@ -647,6 +668,19 @@ const GAME_CLIENT_JS = `
   let saveInFlight = false;
   let showAllUpgrades = false;
   let showOwnedUpgrades = false;
+
+  // How many of a building a click buys. Persisted so it survives a reload.
+  let buyQty = 1;
+  try { buyQty = [1, 10, 100].includes(+localStorage.getItem('glizzy_buyqty')) ? +localStorage.getItem('glizzy_buyqty') : 1; } catch (e) {}
+
+  // Tearing down and rebuilding a list mid-tap eats the tap: if the element
+  // under the finger is removed between pointerdown and pointerup, no click
+  // event ever fires. The periodic refresh therefore holds off while a pointer
+  // is down, and the lists patch in place rather than being re-innerHTML'd.
+  let pointerHeld = false;
+  document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+  document.addEventListener('pointerup', () => { pointerHeld = false; }, true);
+  document.addEventListener('pointercancel', () => { pointerHeld = false; }, true);
 
   // ----- formatting -----
   const SCALES = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
@@ -715,10 +749,17 @@ const GAME_CLIENT_JS = `
     rates = { perClick, perSecond, buildingProduction: bp, perUnitRate: perUnit };
   }
 
-  function buildingCost(id) {
+  // Cost of buying \`n\` more of a building, as a closed-form geometric series:
+  //   sum_{i=owned}^{owned+n-1} base * COST_SCALE^i
+  // Must stay in step with the same formula in glizzy.js's save validator.
+  function buildingCost(id, n) {
     const b = BUILDINGS.find(x => x.id === id);
     if (!b) return Infinity;
-    return Math.ceil(b.base_cost * Math.pow(COST_SCALE, state.buildings[id] || 0));
+    const owned = state.buildings[id] || 0;
+    const qty = n || 1;
+    if (qty === 1) return Math.ceil(b.base_cost * Math.pow(COST_SCALE, owned));
+    const series = (Math.pow(COST_SCALE, owned + qty) - Math.pow(COST_SCALE, owned)) / (COST_SCALE - 1);
+    return Math.ceil(b.base_cost * series);
   }
 
   // ----- rendering -----
@@ -732,40 +773,75 @@ const GAME_CLIENT_JS = `
     document.getElementById('click-power-display').textContent = fmt(rates.perClick);
   }
 
-  function renderBuildings() {
+  // The building list is built once and then patched in place — see the
+  // \`pointerHeld\` note above for why we never re-innerHTML it.
+  let buildingEls = null;
+  function buildBuildingList() {
     const root = document.getElementById('buildings-list');
-    const html = BUILDINGS.map(b => {
-      const owned = state.buildings[b.id] || 0;
-      const cost = buildingCost(b.id);
-      const affordable = state.glizzies >= cost;
-      const cls = affordable ? 'building-card affordable card p-2.5' : 'building-card locked card p-2.5';
-      const productionNum = rates.buildingProduction[b.id] || 0;
-      const perUnit = (rates.perUnitRate && rates.perUnitRate[b.id]) || 0;
-      const perUnitStr = perUnit < 0.1 ? perUnit.toFixed(2) : perUnit < 10 ? perUnit.toFixed(1) : fmt(perUnit);
-      const productionStr = productionNum < 0.1 ? productionNum.toFixed(2) : productionNum < 10 ? productionNum.toFixed(1) : fmt(productionNum);
-      return \`
-        <div class="\${cls}" data-buy="\${b.id}">
+    root.innerHTML = BUILDINGS.map(b => \`
+        <div class="building-card card p-2.5" data-buy="\${b.id}">
           <div class="flex items-center gap-2.5">
             <div style="width:40px;height:40px;flex-shrink:0">\${BUILDING_SVGS[b.id]}</div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2">
                 <div class="font-semibold text-white truncate text-sm">\${b.name}</div>
-                <div class="text-xs text-slate-500 tabular-nums">×\${owned}</div>
+                <div class="text-xs text-slate-500 tabular-nums" data-f="owned">×0</div>
               </div>
               <div class="text-[11px] mt-0.5">
-                <span class="accent font-semibold">+\${perUnitStr}/s</span>
+                <span class="accent font-semibold" data-f="perunit"></span>
                 <span class="text-slate-500"> each · </span>
-                <span class="text-slate-200 font-semibold">\${fmt(cost)}</span>
-                \${owned > 0 ? \`<span class="text-slate-500"> · \${productionStr}/s total</span>\` : ''}
+                <span class="text-slate-200 font-semibold" data-f="cost"></span>
+                <span class="text-slate-500" data-f="total"></span>
               </div>
-              \${(b.description && owned === 0) ? \`<div class="text-[11px] text-slate-500 mt-1 leading-snug">\${b.description}</div>\` : ''}
+              <div class="text-[11px] text-slate-500 mt-1 leading-snug" data-f="desc">\${b.description || ''}</div>
             </div>
           </div>
-        </div>\`;
-    }).join('');
-    root.innerHTML = html;
-    root.querySelectorAll('[data-buy]').forEach(el => {
-      el.addEventListener('click', () => buyBuilding(el.dataset.buy));
+        </div>\`).join('');
+    buildingEls = {};
+    for (const b of BUILDINGS) {
+      const card = root.querySelector('[data-buy="' + b.id + '"]');
+      buildingEls[b.id] = {
+        card,
+        owned: card.querySelector('[data-f="owned"]'),
+        perunit: card.querySelector('[data-f="perunit"]'),
+        cost: card.querySelector('[data-f="cost"]'),
+        total: card.querySelector('[data-f="total"]'),
+        desc: card.querySelector('[data-f="desc"]'),
+      };
+    }
+    // Delegated — survives any future re-render of the children.
+    root.addEventListener('click', ev => {
+      const card = ev.target.closest('[data-buy]');
+      if (card) buyBuilding(card.dataset.buy);
+    });
+  }
+
+  function renderBuildings() {
+    if (!buildingEls) buildBuildingList();
+    for (const b of BUILDINGS) {
+      const el = buildingEls[b.id];
+      const owned = state.buildings[b.id] || 0;
+      const cost = buildingCost(b.id, buyQty);
+      const affordable = state.glizzies >= cost;
+      el.card.classList.toggle('affordable', affordable);
+      el.card.classList.toggle('locked', !affordable);
+      el.owned.textContent = '×' + owned;
+
+      const perUnit = (rates.perUnitRate && rates.perUnitRate[b.id]) || 0;
+      el.perunit.textContent = '+' + (perUnit < 0.1 ? perUnit.toFixed(2) : perUnit < 10 ? perUnit.toFixed(1) : fmt(perUnit)) + '/s';
+      el.cost.textContent = fmt(cost) + (buyQty > 1 ? ' for ×' + buyQty : '');
+
+      const production = rates.buildingProduction[b.id] || 0;
+      el.total.textContent = owned > 0
+        ? ' · ' + (production < 0.1 ? production.toFixed(2) : production < 10 ? production.toFixed(1) : fmt(production)) + '/s total'
+        : '';
+      el.desc.style.display = (b.description && owned === 0) ? '' : 'none';
+    }
+  }
+
+  function renderBuyQty() {
+    document.querySelectorAll('#buy-qty .qty-btn').forEach(btn => {
+      btn.classList.toggle('active', +btn.dataset.qty === buyQty);
     });
   }
 
@@ -788,7 +864,13 @@ const GAME_CLIENT_JS = `
       </button>\`;
   }
 
-  function renderUpgrades() {
+  // Same tap-eating hazard as the buildings list, but here the *membership*
+  // genuinely changes as you get richer. So: only rewrite the DOM when the
+  // visible set actually changes (and never mid-tap); otherwise patch the
+  // affordability classes and cost labels in place.
+  let upgradeSig = null;
+  let upgradesDelegated = false;
+  function renderUpgrades(force) {
     const root = document.getElementById('upgrades-list');
     const owned = new Set(state.upgrades_owned);
     const ownedUps = UPGRADES.filter(u => owned.has(u.id));
@@ -819,14 +901,40 @@ const GAME_CLIENT_JS = `
       }
     }
 
+    // Which cards are on screen, in order. Unchanged signature => patch only.
+    const sig = [
+      reach.map(u => u.id).join(','),
+      showAllUpgrades ? far.map(u => u.id).join(',') : 'far:' + far.length,
+      showOwnedUpgrades ? ownedUps.map(u => u.id).join(',') : 'own:' + ownedUps.length,
+    ].join('|');
+
+    if (!force && sig === upgradeSig) {
+      root.querySelectorAll('[data-upgrade]').forEach(el => {
+        const u = UPGRADE_MAP.get(el.dataset.upgrade); if (!u) return;
+        const isOwned = owned.has(u.id);
+        el.classList.toggle('owned', isOwned);
+        el.classList.toggle('affordable', !isOwned && state.glizzies >= u.cost);
+        el.classList.toggle('locked', !isOwned && state.glizzies < u.cost);
+        const c = el.querySelector('.u-cost');
+        if (c) c.textContent = isOwned ? '✓ Owned' : 'Cost: ' + fmt(u.cost);
+      });
+      return;
+    }
+    // Never swap the DOM out from under a finger that's mid-tap (unless this
+    // render *is* the response to a tap, in which case the tap already landed).
+    if (pointerHeld && !force && upgradeSig !== null) return;
+
+    upgradeSig = sig;
     root.innerHTML = html;
-    root.querySelectorAll('[data-upgrade]').forEach(el => {
-      el.addEventListener('click', () => buyUpgrade(el.dataset.upgrade));
-    });
-    const sa = document.getElementById('upg-showall');
-    if (sa) sa.addEventListener('click', () => { showAllUpgrades = !showAllUpgrades; renderUpgrades(); });
-    const ot = document.getElementById('upg-owned-toggle');
-    if (ot) ot.addEventListener('click', () => { showOwnedUpgrades = !showOwnedUpgrades; renderUpgrades(); });
+    if (!upgradesDelegated) {
+      upgradesDelegated = true;
+      root.addEventListener('click', ev => {
+        const card = ev.target.closest('[data-upgrade]');
+        if (card) { buyUpgrade(card.dataset.upgrade); return; }
+        if (ev.target.closest('#upg-showall')) { showAllUpgrades = !showAllUpgrades; renderUpgrades(true); return; }
+        if (ev.target.closest('#upg-owned-toggle')) { showOwnedUpgrades = !showOwnedUpgrades; renderUpgrades(true); }
+      });
+    }
   }
 
   function rerender() {
@@ -837,10 +945,13 @@ const GAME_CLIENT_JS = `
 
   // ----- actions -----
   function buyBuilding(id) {
-    const cost = buildingCost(id);
+    // All-or-nothing: the card shows the price of \`buyQty\`, so that's what a
+    // tap costs. Partial buys would make the displayed price a lie.
+    const qty = buyQty;
+    const cost = buildingCost(id, qty);
     if (state.glizzies < cost) return;
     state.glizzies -= cost;
-    state.buildings[id] = (state.buildings[id] || 0) + 1;
+    state.buildings[id] = (state.buildings[id] || 0) + qty;
     recomputeRates();
     dirty = true;
     rerender();
@@ -857,6 +968,15 @@ const GAME_CLIENT_JS = `
     rerender();
     save();
   }
+
+  document.getElementById('buy-qty').addEventListener('click', ev => {
+    const btn = ev.target.closest('.qty-btn');
+    if (!btn) return;
+    buyQty = +btn.dataset.qty || 1;
+    try { localStorage.setItem('glizzy_buyqty', String(buyQty)); } catch (e) {}
+    renderBuyQty();
+    renderBuildings();
+  });
 
   const clickArea = document.getElementById('click-area');
   clickArea.addEventListener('click', (ev) => {
@@ -884,43 +1004,94 @@ const GAME_CLIENT_JS = `
     renderHud();
   });
 
-  // Production tick — 100 ms
+  // Production tick — driven by the wall clock, not by the assumption that the
+  // interval actually fired every 100 ms. Backgrounded tabs get throttled (and
+  // suspended phones stop firing entirely), which used to silently drop idle
+  // production on the floor. Long gaps are capped here and settled properly by
+  // the server on the next save, which knows the real elapsed time.
+  const MAX_LOCAL_CATCHUP_SEC = 10;
+  let lastTick = Date.now();
   setInterval(() => {
-    if (rates.perSecond > 0) {
-      const gain = rates.perSecond / 10;
+    const now = Date.now();
+    const dt = Math.min((now - lastTick) / 1000, MAX_LOCAL_CATCHUP_SEC);
+    lastTick = now;
+    if (dt > 0 && rates.perSecond > 0) {
+      const gain = rates.perSecond * dt;
       state.glizzies += gain;
       state.lifetime += gain;
       dirty = true;
       renderHud();
-      // Rebuilds the building affordability state every second.
     }
   }, 100);
-  setInterval(() => { renderBuildings(); renderUpgrades(); }, 1000);
+  // Refresh affordability once a second — but not mid-tap (see \`pointerHeld\`).
+  setInterval(() => { if (!pointerHeld) { renderBuildings(); renderUpgrades(); } }, 1000);
 
   // ----- save -----
+
+  // The server's reply describes the world as of the payload we *sent*. The
+  // player kept clicking and buying while the request was in flight, so re-apply
+  // everything that happened locally since the snapshot instead of blowing the
+  // live state away. Without this, a tap that landed during a save silently
+  // vanished when the response arrived.
+  function adoptServerState(server, sent) {
+    const next = Object.assign({}, server);
+    next.buildings = Object.assign({}, server.buildings);
+    let localActivity = false;
+
+    if (sent) {
+      const glizzyDelta = state.glizzies - sent.glizzies;
+      const lifetimeDelta = Math.max(0, state.lifetime - sent.lifetime);
+      const clickDelta = Math.max(0, state.total_clicks - sent.total_clicks);
+      next.glizzies = Math.max(0, server.glizzies + glizzyDelta);
+      next.lifetime = server.lifetime + lifetimeDelta;
+      next.total_clicks = server.total_clicks + clickDelta;
+      for (const b of BUILDINGS) {
+        const bought = (state.buildings[b.id] || 0) - (sent.buildings[b.id] || 0);
+        if (bought > 0) { next.buildings[b.id] = (next.buildings[b.id] || 0) + bought; localActivity = true; }
+      }
+      const ups = new Set(server.upgrades_owned || []);
+      const sentUps = new Set(sent.upgrades_owned);
+      for (const id of state.upgrades_owned) {
+        if (!sentUps.has(id)) { ups.add(id); localActivity = true; }
+      }
+      next.upgrades_owned = Array.from(ups);
+      if (glizzyDelta !== 0 || lifetimeDelta > 0 || clickDelta > 0) localActivity = true;
+    }
+
+    state = next;
+    recomputeRates();
+    // Anything we re-applied still needs persisting.
+    if (localActivity) dirty = true;
+    try { localStorage.setItem('glizzy_backup', JSON.stringify(state)); } catch (e) {}
+  }
+
   async function save() {
     if (saveInFlight) return;
     if (!dirty) return;
     saveInFlight = true;
     dirty = false;
+    const sent = {
+      save_seq: state.save_seq || 0,
+      glizzies: state.glizzies,
+      lifetime: state.lifetime,
+      total_clicks: state.total_clicks,
+      buildings: Object.assign({}, state.buildings),
+      upgrades_owned: state.upgrades_owned.slice(),
+    };
     try {
       const res = await fetch('/api/game/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          glizzies: state.glizzies,
-          lifetime: state.lifetime,
-          total_clicks: state.total_clicks,
-          buildings: state.buildings,
-          upgrades_owned: state.upgrades_owned,
-        }),
+        body: JSON.stringify(sent),
       });
       if (res.ok) {
         const data = await res.json();
-        state = data.state;
         bonuses = data.bonuses;
-        recomputeRates();
-        localStorage.setItem('glizzy_backup', JSON.stringify(state));
+        // A \`stale\` reply means our snapshot was behind the server's (another
+        // tab, or a save queued before the device suspended). Take the server's
+        // word for everything — our local numbers describe a dead timeline.
+        adoptServerState(data.state, data.stale ? null : sent);
+        rerender();
       }
     } catch (e) {
       console.warn('save failed', e);
@@ -930,26 +1101,38 @@ const GAME_CLIENT_JS = `
     }
   }
   setInterval(save, 5000);
-  window.addEventListener('beforeunload', () => {
-    if (dirty) {
-      navigator.sendBeacon('/api/game/save', new Blob([JSON.stringify({
-        glizzies: state.glizzies, lifetime: state.lifetime, total_clicks: state.total_clicks,
-        buildings: state.buildings, upgrades_owned: state.upgrades_owned,
-      })], { type: 'application/json' }));
-    }
+
+  function flushBeacon() {
+    if (!dirty || !navigator.sendBeacon) return;
+    navigator.sendBeacon('/api/game/save', new Blob([JSON.stringify({
+      save_seq: state.save_seq || 0,
+      glizzies: state.glizzies, lifetime: state.lifetime, total_clicks: state.total_clicks,
+      buildings: state.buildings, upgrades_owned: state.upgrades_owned,
+    })], { type: 'application/json' }));
+  }
+  window.addEventListener('beforeunload', flushBeacon);
+  // \`pagehide\` is the one that actually fires on iOS when a tab is backgrounded.
+  window.addEventListener('pagehide', flushBeacon);
+
+  // Coming back from a suspended/backgrounded tab: our tick timers may have been
+  // frozen for hours. Reset the tick clock so we don't mint a huge local jump,
+  // then push a save — the server credits the real idle production and hands
+  // back the authoritative state.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { flushBeacon(); return; }
+    lastTick = Date.now();
+    dirty = true;
+    save();
   });
 
   // ----- offline modal -----
+  // Purely informational: the server already credited these when it built the
+  // page state, so the client must NOT add them again.
   if (G.offlineEarned && G.offlineEarned > 5) {
     document.getElementById('offline-amount').textContent = fmt(G.offlineEarned) + ' 🌭';
     document.getElementById('offline-modal').classList.remove('hidden');
     document.getElementById('offline-close').addEventListener('click', () => {
-      state.glizzies += G.offlineEarned;
-      state.lifetime += G.offlineEarned;
-      dirty = true;
       document.getElementById('offline-modal').classList.add('hidden');
-      renderHud();
-      save();
     });
   }
 
@@ -1027,17 +1210,32 @@ const GAME_CLIENT_JS = `
   async function claimGolden() {
     try {
       if (dirty) await save();  // flush local earnings so the server's bank is fresh (for Lucky!)
+      const sent = {
+        glizzies: state.glizzies,
+        lifetime: state.lifetime,
+        total_clicks: state.total_clicks,
+        buildings: Object.assign({}, state.buildings),
+        upgrades_owned: state.upgrades_owned.slice(),
+      };
       const res = await fetch('/api/game/golden', { method: 'POST' });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (!data || !data.ok) return;  // e.g. claimed too soon
-      state = data.state;
+      const data = res.ok ? await res.json() : null;
+      // A click must never just swallow the glizzy silently — that reads as a
+      // broken game. Say what happened, and if the server is still cooling down
+      // re-spawn as soon as it isn't rather than burning the whole interval.
+      if (!data || !data.ok) {
+        if (data && data.reason === 'too_soon') {
+          showGoldenToast({ emoji: '⏳', name: 'Not yet!', message: 'That one came too fast — hang on for the next.' });
+          scheduleGolden((data.retryAfterMs || 0) + 2000);
+        } else {
+          showGoldenToast({ emoji: '💨', name: 'It got away', message: 'Could not reach the server — try the next one.' });
+        }
+        return;
+      }
       bonuses = data.bonuses;
-      recomputeRates();
+      adoptServerState(data.state, sent);  // keep anything bought mid-request
       rerender();
       renderBuffs();
       showGoldenToast(data);
-      try { localStorage.setItem('glizzy_backup', JSON.stringify(state)); } catch (e) {}
     } catch (e) { console.warn('golden claim failed', e); }
   }
 
@@ -1070,10 +1268,16 @@ const GAME_CLIENT_JS = `
     goldenEl.classList.add('show');
     goldenHideTimer = setTimeout(() => hideGolden(true), (GS.visibleSec || 30) * 1000);
   }
-  function scheduleGolden() {
+  // A single spawn timer, always replaced rather than stacked — otherwise a
+  // reschedule on top of a pending one eventually spawns two at once.
+  let goldenSpawnTimer = null;
+  function scheduleGolden(delayMs) {
+    clearTimeout(goldenSpawnTimer);
     const span = (GS.maxIntervalSec - GS.minIntervalSec) || 0;
-    const delay = (GS.minIntervalSec + Math.random() * span) * 1000;
-    setTimeout(spawnGolden, delay);
+    const delay = delayMs != null
+      ? delayMs
+      : (GS.minIntervalSec + Math.random() * span) * 1000;
+    goldenSpawnTimer = setTimeout(spawnGolden, delay);
   }
   if (goldenEl) {
     goldenEl.addEventListener('click', () => {
@@ -1087,6 +1291,7 @@ const GAME_CLIENT_JS = `
 
   // Initial render
   recomputeRates();
+  renderBuyQty();
   rerender();
   renderBuffs();
   initCollapsibles();
@@ -1100,20 +1305,22 @@ function renderLeaderboardPage(rows) {
         const profile = getUserProfileStmt.get(r.user_id);
         const name = (profile && (profile.global_name || profile.username)) || `User ${String(r.user_id).slice(-4)}`;
         const avatar = profile && profile.avatar_url
-          ? `<img src="${esc(profile.avatar_url)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;">`
-          : `<span style="width:36px;height:36px;border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:700;">${esc((name[0] || "?").toUpperCase())}</span>`;
+          ? `<img src="${esc(profile.avatar_url)}" style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;">`
+          : `<span style="width:36px;height:36px;border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;">${esc((name[0] || "?").toUpperCase())}</span>`;
         const rankColor = i === 0 ? "#ffd166" : i === 1 ? "#cbd5e1" : i === 2 ? "#d4a574" : "#6b7280";
         return `
-          <div class="flex items-center gap-4 px-3 py-3 hover:bg-slate-800/40 transition">
-            <div class="text-2xl font-bold tabular-nums w-10 text-right" style="color:${rankColor}">${esc(i + 1)}</div>
+          <div class="flex items-center gap-2 sm:gap-4 px-2 sm:px-3 py-3 hover:bg-slate-800/40 transition">
+            <div class="text-lg sm:text-2xl font-bold tabular-nums w-6 sm:w-10 text-right flex-shrink-0" style="color:${rankColor}">${esc(i + 1)}</div>
             ${avatar}
-            <div class="flex-1">
-              <div class="font-semibold text-white">${esc(name)}</div>
-              <div class="text-xs text-slate-400">${esc(r.total_buildings)} buildings · ${esc(r.total_clicks.toLocaleString())} clicks · <span class="accent font-semibold" data-prod="${esc(r.user_id)}">${esc(fmtRate(r.per_second))}</span></div>
-            </div>
-            <div class="text-right">
-              <div class="text-2xl font-bold accent tabular-nums">${esc(r.lifetime.toLocaleString())}</div>
-              <div class="text-xs text-slate-500">lifetime 🌭</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-baseline justify-between gap-2 min-w-0">
+                <div class="font-semibold text-white truncate min-w-0">${esc(name)}</div>
+                <div class="text-lg sm:text-2xl font-bold accent tabular-nums flex-shrink-0 whitespace-nowrap" title="${esc(r.lifetime.toLocaleString())} lifetime glizzies">${esc(fmtCompact(r.lifetime))}</div>
+              </div>
+              <div class="flex items-baseline justify-between gap-2 min-w-0">
+                <div class="text-xs text-slate-400 min-w-0">${esc(r.total_buildings)} buildings · ${esc(fmtCompact(r.total_clicks))} clicks · <span class="accent font-semibold" data-prod="${esc(r.user_id)}">${esc(fmtRate(r.per_second))}</span></div>
+                <div class="hidden sm:block text-[10px] text-slate-500 uppercase tracking-widest flex-shrink-0">lifetime 🌭</div>
+              </div>
             </div>
           </div>`;
       }).join("")}</div>`;
@@ -1122,7 +1329,7 @@ function renderLeaderboardPage(rows) {
 <html lang="en" class="dark"><head>${HEAD}<title>GlizzyClicker · Leaderboard</title>${STYLES}</head>
 <body class="font-sans antialiased">
 ${NAV}
-<main class="max-w-3xl mx-auto px-6 py-8">
+<main class="max-w-3xl mx-auto px-4 sm:px-6 py-8">
   <section class="mb-6">
     <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Leaderboard</div>
     <h1 class="text-4xl font-bold text-white tracking-tight">GlizzyClicker</h1>

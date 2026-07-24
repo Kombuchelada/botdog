@@ -44,6 +44,17 @@ magnitudes against every active player. Three facts drove the design:
    of *production* (2–10 min).
 3. **Production spans 25/s → 25M/s.** Every reward therefore scales with
    production, never with flat numbers.
+4. **Production is 0 until the first building.** So instant grants scale off
+   `goldenBaseRate` = `max(perSecond, perClick, 1)`, not `perSecond` alone.
+   Scaling off production alone made Cash Splash and Lucky! — 45% of the table
+   — pay literally "+0 glizzies" to anyone who hadn't bought a building yet.
+   Timed `prod_mult` buffs are fine as-is: `globalMult` multiplies `perClick`
+   too, so a Frenzy is a click-power buff for a building-less player.
+
+**No reward may ever be a dud.** Every branch of `claimGoldenGlizzy` grants at
+least 1 glizzy or a live buff, and the client always toasts — including on
+failure. A golden glizzy that vanishes with no feedback reads as a broken game,
+which is exactly how the flat claim floor was experienced.
 
 Guiding rules for future tuning:
 
@@ -74,9 +85,15 @@ clamped right back off. Golden glizzies are therefore rolled and recorded on the
   from the previous state (they're server-owned — never trusted from the client)
   and prunes expired buffs. **Forgetting this would wipe active buffs on the next
   save**, which fires every 5 s.
-- A server-side claim floor (`GOLDEN_CLAIM_FLOOR_MS`, 200 s) stops a script from
-  farming the endpoint faster than golden glizzies could legitimately appear.
-  Legit spawns are ≥4 min apart, so real players never hit it.
+- A server-side claim floor stops a script from farming the endpoint faster than
+  golden glizzies could legitimately appear. It is **derived per player** from
+  their own spawn cadence (`goldenClaimFloorMs` → `goldenSpawnFor(state)`),
+  clamped to 60–200 s with 20 s of grace. It must never be a flat constant: the
+  frequency upgrades (Lucky Day + Serendipity) drop the minimum spawn interval
+  to 136 s, so the old flat 200 s floor silently rejected ~24% of claims for
+  every player who owned them — the exact players who had paid for glizzies to
+  appear *more* often. If you add another `golden_frequency` upgrade, this stays
+  correct automatically; a hardcoded number would not.
 
 **Buffs don't stack.** `addGoldenBuff` replaces any existing buff in the same
 group rather than adding a second (newest wins). All global production
@@ -89,7 +106,7 @@ buffs can't normally overlap anyway.
 
 ## Local testing
 
-Set `GLIZZY_TEST_MODE=1` to spawn golden glizzies every 6–14 s and drop the
+Set `GLIZZY_TEST_MODE=1` to spawn golden glizzies every 6–14 s and pin the
 claim floor to 3 s, so all reward types are visible in under a minute. **Never
 set this in production.** `window.__spawnGolden()` is also exposed in the browser
 console to force a spawn on demand.

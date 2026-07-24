@@ -36,6 +36,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `utils.js` | `DiscordRequest`, `uploadInteractionAttachment` (multipart), `editOriginalInteractionMessage`, `InstallGlobalCommands`. |
 | `api.js` | Read-only JSON endpoints (`/api/hotdog-totals`, etc.) for external consumers. |
 | `stats.js` | Pure-function aggregation helpers: `buildUserDatesMap`, `getCurrentStreak`, `toPacificDateKey`, `parseUtcTimestamp`. Reused across charts/dashboard/glizzy. |
+| `nav.js` | Shared site header (`renderNav(activeKey)`), imported by `dashboard.js` and `game.js`. Collapses to a toggle panel below `md`. |
 | `charts.js` | Server-rendered PNG charts via `@napi-rs/canvas` + Chart.js: heatmap, timeline, leaderboard, stat card, when-heatmap. Uses bundled Inter font. |
 | `dashboard.js` | Public website. SSR'd HTML with Tailwind CDN + Chart.js CDN. Routes: `/`, `/users`, `/user/:id`, `/compare`, `/archive`, `/archive/:id`. |
 | `admin.js` | Cookie-protected `/admin/*` admin UI. Edit/split/delete hot dog events, manage archive stories, backup/restore, retry/reset, refresh profiles, send digest. |
@@ -46,8 +47,8 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` returns the public CDN URL. `deletePrefix(prefix)` for bulk cleanup. |
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
-| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
-| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on close. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`. |
+| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
+| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`. |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -86,6 +87,49 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **Anti-cheat in GlizzyClicker** uses *previous*-state production rates for
   the earnings budget, not the claimed end state. Otherwise a cheater could
   claim N buildings and reap their production in the same tick.
+- **Saves are guarded in both directions.** The ceiling is the anti-cheat
+  budget above; the *floor* is passive production accrued since `last_seen_at`,
+  so a client whose timers were frozen (backgrounded phone) can never report a
+  smaller bank than the buildings already produced. On top of that, every
+  server-side write bumps `state.save_seq` and the client echoes back the seq it
+  last received — a payload built on an older snapshot (a queued save from a
+  suspended tab, a second tab) is dropped and the client resyncs.
+- **Offline production is credited server-side** in `loadGameForUser`, not by
+  the client on dismissing the welcome-back modal. The modal is display-only;
+  adding the amount client-side too would double-credit.
+- **The game's lists are patched in place, never re-`innerHTML`'d on a timer.**
+  Replacing an element between `pointerdown` and `pointerup` means no `click`
+  event fires at all, which ate taps on mobile. Buildings patch text/classes;
+  upgrades only rebuild when the visible set actually changes, and never while
+  a pointer is held (`pointerHeld`).
+- **Streaks only count days with a positive net total** (`buildUserDatesMap`).
+  Protests are negative `hotdog_events` rows and must not sustain a streak.
+  This also narrows "active days" — a day that nets to zero isn't an eating day.
+- **The golden-glizzy claim floor is per player, never a flat constant.**
+  `goldenClaimFloorMs` derives it from that player's own `goldenSpawnFor`
+  cadence. A flat 200 s floor silently rejected ~24% of claims for anyone
+  owning both frequency upgrades (which drop the spawn interval to 136 s) —
+  the glizzy vanished and nothing happened. See `docs/golden-glizzy.md`.
+- **No golden-glizzy reward may pay zero.** Instant grants scale off
+  `goldenBaseRate` = `max(perSecond, perClick, 1)`, not `perSecond` alone,
+  which is 0 until the first building. The client toasts on failure too — a
+  glizzy that disappears with no feedback reads as a broken game.
+- **The sticky header and game balance bar are opaque, not `backdrop-blur`.**
+  A `backdrop-filter` layer re-rasterises whenever anything animates beneath
+  it, and the game scales the glizzy on every click; on Safari that makes the
+  header's emoji visibly pulse. Solid `bg-slate-950` looks identical here.
+- **`.card { min-width: 0 }` is load-bearing** (`dashboard.js` styles). Grid
+  and flex items default to `min-width: auto` = min-content, which for a card
+  holding a Chart.js `<canvas>` is the canvas's current pixel width. Without
+  it, a chart rendered wide pins its card open and neither can shrink when the
+  window narrows (Chart.js only downsizes *after* its container does).
+- **Leaderboard numbers use `fmtCompact`, not `toLocaleString`.** Top players
+  sit on 19-digit lifetime totals; printing those in full broke every layout
+  they touched. Full value goes in a `title` attribute.
+- **Don't trust `document.scrollWidth` to detect layout overflow** — `html`
+  has `overflow-x: clip`, so it always reads clean. Measure each element's
+  `getBoundingClientRect().width` against `clientWidth` instead, and test
+  resizing *down* from a wide viewport, not just loading narrow.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.
@@ -233,5 +277,6 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyClicker
-bonus rebalance (Big Eater ×100, Pope +500%, etc.) + sticky game-page columns.
+and this doc should be updated. Last meaningful update: streak/protest fix,
+GlizzyClicker stale-save + tap-loss + golden-glizzy claim-floor fixes,
+×10/×100 buying, shared responsive nav, mobile leaderboard/chart sizing.

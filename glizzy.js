@@ -281,6 +281,9 @@ function blankState() {
     golden_effects: [],
     last_golden_at: null,
     last_seen_at: new Date().toISOString(),
+    // Bumped on every server-side write. The client echoes back the seq it last
+    // received so we can spot (and drop) a save built on a stale snapshot.
+    save_seq: 0,
   };
 }
 
@@ -400,7 +403,26 @@ export function goldenSpawnFor(state) {
 
 // Server floor between two accepted claims — stops a script from farming the
 // endpoint faster than golden glizzies could ever legitimately appear.
-const GOLDEN_CLAIM_FLOOR_MS = (GOLDEN_TEST_MODE ? 3 : 200) * 1000;
+//
+// This MUST be derived from the player's own spawn cadence, not a flat number.
+// A flat 200 s floor silently rejected roughly a quarter of all claims for
+// anyone owning both frequency upgrades (Lucky Day + Serendipity drop the
+// minimum spawn interval to 136 s) — i.e. the players who paid the most for
+// "golden glizzies appear more often" were the ones whose glizzies did nothing.
+const GOLDEN_MIN_CLAIM_FLOOR_SEC = GOLDEN_TEST_MODE ? 3 : 60;
+const GOLDEN_MAX_CLAIM_FLOOR_SEC = GOLDEN_TEST_MODE ? 3 : 200;
+// Slack under the player's fastest possible spawn, so a spawn landing right at
+// the minimum interval (plus clock skew and travel time) still claims cleanly.
+const GOLDEN_CLAIM_GRACE_SEC = 20;
+
+function goldenClaimFloorMs(state) {
+  const { minIntervalSec } = goldenSpawnFor(state);
+  const sec = Math.min(
+    GOLDEN_MAX_CLAIM_FLOOR_SEC,
+    Math.max(GOLDEN_MIN_CLAIM_FLOOR_SEC, minIntervalSec - GOLDEN_CLAIM_GRACE_SEC),
+  );
+  return sec * 1000;
+}
 
 // Rarest → commonest. Weights sum to 1000 (mega = exactly 1/1000). Magnitudes
 // are tuned against real player data: every reward scales with PRODUCTION (not
@@ -442,6 +464,19 @@ export const GOLDEN_BONUSES = [
 
 const GOLDEN_TOTAL_WEIGHT = GOLDEN_BONUSES.reduce((s, b) => s + b.weight, 0);
 const GOLDEN_BY_ID = new Map(GOLDEN_BONUSES.map((b) => [b.id, b]));
+
+/**
+ * The per-second earn rate an instant reward is worth N seconds of.
+ *
+ * Instant grants used to scale off `perSecond` alone, which is exactly 0 until
+ * you buy your first building — so Cash Splash and Lucky! (45% of the table
+ * between them) paid literally "+0 glizzies" to brand-new players. Falling back
+ * to click power keeps a golden glizzy worth having before your first building,
+ * and the trailing 1 guarantees a reward is never nothing.
+ */
+function goldenBaseRate(rates) {
+  return Math.max(rates.perSecond || 0, rates.perClick || 0, 1);
+}
 
 function rollGoldenBonus() {
   let r = Math.random() * GOLDEN_TOTAL_WEIGHT;
@@ -494,9 +529,10 @@ export function claimGoldenGlizzy(userId) {
   const state = readStateFromDb(userId) || blankState();
   const now = Date.now();
 
+  const claimFloorMs = goldenClaimFloorMs(state);
   const last = state.last_golden_at ? new Date(state.last_golden_at).getTime() : 0;
-  if (Number.isFinite(last) && now - last < GOLDEN_CLAIM_FLOOR_MS) {
-    return { ok: false, reason: "too_soon", retryAfterMs: GOLDEN_CLAIM_FLOOR_MS - (now - last) };
+  if (Number.isFinite(last) && now - last < claimFloorMs) {
+    return { ok: false, reason: "too_soon", retryAfterMs: claimFloorMs - (now - last) };
   }
 
   pruneGoldenEffects(state, now);
@@ -508,22 +544,23 @@ export function claimGoldenGlizzy(userId) {
   const reward = { ok: true, id: def.id, name: def.name, emoji: def.emoji, mega: !!def.mega };
 
   if (def.kind === "bank_pct") {
-    // A % of the bank, but floored/capped to a band of current production so it
-    // is never a dud for active (low-bank) players nor a jackpot for hoarders.
+    // A % of the bank, but floored/capped to a band of earn rate so it is never
+    // a dud for active (low-bank) players nor a jackpot for hoarders.
     const r = computeEffectiveRates(state, computeBonuses(userId));
+    const base = goldenBaseRate(r);
     const raw = (state.glizzies || 0) * def.pct;
-    const grant = Math.floor(
-      Math.min(Math.max(raw, r.perSecond * def.floorSec), r.perSecond * def.capSec) * gmod.payout,
-    );
+    const grant = Math.max(1, Math.floor(
+      Math.min(Math.max(raw, base * def.floorSec), base * def.capSec) * gmod.payout,
+    ));
     state.glizzies = (state.glizzies || 0) + grant;
     state.lifetime = (state.lifetime || 0) + grant;
     reward.granted = grant;
     reward.message = `+${grant.toLocaleString()} glizzies`;
   } else if (def.kind === "prod_seconds") {
-    // Instant grant worth N seconds of the player's current production.
+    // Instant grant worth N seconds of the player's current earn rate.
     const bonuses = computeBonuses(userId);
     const r = computeEffectiveRates(state, bonuses);
-    const grant = Math.floor(r.perSecond * def.seconds * gmod.payout);
+    const grant = Math.max(1, Math.floor(goldenBaseRate(r) * def.seconds * gmod.payout));
     state.glizzies = (state.glizzies || 0) + grant;
     state.lifetime = (state.lifetime || 0) + grant;
     reward.granted = grant;
@@ -776,13 +813,18 @@ function readStateFromDb(userId) {
 }
 
 function writeStateToDb(userId, state) {
+  state.save_seq = (Number(state.save_seq) || 0) + 1;
   upsertGameStateStmt.run(userId, JSON.stringify(state), Math.floor(state.lifetime || 0));
 }
 
 /**
- * Load (or initialize) a user's state and compute current bonuses + offline production.
- * The caller is expected to send `offline_earned` to the client; we do NOT auto-credit
- * here — the client confirms acceptance via the next save (last_seen_at gets updated).
+ * Load (or initialize) a user's state, crediting offline production.
+ *
+ * Offline earnings are applied *here*, server-side, rather than being handed to
+ * the client to add on its own. The client-side version lost the whole idle
+ * window whenever a phone suspended the tab and later flushed a save built on
+ * the pre-suspend snapshot. Now the server owns the clock in both directions
+ * and `offlineEarned` is purely something to show in the welcome-back modal.
  */
 export function loadGameForUser(userId) {
   let state = readStateFromDb(userId);
@@ -790,13 +832,25 @@ export function loadGameForUser(userId) {
   if (!state) {
     state = blankState();
     isNew = true;
-    writeStateToDb(userId, state);
   }
   pruneGoldenEffects(state);
   const bonuses = computeBonuses(userId);
-  const rates = computeEffectiveRates(state, bonuses);
-  const offlineEarned = isNew ? 0 : computeOfflineEarned(state, rates.perSecond);
-  return { state, bonuses, rates, offlineEarned, isNew };
+  const offlineEarned = isNew
+    ? 0
+    : computeOfflineEarned(state, computeEffectiveRates(state, bonuses).perSecond);
+  if (offlineEarned > 0) {
+    state.glizzies = (state.glizzies || 0) + offlineEarned;
+    state.lifetime = (state.lifetime || 0) + offlineEarned;
+  }
+  state.last_seen_at = new Date().toISOString();
+  writeStateToDb(userId, state);
+  return {
+    state,
+    bonuses,
+    rates: computeEffectiveRates(state, bonuses),
+    offlineEarned,
+    isNew,
+  };
 }
 
 // ============================================================================
@@ -814,14 +868,44 @@ function isNonNegInt(n) {
 /**
  * Validate and clamp a save payload against the previous server-side state.
  * Returns the canonical state to persist. Never throws — silently clamps and logs.
+ *
+ * Two guards keep a stale client from *reducing* a player's progress:
+ *
+ *   1. `save_seq` — every server write bumps it and the client echoes back the
+ *      seq it last received. A payload built on an older snapshot (a phone that
+ *      suspended for an hour and then flushed its queued save, a second tab)
+ *      is dropped outright rather than written over newer state.
+ *   2. A passive-production floor — whatever the client claims, the player is
+ *      always credited for production that accrued since `last_seen_at`. A
+ *      client whose timers were frozen therefore can't undercount idle earnings.
  */
 export function validateAndClampSave(userId, incoming) {
   const previous = readStateFromDb(userId) || blankState();
+  const prevSeq = Number(previous.save_seq) || 0;
+  const incomingSeq = Number(incoming?.save_seq);
+
+  // ----- 0. Stale snapshot: the client is a version behind, so its numbers
+  //          describe a world that no longer exists. Hand back current state
+  //          and let it resync; do NOT touch last_seen_at (that would silently
+  //          swallow the idle window this save was late for).
+  if (Number.isFinite(incomingSeq) && incomingSeq < prevSeq) {
+    console.warn(`[glizzy] dropping stale save for ${userId}: seq ${incomingSeq} < ${prevSeq}`);
+    const staleBonuses = computeBonuses(userId);
+    return {
+      state: previous,
+      bonuses: staleBonuses,
+      rates: computeEffectiveRates(previous, staleBonuses),
+      stale: true,
+    };
+  }
+
   const out = blankState();
+  out.save_seq = prevSeq;
   const prevGlizzies = previous.glizzies || 0;
   const prevClicks = previous.total_clicks || 0;
   const prevSeen = previous.last_seen_at ? new Date(previous.last_seen_at).getTime() : Date.now();
-  const elapsedSec = Math.max(1, (Date.now() - prevSeen) / 1000);
+  const trueElapsedSec = Math.max(0, (Date.now() - prevSeen) / 1000);
+  const elapsedSec = Math.max(1, trueElapsedSec);
 
   // ----- 1. Clicks: cannot regress; click delta capped at MAX_CLICKS_PER_SECOND * elapsed
   let incomingClicks = isNonNegFinite(incoming?.total_clicks) ? Math.floor(incoming.total_clicks) : prevClicks;
@@ -886,12 +970,21 @@ export function validateAndClampSave(userId, incoming) {
   // Recompute spending after possible revert (in case we reverted to 0 delta)
   const finalSpending = totalSpending > budget ? 0 : totalSpending;
 
-  // ----- 6. Glizzies: must equal budget - spending, ceiling-clamped
+  // ----- 6. Glizzies: clamped into [floor, ceiling].
+  //   ceiling — everything they could possibly have earned (anti-cheat).
+  //   floor   — everything they definitely *did* earn passively. Buildings
+  //             produce on wall-clock time, so a client whose timers were
+  //             throttled or frozen (backgrounded phone) must not be able to
+  //             report a lower bank than the buildings already generated.
   let incomingGlizzies = isNonNegFinite(incoming?.glizzies) ? incoming.glizzies : previous.glizzies;
   const glizzyCeiling = Math.max(0, budget - finalSpending);
+  const passiveEarned = ratesPrev.perSecond * Math.min(trueElapsedSec, OFFLINE_CAP_SECONDS);
+  const glizzyFloor = Math.max(0, Math.min(glizzyCeiling, prevGlizzies + passiveEarned - finalSpending));
   if (incomingGlizzies > glizzyCeiling) {
     console.warn(`[glizzy] clamping glizzies for ${userId}: claimed ${incomingGlizzies}, ceiling ${Math.floor(glizzyCeiling)}`);
     incomingGlizzies = glizzyCeiling;
+  } else if (incomingGlizzies < glizzyFloor) {
+    incomingGlizzies = glizzyFloor;
   }
   out.glizzies = Math.floor(Math.max(0, incomingGlizzies));
 

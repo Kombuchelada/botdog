@@ -163,14 +163,30 @@ export function buildUserMaxDailyMap(allEvents) {
   return userMaxDaily;
 }
 
+/**
+ * Map of user_id -> Set of Pacific date keys the user actually *ate* on.
+ *
+ * A day only counts if the user's net total for that day is positive. Protests
+ * (negative amounts) must not keep a streak alive, and a day that nets out to
+ * zero (e.g. +2 logged then -2 protested away) isn't an eating day either.
+ */
 export function buildUserDatesMap(allEvents) {
-  const userDates = new Map();
+  const dailyTotals = new Map();
   for (const event of allEvents) {
     const dateKey = toPacificDateKey(parseUtcTimestamp(event.timestamp));
-    if (!userDates.has(event.user_id)) {
-      userDates.set(event.user_id, new Set());
+    if (!dailyTotals.has(event.user_id)) {
+      dailyTotals.set(event.user_id, new Map());
     }
-    userDates.get(event.user_id).add(dateKey);
+    const dayMap = dailyTotals.get(event.user_id);
+    dayMap.set(dateKey, (dayMap.get(dateKey) ?? 0) + event.amount);
+  }
+  const userDates = new Map();
+  for (const [userId, dayMap] of dailyTotals.entries()) {
+    const dates = new Set();
+    for (const [dateKey, total] of dayMap.entries()) {
+      if (total > 0) dates.add(dateKey);
+    }
+    userDates.set(userId, dates);
   }
   return userDates;
 }

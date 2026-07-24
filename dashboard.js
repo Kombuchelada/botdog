@@ -10,7 +10,8 @@ import {
   getArchiveAttachmentsForMessageStmt,
   getUserProfileStmt,
 } from "./database.js";
-import { getLeaderboardRows as getGlizzyLeaderboardRows } from "./game.js";
+import { getLeaderboardRows as getGlizzyLeaderboardRows, fmtCompact } from "./game.js";
+import { renderNav } from "./nav.js";
 import {
   buildUserDatesMap,
   getCurrentStreak,
@@ -375,22 +376,14 @@ function buildCompare(userIds) {
 // Page templates
 // ============================================================================
 
-const NAV = `
-  <header class="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-      <a href="/" class="flex items-center gap-2 font-semibold">
-        <span class="text-2xl">🌭</span>
-        <span class="text-slate-100 tracking-tight">Hot Dog Hub</span>
-      </a>
-      <nav class="flex items-center gap-1 text-sm">
-        <a href="/" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Server</a>
-        <a href="/users" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Users</a>
-        <a href="/compare" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Compare</a>
-        <a href="/archive" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">Archive</a>
-        <a href="/game" class="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition">🌭 Play</a>
-      </nav>
-    </div>
-  </header>`;
+// Which nav entry to highlight, keyed off the page title for the pages whose
+// titles are fixed. Detail pages (a user, a story) pass `opts.nav` instead.
+const NAV_KEY_BY_TITLE = {
+  Server: "server",
+  Users: "users",
+  Compare: "compare",
+  Archive: "archive",
+};
 
 function renderOgTags(og) {
   if (!og) return "";
@@ -453,7 +446,17 @@ ${renderOgTags(opts.og)}
 <link rel="preconnect" href="https://rsms.me/">
 <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 <style>
-  body { background:#020617; color:#e2e8f0; font-feature-settings: "cv11", "ss03"; }
+  /* clip, not hidden: kills stray horizontal overflow without turning <html>
+     into a scroll container, which would break the sticky header. */
+  html { overflow-x: clip; }
+  body { background:#020617; color:#e2e8f0; font-feature-settings: "cv11", "ss03"; max-width:100vw; }
+  /* Grid and flex items default to min-width:auto, i.e. their min-content
+     width — for a card holding a Chart.js <canvas> that's the canvas's current
+     pixel width. So once a chart had rendered wide it pinned its card open and
+     neither could ever shrink back down when the window narrowed (Chart.js
+     only downsizes the canvas after its container does). min-width:0 breaks
+     the deadlock; the ResizeObserver then does the rest. */
+  .card, .card-tight { min-width: 0; }
   .card { background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:16px; }
   .card-tight { background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:12px; }
   .stat-label { color:#94a3b8; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; font-weight:600; }
@@ -511,8 +514,8 @@ ${renderOgTags(opts.og)}
 </style>
 </head>
 <body class="font-sans antialiased">
-${NAV}
-<main class="max-w-7xl mx-auto px-6 py-8">
+${renderNav(opts.nav || NAV_KEY_BY_TITLE[title] || "")}
+<main class="max-w-7xl mx-auto px-4 sm:px-6 py-8">
   ${body}
 </main>
 <footer class="mt-16 border-t border-slate-800/80 py-6 text-center text-xs text-slate-500">
@@ -570,13 +573,13 @@ function heatmapSVG(heatmap, cellSize = 14, gap = 3) {
 function renderGlizzyLeadersSection(leaders) {
   if (!leaders || leaders.length === 0) {
     return `
-      <section class="card p-6 mb-8">
-        <div class="flex items-center justify-between mb-3">
+      <section class="card p-4 sm:p-6 mb-8">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
           <div>
             <div class="stat-label">🌭 GlizzyClicker Leaders</div>
             <div class="text-slate-300 text-sm mt-1">Top players by lifetime glizzies</div>
           </div>
-          <a href="/game" class="text-xs text-accent hover:text-accent-soft">Play →</a>
+          <a href="/game" class="text-xs text-accent hover:text-accent-soft whitespace-nowrap">Play →</a>
         </div>
         <div class="text-center py-8 text-slate-400">
           <div class="text-4xl mb-2">🌭</div>
@@ -596,32 +599,29 @@ function renderGlizzyLeadersSection(leaders) {
     const ratio = Math.max(0.02, r.lifetime / topLifetime);
     const barWidthPct = (ratio * 100).toFixed(1);
     return `
-      <div class="flex items-center gap-3 px-3 py-2.5 ${i % 2 === 0 ? "bg-slate-900/40" : ""} rounded-lg">
-        <div class="text-base font-bold tabular-nums w-6 text-right" style="color:${rankColor}">${esc(i + 1)}</div>
+      <div class="flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2.5 ${i % 2 === 0 ? "bg-slate-900/40" : ""} rounded-lg">
+        <div class="text-base font-bold tabular-nums w-5 sm:w-6 text-right flex-shrink-0" style="color:${rankColor}">${esc(i + 1)}</div>
         ${avatar}
         <div class="flex-1 min-w-0">
-          <div class="flex items-baseline gap-2">
-            <div class="font-semibold text-slate-100 truncate">${esc(name)}</div>
-            <div class="text-xs text-slate-500 flex-shrink-0">${esc(r.total_buildings)} buildings · ${esc(r.total_clicks.toLocaleString())} clicks</div>
+          <div class="flex items-baseline justify-between gap-2 min-w-0">
+            <div class="font-semibold text-slate-100 truncate min-w-0">${esc(name)}</div>
+            <div class="text-sm sm:text-lg font-bold accent tabular-nums flex-shrink-0 whitespace-nowrap" title="${esc(r.lifetime.toLocaleString())} lifetime glizzies">${esc(fmtCompact(r.lifetime))}</div>
           </div>
           <div class="mt-1 h-1.5 bg-slate-800/60 rounded-full overflow-hidden">
             <div class="h-full rounded-full" style="width:${barWidthPct}%;background:linear-gradient(90deg, #ff6b35, #ffa07a);"></div>
           </div>
-        </div>
-        <div class="text-right flex-shrink-0">
-          <div class="text-lg font-bold accent tabular-nums">${esc(r.lifetime.toLocaleString())}</div>
-          <div class="text-[10px] text-slate-500 uppercase tracking-widest">lifetime</div>
+          <div class="text-[11px] text-slate-500 mt-1">${esc(r.total_buildings)} buildings · ${esc(fmtCompact(r.total_clicks))} clicks</div>
         </div>
       </div>`;
   }).join("");
   return `
-    <section class="card p-6 mb-8">
-      <div class="flex items-center justify-between mb-3">
+    <section class="card p-4 sm:p-6 mb-8">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 mb-3">
         <div>
           <div class="stat-label">🌭 GlizzyClicker Leaders</div>
           <div class="text-slate-300 text-sm mt-1">Top players by lifetime glizzies</div>
         </div>
-        <div class="flex items-center gap-3 text-xs">
+        <div class="flex items-center gap-3 text-xs whitespace-nowrap">
           <a href="/game/leaderboard" class="text-slate-400 hover:text-white">Full board →</a>
           <a href="/game" class="text-accent hover:text-accent-soft">Play →</a>
         </div>
@@ -967,7 +967,7 @@ function renderUserPage(data) {
         });
       })();
     </script>`;
-  return renderLayout(data.name, body, data);
+  return renderLayout(data.name, body, data, { nav: "users" });
 }
 
 function renderComparePage({ users, dates, byUser, allUsers, selected }) {
