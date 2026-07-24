@@ -382,8 +382,15 @@ const STYLES = `
     -webkit-user-select: none;
     filter: drop-shadow(0 10px 30px rgba(255,107,53,0.25));
   }
-  .click-target:active { transform: scale(0.96); }
   .click-target:hover { filter: drop-shadow(0 10px 40px rgba(255,107,53,0.45)); }
+  .click-target.bounce { animation: glizzybounce 0.32s ease-out; }
+  @keyframes glizzybounce {
+    0%   { transform: scale(1); }
+    25%  { transform: scale(0.88); }
+    55%  { transform: scale(1.06); }
+    80%  { transform: scale(0.98); }
+    100% { transform: scale(1); }
+  }
   .float-num {
     position: absolute; pointer-events: none; font-weight: 700; font-size: 22px;
     color: #ffa07a; text-shadow: 0 2px 8px rgba(0,0,0,0.6);
@@ -858,6 +865,11 @@ const GAME_CLIENT_JS = `
     state.lifetime += gain;
     state.total_clicks += 1;
     dirty = true;
+
+    // Bounce the glizzy (restart the animation on every click)
+    clickArea.classList.remove('bounce');
+    void clickArea.offsetWidth;
+    clickArea.classList.add('bounce');
 
     // Floating "+N" anim
     const rect = clickArea.getBoundingClientRect();
