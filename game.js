@@ -518,7 +518,7 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
     : `<span style="width:32px;height:32px;border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;">${esc((displayName[0] || "?").toUpperCase())}</span>`;
 
   const initial = JSON.stringify({
-    state, bonuses, rates, offlineEarned,
+    state, bonuses, rates, offlineEarned, userId, displayName,
     buildings: BUILDINGS, upgrades: UPGRADES,
     buildingSvgs: BUILDING_SVGS,
     goldenSpawn: goldenSpawnFor(state),
@@ -535,9 +535,11 @@ ${NAV}
     <div class="flex items-baseline gap-3 flex-wrap">
       <div class="text-4xl font-bold text-white tabular-nums" id="glizzies-display">0</div>
       <div class="text-slate-400 text-sm">glizzies · <span id="pps-display" class="text-accent">0/s</span></div>
+      <div class="text-slate-400 text-sm"><span id="lifetime-top-display" class="text-slate-200 tabular-nums">0</span> lifetime</div>
       <div id="buffs-bar" class="flex items-center gap-1.5"></div>
     </div>
     <div class="flex items-center gap-3">
+      <button type="button" id="lb-open" class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-accent transition" title="Peek at the leaderboard (L)">🏆 <span class="hidden sm:inline">Leaderboard</span></button>
       <span class="hidden sm:inline text-sm text-slate-300">${esc(displayName)}</span>
       ${avatarHtml}
       <form method="post" action="/oauth/logout" class="inline">
@@ -644,6 +646,24 @@ ${NAV}
     <div class="text-slate-300 mb-4">While you were away, you earned</div>
     <div class="text-4xl font-bold accent mb-6" id="offline-amount">0</div>
     <button id="offline-close" class="px-6 py-2 bg-accent hover:bg-accent-deep text-white rounded-lg font-semibold">Sweet</button>
+  </div>
+</div>
+
+<div id="lb-modal" class="fixed inset-0 bg-black/70 z-50 hidden items-start justify-center p-4 sm:p-8 overflow-y-auto">
+  <div class="card w-full max-w-2xl mt-8 sm:mt-12" id="lb-panel">
+    <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-800">
+      <div>
+        <div class="text-xs uppercase tracking-widest text-slate-400">Leaderboard</div>
+        <div class="text-lg font-bold text-white">Top by lifetime glizzies</div>
+      </div>
+      <button type="button" id="lb-close" class="text-slate-400 hover:text-white text-xl leading-none px-2" title="Close (Esc)">×</button>
+    </div>
+    <div id="lb-body" class="max-h-[65vh] overflow-y-auto game-scrollcol p-2">
+      <div class="text-center text-slate-400 py-8 text-sm">Loading…</div>
+    </div>
+    <div class="px-4 py-2.5 border-t border-slate-800 text-center">
+      <a href="/game/leaderboard" class="text-xs text-accent hover:text-accent-soft">Open full leaderboard →</a>
+    </div>
   </div>
 </div>
 
@@ -767,6 +787,11 @@ const GAME_CLIENT_JS = `
     document.getElementById('glizzies-display').textContent = fmt(state.glizzies);
     document.getElementById('pps-display').textContent = fmtRate(rates.perSecond);
     document.getElementById('lifetime-display').textContent = fmt(state.lifetime);
+    // Same number as the Stats card, mirrored into the sticky bar so it's
+    // visible without scrolling the (tall) bonuses column.
+    const lifetimeTop = document.getElementById('lifetime-top-display');
+    lifetimeTop.textContent = fmt(state.lifetime);
+    lifetimeTop.title = Math.floor(state.lifetime).toLocaleString() + ' lifetime glizzies';
     document.getElementById('clicks-display').textContent = fmt(state.total_clicks);
     const totalBuildings = BUILDINGS.reduce((s, b) => s + (state.buildings[b.id] || 0), 0);
     document.getElementById('buildings-total-display').textContent = fmt(totalBuildings);
@@ -1289,6 +1314,102 @@ const GAME_CLIENT_JS = `
     window.__spawnGolden = spawnGolden;  // manual trigger for testing from the console
   }
 
+  // ----- leaderboard peek -----
+  // Navigating to /game/leaderboard costs a save round-trip and drops you out
+  // of the running loop, so standings get their own overlay. The game keeps
+  // ticking underneath while it's open.
+  (function initLeaderboardModal() {
+    const modal = document.getElementById('lb-modal');
+    const body = document.getElementById('lb-body');
+    let timer = null;
+    let scrollToMe = false;
+
+    function escHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function avatarHtml(row) {
+      if (row.avatar_url) {
+        return '<img src="' + escHtml(row.avatar_url) + '" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0;">';
+      }
+      const initial = escHtml(((row.name || '?')[0] || '?').toUpperCase());
+      return '<span style="width:32px;height:32px;border-radius:50%;background:#334155;color:#cbd5e1;display:inline-flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;">' + initial + '</span>';
+    }
+    function rowHtml(row, rank, isMe) {
+      const rankColor = rank === 1 ? '#ffd166' : rank === 2 ? '#cbd5e1' : rank === 3 ? '#d4a574' : '#6b7280';
+      const rowCls = isMe ? 'bg-slate-800/60 ring-1 ring-accent/40' : 'hover:bg-slate-800/40';
+      return '<div ' + (isMe ? 'data-me="1" ' : '') + 'class="flex items-center gap-2 sm:gap-3 px-2 py-2.5 rounded-lg ' + rowCls + '">' +
+        '<div class="text-base sm:text-xl font-bold tabular-nums w-6 sm:w-8 text-right flex-shrink-0" style="color:' + rankColor + '">' + (rank || '—') + '</div>' +
+        avatarHtml(row) +
+        '<div class="flex-1 min-w-0">' +
+          '<div class="flex items-baseline justify-between gap-2 min-w-0">' +
+            '<div class="font-semibold text-white truncate min-w-0 text-sm">' + escHtml(row.name || '') + (isMe ? ' <span class="text-[10px] uppercase tracking-widest accent">you</span>' : '') + '</div>' +
+            '<div class="text-base sm:text-xl font-bold accent tabular-nums flex-shrink-0 whitespace-nowrap" title="' + Math.floor(row.lifetime || 0).toLocaleString() + ' lifetime glizzies">' + fmt(row.lifetime || 0) + '</div>' +
+          '</div>' +
+          '<div class="text-[11px] text-slate-400 truncate">' + fmt(row.total_buildings || 0) + ' buildings · ' + fmt(row.total_clicks || 0) + ' clicks · <span class="accent font-semibold">' + fmtRate(row.per_second || 0) + '</span></div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function render(rows) {
+      if (!rows.length) {
+        body.innerHTML = '<div class="text-center text-slate-400 py-8 text-sm">No players yet.</div>';
+        return;
+      }
+      let html = rows.map(function (r, i) { return rowHtml(r, i + 1, r.user_id === G.userId); }).join('');
+      // Top 50 only — if you're not on the board, show your own line anyway so
+      // the modal never looks like it forgot you exist.
+      if (!rows.some(function (r) { return r.user_id === G.userId; })) {
+        html += '<div class="border-t border-slate-800 mt-2 pt-2">' +
+          rowHtml({ name: G.displayName, lifetime: state.lifetime, total_buildings: BUILDINGS.reduce(function (s, b) { return s + (state.buildings[b.id] || 0); }, 0), total_clicks: state.total_clicks, per_second: rates.perSecond }, 0, true) +
+          '</div>';
+      }
+      body.innerHTML = html;
+      if (scrollToMe) {
+        scrollToMe = false;
+        const me = body.querySelector('[data-me]');
+        if (me) me.scrollIntoView({ block: 'center' });
+      }
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch('/api/game/leaderboard');
+        if (!res.ok) throw new Error('http ' + res.status);
+        render(await res.json());
+      } catch (e) {
+        body.innerHTML = '<div class="text-center text-slate-400 py-8 text-sm">Couldn\\'t load the leaderboard.</div>';
+      }
+    }
+
+    function isOpen() { return !modal.classList.contains('hidden'); }
+    function open() {
+      if (isOpen()) return;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      scrollToMe = true;
+      refresh();
+      timer = setInterval(refresh, 10000);
+    }
+    function close() {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      if (timer) { clearInterval(timer); timer = null; }
+    }
+
+    document.getElementById('lb-open').addEventListener('click', open);
+    document.getElementById('lb-close').addEventListener('click', close);
+    modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+    document.addEventListener('keydown', function (e) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const tag = (document.activeElement && document.activeElement.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.key === 'Escape' && isOpen()) close();
+      else if (e.key === 'l' || e.key === 'L') { isOpen() ? close() : open(); }
+    });
+  })();
+
   // Initial render
   recomputeRates();
   renderBuyQty();
@@ -1297,6 +1418,22 @@ const GAME_CLIENT_JS = `
   initCollapsibles();
 })();
 </script>`;
+
+/**
+ * Attach display identity to raw leaderboard rows. The full-page leaderboard
+ * and the in-game modal both need it, and the modal renders client-side, so
+ * the name/avatar has to ride along in the JSON.
+ */
+function withProfiles(rows) {
+  return rows.map((r) => {
+    const profile = getUserProfileStmt.get(r.user_id);
+    return {
+      ...r,
+      name: (profile && (profile.global_name || profile.username)) || `User ${String(r.user_id).slice(-4)}`,
+      avatar_url: (profile && profile.avatar_url) || null,
+    };
+  });
+}
 
 function renderLeaderboardPage(rows) {
   const cards = rows.length === 0
@@ -1401,7 +1538,7 @@ export function registerGame(app) {
   });
 
   app.get("/api/game/leaderboard", (req, res) => {
-    res.json(getLeaderboardRows(50));
+    res.json(withProfiles(getLeaderboardRows(50)));
   });
 }
 
