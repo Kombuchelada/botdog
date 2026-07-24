@@ -48,7 +48,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
-| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. |
+| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -131,6 +131,18 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   wraps it in `withProfiles()` so the client-rendered modal gets name +
   avatar. Top 50 only, so the modal appends your own line from local state
   when you're not on the board.
+- **The Oracle prices every candidate by simulation, never by a heuristic.**
+  Clone the state, apply the purchase, re-run `computeRatesFor`, diff the /s;
+  rank by `cost ÷ Δpps`. That's what keeps it correct for effects whose value
+  depends on the rest of the state (`building_synergy`, `global_per_building`)
+  without the ranker knowing they exist — and it's why the *cheapest* building
+  legitimately ranks #1 for anyone owning Vertical Integration. A hand-written
+  "base_rate ÷ cost" heuristic gets that case badly wrong. See `docs/oracle.md`.
+- **`computeRatesFor(st)` in `game.js` must mirror `computeEffectiveRates` in
+  `glizzy.js` effect-for-effect.** The client one is a replica, and it had
+  silently dropped `building_synergy` — anyone owning a synergy upgrade saw an
+  understated /s until the next page load quietly corrected it. When you add an
+  effect type, add it in both places.
 - **Leaderboard numbers use `fmtCompact`, not `toLocaleString`.** Top players
   sit on 19-digit lifetime totals; printing those in full broke every layout
   they touched. Full value goes in a `title` attribute.
@@ -285,7 +297,9 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: lifetime total in the
-game's sticky bar + in-page leaderboard peek modal; before that, streak/protest
-fix, GlizzyClicker stale-save + tap-loss + golden-glizzy claim-floor fixes,
-×10/×100 buying, shared responsive nav, mobile leaderboard/chart sizing.
+and this doc should be updated. Last meaningful update: the Oracle (Konami-code
+purchase optimizer) + the client-side `building_synergy` fix; before that,
+lifetime total in the game's sticky bar + in-page leaderboard peek modal,
+streak/protest fix, GlizzyClicker stale-save + tap-loss + golden-glizzy
+claim-floor fixes, ×10/×100 buying, shared responsive nav, mobile
+leaderboard/chart sizing.

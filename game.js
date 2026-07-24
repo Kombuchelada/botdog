@@ -479,6 +479,27 @@ const STYLES = `
     background: linear-gradient(135deg, #ffe89a, #ffd24a); white-space: nowrap;
   }
   .buff-chip.mega { background: linear-gradient(135deg, #fff, #ffd24a); animation: megapulse 0.8s ease-out infinite; }
+  /* Oracle (cheat code) — the recommended next purchase. Violet so it reads
+     against both the orange "affordable" border and the emerald "owned" one. */
+  .oracle-best { position: relative; border-color: rgba(192,132,252,0.75) !important; box-shadow: 0 0 0 1px rgba(192,132,252,0.35), 0 0 18px rgba(168,85,247,0.25); }
+  .oracle-best::after {
+    content: '🔮 BEST'; position: absolute; top: -7px; right: 8px;
+    font-size: 9px; font-weight: 800; letter-spacing: .08em;
+    padding: 1px 6px; border-radius: 999px;
+    background: linear-gradient(135deg, #a855f7, #7c3aed); color: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .oracle-row {
+    width: 100%; text-align: left; display: flex; gap: 10px; align-items: flex-start;
+    background:#120b20; border:1px solid rgba(192,132,252,0.22); border-radius:10px;
+    padding: 8px 10px; cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  .oracle-row:hover { background:#1a1030; border-color: rgba(192,132,252,0.5); }
+  .oracle-row .o-rank { font-size: 11px; font-weight: 800; color:#c084fc; width: 12px; flex-shrink: 0; line-height: 1.5; }
+  .oracle-row .o-name { color:#f1f5f9; font-weight: 600; font-size: 13px; }
+  .oracle-row .o-meta { color:#94a3b8; font-size: 11px; margin-top: 2px; }
+  .oracle-row .o-pay { color:#d8b4fe; font-weight: 700; }
+  .oracle-row.o-ready .o-when { color:#86efac; }
   /* Subtle scrollbars on the sticky side panels — invisible until you hover/scroll */
   .game-scrollcol { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.2) transparent; }
   .game-scrollcol::-webkit-scrollbar { width: 6px; }
@@ -539,6 +560,7 @@ ${NAV}
       <div id="buffs-bar" class="flex items-center gap-1.5"></div>
     </div>
     <div class="flex items-center gap-3">
+      <button type="button" id="oracle-toggle" class="hidden text-xs px-2.5 py-1 rounded-lg border border-purple-500/60 text-purple-300 hover:text-white hover:border-purple-400 transition" title="The Oracle — optimal next purchase (O)">🔮 <span class="hidden sm:inline">Oracle</span></button>
       <button type="button" id="lb-open" class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-accent transition" title="Peek at the leaderboard (L)">🏆 <span class="hidden sm:inline">Leaderboard</span></button>
       <span class="hidden sm:inline text-sm text-slate-300">${esc(displayName)}</span>
       ${avatarHtml}
@@ -607,6 +629,16 @@ ${NAV}
 
     <!-- RIGHT: upgrades + buildings (sticky, internal scroll) -->
     <section class="md:col-span-1 md:sticky md:top-28 md:max-h-[calc(100vh-8rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
+      <div class="card p-4 mb-4 hidden" id="oracle-card" style="border-color:rgba(192,132,252,0.35)">
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <span class="text-xs uppercase tracking-widest text-purple-300">🔮 The Oracle</span>
+          <span class="text-[10px] text-slate-500">fastest payback</span>
+        </div>
+        <div id="oracle-list" class="space-y-2"></div>
+        <div class="text-[10px] text-slate-500 mt-2 leading-snug">
+          Ranked by cost ÷ production gained. Ignores click power and golden glizzies — those depend on how you play.
+        </div>
+      </div>
       <div class="card p-4 mb-4">
         <div class="flex items-center justify-between gap-2 mb-3">
           <button type="button" class="collapse-toggle flex items-center gap-2 min-w-0" data-collapse="buildings">
@@ -720,24 +752,31 @@ const GAME_CLIENT_JS = `
   }
 
   // ----- effective rates (client-side replica of glizzy.js logic) -----
-  function recomputeRates() {
+  // Pure in \`st\` ({buildings, upgrades_owned, golden_effects}) so the Oracle can
+  // price a hypothetical purchase by running this over a cloned state.
+  function computeRatesFor(st) {
     let clickPower = 1, clickAdd = 0, globalMult = 1;
     const buildingMult = {};
     for (const b of BUILDINGS) buildingMult[b.id] = 1;
 
-    for (const upId of state.upgrades_owned) {
+    for (const upId of st.upgrades_owned) {
       const up = UPGRADE_MAP.get(upId); if (!up) continue;
       const e = up.effect;
       if (e.type === 'click_mult') clickPower *= e.value;
       else if (e.type === 'building_mult') buildingMult[e.building] *= e.value;
       else if (e.type === 'global_mult') globalMult *= e.value;
       else if (e.type === 'click_per_building') {
-        let total = 0; for (const b of BUILDINGS) total += state.buildings[b.id] || 0;
+        let total = 0; for (const b of BUILDINGS) total += st.buildings[b.id] || 0;
         clickAdd += total * e.value;
       }
       else if (e.type === 'global_per_building') {
-        let total = 0; for (const b of BUILDINGS) total += state.buildings[b.id] || 0;
+        let total = 0; for (const b of BUILDINGS) total += st.buildings[b.id] || 0;
         globalMult *= 1 + total * e.value;
+      }
+      else if (e.type === 'building_synergy') {
+        if (buildingMult[e.building] !== undefined) {
+          buildingMult[e.building] *= 1 + (st.buildings[e.per] || 0) * e.value;
+        }
       }
     }
     for (const b of bonuses) {
@@ -748,7 +787,7 @@ const GAME_CLIENT_JS = `
     }
     // Active golden-glizzy buffs (mirrors glizzy.js — expire by timestamp).
     const gNow = Date.now();
-    for (const g of (state.golden_effects || [])) {
+    for (const g of (st.golden_effects || [])) {
       if (!g || new Date(g.expires_at).getTime() <= gNow) continue;
       if (g.kind === 'prod_mult') globalMult *= g.mult;
       else if (g.kind === 'click_mult') clickPower *= g.mult;
@@ -759,14 +798,18 @@ const GAME_CLIENT_JS = `
     const bp = {};
     const perUnit = {};
     for (const b of BUILDINGS) {
-      const owned = state.buildings[b.id] || 0;
+      const owned = st.buildings[b.id] || 0;
       const oneRate = b.base_rate * buildingMult[b.id] * globalMult;
       perUnit[b.id] = oneRate;
       const r = owned * oneRate;
       bp[b.id] = r;
       perSecond += r;
     }
-    rates = { perClick, perSecond, buildingProduction: bp, perUnitRate: perUnit };
+    return { perClick, perSecond, buildingProduction: bp, perUnitRate: perUnit };
+  }
+
+  function recomputeRates() {
+    rates = computeRatesFor(state);
   }
 
   // Cost of buying \`n\` more of a building, as a closed-form geometric series:
@@ -781,6 +824,181 @@ const GAME_CLIENT_JS = `
     const series = (Math.pow(COST_SCALE, owned + qty) - Math.pow(COST_SCALE, owned)) / (COST_SCALE - 1);
     return Math.ceil(b.base_cost * series);
   }
+
+  // ----- the Oracle (cheat code): optimal next purchase -----
+  //
+  // Every candidate is priced the same way: clone the state, apply the purchase,
+  // re-run computeRatesFor, and take the delta in /s. That means it stays correct
+  // for effects whose value depends on the rest of the state (synergies,
+  // global_per_building) without the ranker knowing anything about effect types.
+  //
+  // Deliberately blind to click power and golden glizzies — both are worth
+  // whatever your play style makes them worth, so they'd be noise in a ranking
+  // that's supposed to be about idle production. Golden buffs are also stripped
+  // from the simulated state so a Frenzy doesn't churn the recommendation.
+  const ORACLE_SKIP_EFFECTS = new Set([
+    'click_mult', 'click_per_building',
+    'golden_frequency', 'golden_duration', 'golden_payout',
+  ]);
+  let oracleOn = false;
+  let oracleUnlocked = false;
+  let oracleTop = [];
+  try { oracleUnlocked = localStorage.getItem('glizzy_oracle') === '1'; } catch (e) {}
+
+  function fmtDur(s) {
+    if (!Number.isFinite(s) || s < 0) return '—';
+    if (s < 60) return Math.max(1, Math.round(s)) + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + Math.round(s % 60) + 's';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ' + Math.round((s % 3600) / 60) + 'm';
+    if (s < 86400 * 365) return Math.floor(s / 86400) + 'd ' + Math.round((s % 86400) / 3600) + 'h';
+    return '>1y';
+  }
+
+  function oracleRank() {
+    const base = {
+      buildings: state.buildings,
+      upgrades_owned: state.upgrades_owned,
+      golden_effects: [],
+    };
+    const basePps = computeRatesFor(base).perSecond;
+    const out = [];
+    const qty = buyQty;
+
+    for (const b of BUILDINGS) {
+      const cost = buildingCost(b.id, qty);
+      const sim = {
+        buildings: Object.assign({}, base.buildings),
+        upgrades_owned: base.upgrades_owned,
+        golden_effects: [],
+      };
+      sim.buildings[b.id] = (sim.buildings[b.id] || 0) + qty;
+      const delta = computeRatesFor(sim).perSecond - basePps;
+      if (delta > 0 && Number.isFinite(cost)) {
+        out.push({ kind: 'building', id: b.id, name: b.name + (qty > 1 ? ' ×' + qty : ''), emoji: b.emoji, cost, delta, payback: cost / delta });
+      }
+    }
+
+    const owned = new Set(state.upgrades_owned);
+    for (const u of UPGRADES) {
+      if (owned.has(u.id) || ORACLE_SKIP_EFFECTS.has(u.effect.type)) continue;
+      const sim = {
+        buildings: base.buildings,
+        upgrades_owned: base.upgrades_owned.concat([u.id]),
+        golden_effects: [],
+      };
+      const delta = computeRatesFor(sim).perSecond - basePps;
+      if (delta > 0) {
+        out.push({ kind: 'upgrade', id: u.id, name: u.name, emoji: u.emoji, cost: u.cost, delta, payback: u.cost / delta });
+      }
+    }
+
+    out.sort((a, b) => a.payback - b.payback);
+    return out;
+  }
+
+  // Rebuilt only when the ranking (or a price in it) actually changes — the
+  // rows are tap targets, and swapping them out from under a finger eats the
+  // tap. The countdown line is patched in place every pass instead.
+  let oracleSig = null;
+  function renderOracle() {
+    const card = document.getElementById('oracle-card');
+    if (!card) return;
+    card.classList.toggle('hidden', !oracleOn);
+    if (!oracleOn) { oracleTop = []; oracleSig = null; return; }
+
+    oracleTop = oracleRank().slice(0, 3);
+    const list = document.getElementById('oracle-list');
+    if (!oracleTop.length) {
+      if (oracleSig !== 'empty') {
+        oracleSig = 'empty';
+        list.innerHTML = '<div class="text-xs text-slate-400 py-2">Nothing left to buy that adds production.</div>';
+      }
+      return;
+    }
+
+    const sig = oracleTop.map(c => c.kind + ':' + c.id + ':' + c.cost).join('|');
+    if (sig !== oracleSig) {
+      oracleSig = sig;
+      list.innerHTML = oracleTop.map((c, i) =>
+        '<button type="button" class="oracle-row" data-oracle="' + c.kind + ':' + c.id + '">' +
+          '<span class="o-rank">' + (i + 1) + '</span>' +
+          '<span class="flex-1 min-w-0">' +
+            '<span class="o-name">' + c.emoji + ' ' + c.name + '</span>' +
+            '<div class="o-meta">' + fmt(c.cost) + ' · +' + fmtRate(c.delta) + ' · <span class="o-pay">' + fmtDur(c.payback) + ' payback</span></div>' +
+            '<div class="o-meta o-when"></div>' +
+          '</span>' +
+        '</button>').join('');
+    }
+
+    const rows = list.querySelectorAll('[data-oracle]');
+    oracleTop.forEach((c, i) => {
+      const row = rows[i]; if (!row) return;
+      const short = Math.max(0, c.cost - state.glizzies);
+      const ready = short <= 0;
+      row.classList.toggle('o-ready', ready);
+      row.querySelector('.o-when').textContent = ready
+        ? 'affordable now'
+        : (rates.perSecond > 0 ? 'ready in ' + fmtDur(short / rates.perSecond) : 'keep clicking');
+    });
+  }
+
+  // Which card in the buildings/upgrades lists wears the 🔮 BEST ring.
+  function oracleBestKey() {
+    if (!oracleOn || !oracleTop.length) return null;
+    return oracleTop[0].kind + ':' + oracleTop[0].id;
+  }
+
+  document.getElementById('oracle-list').addEventListener('click', ev => {
+    const row = ev.target.closest('[data-oracle]');
+    if (!row) return;
+    const [kind, id] = row.dataset.oracle.split(':');
+    if (kind === 'building') buyBuilding(id); else buyUpgrade(id);
+  });
+
+  function setOracle(on) {
+    oracleOn = on;
+    try { localStorage.setItem('glizzy_oracle_on', on ? '1' : '0'); } catch (e) {}
+    // Inline, not a Tailwind class — the CDN build only ships classes it has
+    // seen in the markup, and this one never appears there.
+    document.getElementById('oracle-toggle').style.background = on ? 'rgba(168,85,247,0.22)' : '';
+    renderOracle();
+    renderBuildings();
+    renderUpgrades(true);
+  }
+
+  function unlockOracle(announce) {
+    oracleUnlocked = true;
+    try { localStorage.setItem('glizzy_oracle', '1'); } catch (e) {}
+    document.getElementById('oracle-toggle').classList.remove('hidden');
+    if (announce) {
+      showGoldenToast({ emoji: '🔮', name: 'THE ORACLE AWAKENS', message: 'It knows what you should buy next. Press O to consult it.' });
+      setOracle(true);
+    }
+  }
+
+  document.getElementById('oracle-toggle').addEventListener('click', () => setOracle(!oracleOn));
+
+  // ↑ ↑ ↓ ↓ ← → ← → B A
+  const KONAMI = ['ArrowUp','ArrowUp','ArrowDown','ArrowDown','ArrowLeft','ArrowRight','ArrowLeft','ArrowRight','b','a'];
+  let konamiAt = 0;
+  document.addEventListener('keydown', ev => {
+    if (!ev.key) return;
+    const tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+    if (oracleUnlocked && (ev.key === 'o' || ev.key === 'O') && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+      setOracle(!oracleOn);
+      return;
+    }
+    const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+    if (k === KONAMI[konamiAt]) {
+      konamiAt++;
+      if (konamiAt === KONAMI.length) { konamiAt = 0; unlockOracle(true); }
+    } else {
+      // A mismatch can still be the start of a fresh attempt (↑↑↑↓↓…).
+      konamiAt = k === KONAMI[0] ? 1 : 0;
+    }
+  });
 
   // ----- rendering -----
   function renderHud() {
@@ -843,6 +1061,7 @@ const GAME_CLIENT_JS = `
 
   function renderBuildings() {
     if (!buildingEls) buildBuildingList();
+    const bestKey = oracleBestKey();
     for (const b of BUILDINGS) {
       const el = buildingEls[b.id];
       const owned = state.buildings[b.id] || 0;
@@ -850,6 +1069,7 @@ const GAME_CLIENT_JS = `
       const affordable = state.glizzies >= cost;
       el.card.classList.toggle('affordable', affordable);
       el.card.classList.toggle('locked', !affordable);
+      el.card.classList.toggle('oracle-best', bestKey === 'building:' + b.id);
       el.owned.textContent = '×' + owned;
 
       const perUnit = (rates.perUnitRate && rates.perUnitRate[b.id]) || 0;
@@ -876,6 +1096,7 @@ const GAME_CLIENT_JS = `
     if (isOwned) { cls += ' owned'; costLabel = '✓ Owned'; }
     else if (state.glizzies >= u.cost) { cls += ' affordable'; costLabel = 'Cost: ' + fmt(u.cost); }
     else { cls += ' locked'; costLabel = 'Cost: ' + fmt(u.cost); }
+    if (!isOwned && oracleBestKey() === 'upgrade:' + u.id) cls += ' oracle-best';
     const desc = u.description || '';
     return \`<button class="\${cls}" data-upgrade="\${u.id}">
         <div class="flex items-start gap-2">
@@ -934,12 +1155,14 @@ const GAME_CLIENT_JS = `
     ].join('|');
 
     if (!force && sig === upgradeSig) {
+      const bestKey = oracleBestKey();
       root.querySelectorAll('[data-upgrade]').forEach(el => {
         const u = UPGRADE_MAP.get(el.dataset.upgrade); if (!u) return;
         const isOwned = owned.has(u.id);
         el.classList.toggle('owned', isOwned);
         el.classList.toggle('affordable', !isOwned && state.glizzies >= u.cost);
         el.classList.toggle('locked', !isOwned && state.glizzies < u.cost);
+        el.classList.toggle('oracle-best', !isOwned && bestKey === 'upgrade:' + u.id);
         const c = el.querySelector('.u-cost');
         if (c) c.textContent = isOwned ? '✓ Owned' : 'Cost: ' + fmt(u.cost);
       });
@@ -964,6 +1187,7 @@ const GAME_CLIENT_JS = `
 
   function rerender() {
     renderHud();
+    renderOracle();
     renderBuildings();
     renderUpgrades();
   }
@@ -1000,6 +1224,7 @@ const GAME_CLIENT_JS = `
     buyQty = +btn.dataset.qty || 1;
     try { localStorage.setItem('glizzy_buyqty', String(buyQty)); } catch (e) {}
     renderBuyQty();
+    renderOracle();   // qty changes the price, and therefore the ranking
     renderBuildings();
   });
 
@@ -1049,7 +1274,7 @@ const GAME_CLIENT_JS = `
     }
   }, 100);
   // Refresh affordability once a second — but not mid-tap (see \`pointerHeld\`).
-  setInterval(() => { if (!pointerHeld) { renderBuildings(); renderUpgrades(); } }, 1000);
+  setInterval(() => { if (!pointerHeld) { renderOracle(); renderBuildings(); renderUpgrades(); } }, 1000);
 
   // ----- save -----
 
@@ -1413,6 +1638,12 @@ const GAME_CLIENT_JS = `
   // Initial render
   recomputeRates();
   renderBuyQty();
+  if (oracleUnlocked) {
+    unlockOracle(false);
+    let wasOn = false;
+    try { wasOn = localStorage.getItem('glizzy_oracle_on') === '1'; } catch (e) {}
+    if (wasOn) setOracle(true);
+  }
   rerender();
   renderBuffs();
   initCollapsibles();
