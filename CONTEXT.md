@@ -1,8 +1,8 @@
 # Year of the Glizzy
 
-A Discord bot, public dashboard, and idle game tracking hot dog consumption
+A Discord bot, public dashboard, and games tracking hot dog consumption
 in a friend group during 2026. One shared language covers the counter, the
-website, and the GlizzyClicker game.
+website, GlizzyClicker, and GlizzyBrawl.
 
 ## Language
 
@@ -50,3 +50,50 @@ _Avoid_: benchmark list, scale
 A unit of consumption: 76 glizzies, Joey Chestnut's 2021 Nathan's contest
 record (76 dogs in 10 minutes).
 _Avoid_: contest unit
+
+### GlizzyBrawl
+
+**GlizzyBrawl**:
+The realtime platform-fighter game. Everyone who joins fights in the one
+shared Arena.
+_Avoid_: the fighting game, Smash clone
+
+**Arena**:
+The single always-on brawl all GlizzyBrawl players share. There is exactly
+one, it never concludes, and joining it is immediate — no queue, no lobby.
+_Avoid_: match, lobby, session, room, win (nothing ever ends, so nothing is won)
+
+**Fighter**:
+One of the four playable characters: The Glizzy, Ketchup, The Grill,
+Corn Dog. A player fights as exactly one Fighter at a time.
+_Avoid_: hero, champion, skin
+
+**Percent**:
+A fighter's accumulated damage. It has no ceiling and never kills by
+itself — higher Percent only means being launched farther when hit.
+_Avoid_: HP, health, damage bar
+
+**KO**:
+Knocking another player past the Arena's blast zone. The unit the all-time
+scoreboard is denominated in.
+_Avoid_: kill, frag, elimination
+
+**Fall**:
+Being KO'd. The counterpart stat to the KO; a player's record is KOs
+against Falls.
+_Avoid_: death, loss
+
+**KO Streak**:
+Consecutive KOs without a Fall. Best-ever streak is remembered per player.
+_Avoid_: killstreak
+
+**Day Tally**:
+A player's KOs and Falls for the current Pacific day — the secondary
+scoreboard beside the all-time board.
+_Avoid_: daily score, session score
+
+**CPU**:
+A server-controlled practice fighter, spawnable only while a lone player
+is in the Arena. Fights involving CPUs leave no persistent stats, and all
+CPUs vanish when a second human joins.
+_Avoid_: bot (ambiguous with the Discord bot), AI, NPC

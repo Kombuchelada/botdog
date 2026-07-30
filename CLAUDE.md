@@ -16,6 +16,9 @@ counter has grown into a multi-surface project:
 - **GlizzyClicker**: a Cookie-Clicker-style idle game where bonuses are
   driven by your real hot dog stats (eat 4+ dogs yesterday → Big Eater
   ×100 click; 120-day streak → +240% production; etc.)
+- **GlizzyBrawl**: a realtime Smash-style platform fighter at `/brawl` — one
+  always-on Arena, server-authoritative 30Hz sim over WebSockets, four
+  Fighters, all-time KO/Fall scoreboard plus a Pacific Day Tally
 
 Hosted on Railway. SQLite (`better-sqlite3`) on a Railway volume.
 DO Spaces for object storage (attachments, avatars, DB backups).
@@ -50,6 +53,9 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
+| `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
+| `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
+| `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -59,6 +65,9 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 - `archive_messages`, `archive_attachments`, `archive_stories`, `archive_state` — archive feature.
 - `user_profiles` — Discord identity + avatar URL cache.
 - `glizzy_game` — game state JSON + `lifetime_glizzies` extracted for leaderboard index.
+- `brawl_stats` — GlizzyBrawl ledger: one row per player ever (KOs, Falls, best
+  KO Streak, arena seconds, per-character KOs, Pacific Day Tally). Deliberately
+  has no match/bout/win concept to hang a row on — see `docs/adr/0001-continuous-arena.md`.
 
 `archive_stories` has a `tags TEXT DEFAULT '[]'` column added by a one-shot
 ALTER migration (idempotent — checks `PRAGMA table_info`).
@@ -159,6 +168,37 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   has `overflow-x: clip`, so it always reads clean. Measure each element's
   `getBoundingClientRect().width` against `clientWidth` instead, and test
   resizing *down* from a wide viewport, not just loading narrow.
+- **GlizzyBrawl's sim is one file both sides run.** `brawl-sim.js` imports
+  nothing and is deterministic so the browser can predict with the server's own
+  physics. Adding a `node:` import, an npm dependency, `Math.random()`, or
+  `Date.now()` to it breaks either the browser or prediction — usually both.
+  This is the `computeRatesFor` lesson applied by construction rather than by
+  discipline.
+- **GlizzyBrawl snapshots buffer events, and queued inputs merge.** Snapshots
+  go out every other tick, so they must carry *all* events since the last one
+  (sending only that tick's events dropped half of every fight's hits and KOs).
+  And queued input frames merge rather than replace — under load the server can
+  tick slower than a client sends, and "newest wins" swallows taps outright.
+  Both are covered by tests; both were invisible bugs found by them.
+- **In GlizzyBrawl, jump is Space — never the same key as "up".** Sharing them
+  makes every ground up-attack jump first and come out as its aerial variant,
+  silently deleting half the ground moveset.
+- **A grounded attack plants your feet** (`vx *= 0.2` on startup). Without it,
+  an attack begun mid-run keeps all of that run: you slide past your own hitbox
+  and off the ledge, and the attack reads as broken. Found by the WebSocket
+  tests, not by playing.
+- **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
+  time during practice. CPUs exist only while a lone human is present, so
+  "are there CPUs in the Arena?" is the entire check — there is never a
+  human-vs-CPU KO to disambiguate.
+- **Hot dog stats are cosmetic-only in GlizzyBrawl.** `computeCosmetics` may
+  grow crowns/trails/finishes and nothing else; no weight, speed, damage, reach,
+  or knockback may ever derive from a hot dog stat. This reversed the original
+  pitch on purpose.
+- **`npm test` is Node's built-in `node:test`, zero new dependencies.** The two
+  seams are the WebSocket boundary (primary) and the sim's public API. Tests
+  assert what a connected client observes and what the ledger records — never
+  internal state shapes or tick bookkeeping.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.
@@ -214,6 +254,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 | Var | Notes |
 |---|---|
 | `DB_PATH` | Defaults to `/database/data.db`. Override to `./hotdog-data.db` for local testing. |
+| `BRAWL_TEST_MODE` | Local/test only. `=1` drops the GlizzyBrawl AFK despawn from 60s to 2s so the rule is testable and demoable. **Never set in prod.** |
 | `GLIZZY_TEST_MODE` | Local only. `=1` makes golden glizzies spawn every 6–14s and drops the claim floor so the feature is demoable in seconds. **Never set in prod.** See `docs/golden-glizzy.md`. |
 | `NIXPACKS_NODE_VERSION` | Pin to `22` (also in `package.json:engines.node`) |
 | `NPM_CONFIG_OMIT=dev` + `NPM_CONFIG_PRODUCTION=` (empty) | Cosmetic — silences the npm deprecation warning during deploy |
@@ -306,7 +347,9 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: the By the Numbers
+and this doc should be updated. Last meaningful update: GlizzyBrawl
+(`brawl-sim.js` / `brawl.js` / `brawl-page.js`, `/brawl`) + the repo's first
+test suite (`npm test`); before that, the By the Numbers
 page (`numbers.js`, `/numbers`) + `CONTEXT.md` glossary; before that, golden-buff
 eclipse/queue stacking (no more downgrades) + out-of-order save-response guard;
 before that, the Oracle (Konami-code purchase optimizer) + the client-side

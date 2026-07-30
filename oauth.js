@@ -76,6 +76,15 @@ function setSessionCookie(res, userId, secure) {
   });
 }
 
+/**
+ * Build a signed session cookie string for a user, e.g. to attach to a
+ * WebSocket upgrade request. Keeps the cookie's name and signing format in the
+ * one file that owns them instead of letting callers reinvent either.
+ */
+export function mintSessionCookie(userId) {
+  return `${SESSION_COOKIE}=${encodeURIComponent(signSession(userId, Date.now() + SESSION_TTL_MS))}`;
+}
+
 export function getSessionUserId(req) {
   const session = verifySession(readCookie(req, SESSION_COOKIE));
   return session ? session.userId : null;

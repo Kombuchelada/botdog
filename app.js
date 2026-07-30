@@ -10,6 +10,7 @@ import { db } from "./database.js";
 import { registerOAuth } from "./oauth.js";
 import { registerGame } from "./game.js";
 import { registerNumbers } from "./numbers.js";
+import { registerBrawl, attachBrawl, stopBrawl } from "./brawl.js";
 
 // Create an express app
 const app = express();
@@ -22,6 +23,7 @@ registerAdmin(app);
 registerOAuth(app);
 registerGame(app);
 registerNumbers(app);
+registerBrawl(app);
 registerDashboard(app);
 
 const server = app.listen(PORT, () => {
@@ -38,6 +40,14 @@ const server = app.listen(PORT, () => {
   }
 });
 
+// GlizzyBrawl rides the same HTTP server as everything else — one process, one
+// port, one deploy. The Arena sleeps whenever nobody is connected.
+try {
+  attachBrawl(server);
+} catch (err) {
+  console.error("Failed to attach GlizzyBrawl:", err);
+}
+
 // Graceful shutdown: when Railway deploys, it sends SIGTERM. Default Node
 // behavior is to exit with code 143, which Railway counts as a crash. Drain
 // in-flight HTTP requests, close the SQLite handle, and exit 0.
@@ -46,6 +56,14 @@ function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`Received ${signal}, shutting down gracefully...`);
+
+  // Flush the Arena ledger and drop the WebSocket clients before the HTTP
+  // server drains — an open socket would otherwise hold the drain open.
+  try {
+    stopBrawl();
+  } catch (brawlErr) {
+    console.error("Error stopping GlizzyBrawl:", brawlErr);
+  }
 
   // Stop accepting new connections; existing ones get to finish.
   server.close((err) => {

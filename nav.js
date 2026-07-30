@@ -26,6 +26,7 @@ const LINKS = [
   { href: "/numbers", label: "By the Numbers", key: "numbers" },
   { href: "/archive", label: "Archive", key: "archive" },
   { href: "/game", label: "Glizzy Clicker", key: "game" },
+  { href: "/brawl", label: "GlizzyBrawl", key: "brawl" },
 ];
 
 const BASE = "rounded-md text-slate-300 hover:text-white hover:bg-slate-800 transition";

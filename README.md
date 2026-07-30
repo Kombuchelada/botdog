@@ -79,6 +79,31 @@ plausible rate and rejects building purchases the player couldn't have
 afforded. Numbers scale through K/M/B/T/Qa/Qi/Sx/Sp/Oc/No/Dc with a
 scientific-notation fallback.
 
+### GlizzyBrawl
+
+A realtime Smash-style platform fighter at `/brawl`. One always-on **Arena**
+that never concludes — drop in, get KO'd, respawn, leave whenever. Anyone can
+watch logged out; a Discord login and a Fighter pick puts you straight in the
+fight with no lobby or queue.
+
+- **Four Fighters**: The Glizzy (balanced, *Snap*), Ketchup (fast/light,
+  *Splat*), The Grill (heavy, *Flare-Up*), Corn Dog (reach, *Pogo*).
+- **Smash-style combat**: Percent + knockback, blast-zone KOs, double jump,
+  fast-fall, drop-through, light/heavy with direction variants, cooldown dodge.
+  No shields, no grabs.
+- **Server-authoritative 30Hz sim** over bare `ws`, in the same Node process.
+  The browser runs the *same* simulation file for client-side prediction.
+- **All-time KOs/Falls** scoreboard plus a Pacific **Day Tally**; lifetime KO
+  Streak, Arena time, and per-character KOs are remembered forever.
+- **Hot dog stats unlock cosmetics only** — crowns, trails, finishes. Nothing you
+  eat ever changes a fight.
+- **CPUs to spar with** when you are alone; they vanish when a human arrives
+  and leave no stats behind.
+- Controller (Gamepad API, Smash layout) and keyboard (WASD *and* arrows, both
+  live) supported.
+
+See [docs/glizzybrawl.md](docs/glizzybrawl.md).
+
 ### Admin panel
 
 Cookie-protected `/admin` with:
@@ -122,6 +147,7 @@ Spaces under `backups/db-{ISO}.db.gz` plus an always-current
        │  ├─ /admin/* (cookie auth)     │
        │  ├─ /oauth/* (Discord OAuth)   │
        │  ├─ /game, /game/leaderboard   │         ┌──────────────────┐
+       │  ├─ /brawl + /brawl/ws (30Hz)  │
        │  ├─ /api/game/* (save/state)   │────────►│   DO Spaces      │
        │  └─ /, /users, /archive, etc.  │  put    │ (attachments,    │
        │                                │         │  avatars,        │

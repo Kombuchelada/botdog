@@ -131,6 +131,59 @@ export const topByLifetimeStmt = db.prepare(
   "SELECT user_id, state, lifetime_glizzies, updated_at FROM glizzy_game ORDER BY lifetime_glizzies DESC LIMIT ?",
 );
 
+// ============================================================================
+// GlizzyBrawl: the Arena ledger.
+//
+// One row per player, ever. There is deliberately no match/bout/win concept to
+// hang a row on (see docs/adr/0001-continuous-arena.md) — the Arena never
+// concludes, so the only things worth remembering are cumulative. Rows are
+// written at KO / despawn / disconnect time, never per tick.
+// `day_key` + `day_kos` + `day_falls` carry the Pacific Day Tally; they are
+// reset lazily the first time a player scores on a new Pacific day.
+// ============================================================================
+
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS brawl_stats (
+    user_id TEXT PRIMARY KEY,
+    kos INTEGER NOT NULL DEFAULT 0,
+    falls INTEGER NOT NULL DEFAULT 0,
+    best_streak INTEGER NOT NULL DEFAULT 0,
+    arena_seconds INTEGER NOT NULL DEFAULT 0,
+    character_kos TEXT NOT NULL DEFAULT '{}',
+    day_key TEXT,
+    day_kos INTEGER NOT NULL DEFAULT 0,
+    day_falls INTEGER NOT NULL DEFAULT 0,
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`,
+).run();
+db.prepare(
+  `CREATE INDEX IF NOT EXISTS idx_brawl_kos ON brawl_stats(kos DESC)`,
+).run();
+
+export const getBrawlStatsStmt = db.prepare(
+  "SELECT * FROM brawl_stats WHERE user_id = ?",
+);
+export const ensureBrawlStatsStmt = db.prepare(
+  "INSERT OR IGNORE INTO brawl_stats (user_id) VALUES (?)",
+);
+export const updateBrawlStatsStmt = db.prepare(
+  `UPDATE brawl_stats SET
+     kos = ?, falls = ?, best_streak = ?, arena_seconds = ?, character_kos = ?,
+     day_key = ?, day_kos = ?, day_falls = ?, last_seen_at = datetime('now')
+   WHERE user_id = ?`,
+);
+export const topBrawlersStmt = db.prepare(
+  // A row exists from the moment someone joins the Arena, so a board that
+  // didn't filter would be padded with 0/0 rows for everyone who ever looked in.
+  `SELECT * FROM brawl_stats WHERE kos > 0 OR falls > 0
+   ORDER BY kos DESC, falls ASC LIMIT ?`,
+);
+export const topBrawlersTodayStmt = db.prepare(
+  `SELECT * FROM brawl_stats WHERE day_key = ? AND (day_kos > 0 OR day_falls > 0)
+   ORDER BY day_kos DESC, day_falls ASC LIMIT ?`,
+);
+
 db.prepare(
   `CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY,
