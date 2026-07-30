@@ -504,20 +504,58 @@ function pruneGoldenEffects(state, now = Date.now()) {
   return state.golden_effects;
 }
 
-// Buffs in the same group don't stack — a new one replaces the old (newest
-// wins). All global production multipliers (Frenzy/Super Frenzy/Golden Rush)
-// share the "prod" group, so e.g. two ×4 Frenzies never compound to ×16.
-// Building boosts only conflict with another boost on the *same* building, and a
-// building boost still combines with a global Frenzy (different effect, not a stack).
+// Effects written before the queue existed have no starts_at — treat as started.
+function goldenStartMs(g) {
+  return g.starts_at ? new Date(g.starts_at).getTime() : 0;
+}
+function goldenExpireMs(g) {
+  return new Date(g.expires_at).getTime();
+}
+
+// Buffs in the same group never compound — at any instant only the strongest
+// *running* buff in a group applies (two ×4 Frenzies never multiply to ×16;
+// see computeEffectiveRates). But a claim must never be a downgrade or a dud
+// either, so instead of "newest wins" replacement:
+//   - a stronger claim starts immediately; the weaker buff it eclipses keeps
+//     ticking on the wall clock and resumes if it outlives the stronger one;
+//   - a weaker/equal claim is queued (`starts_at`) to begin the moment the
+//     buffs beating it expire, with its full duration intact.
+// The old replacement assumed timed buffs could never overlap (spawns ≥4 min
+// apart, buffs ≤3 min) — the frequency/duration upgrades broke that, and a ×4
+// Frenzy could replace a running ×13 Super Frenzy.
+// Building boosts only conflict with a boost on the *same* building; a building
+// boost and a global Frenzy are different groups and genuinely stack.
 function buffGroup(e) {
   if (e.kind === "building_mult") return "building:" + e.building;
   if (e.kind === "click_mult") return "click";
   return "prod"; // prod_mult
 }
-function addGoldenBuff(state, effect) {
+function addGoldenBuff(state, effect, durSec, now) {
   const group = buffGroup(effect);
-  state.golden_effects = (state.golden_effects || []).filter((x) => buffGroup(x) !== group);
-  state.golden_effects.push(effect);
+  const effects = pruneGoldenEffects(state, now);
+  // Start when nothing at least as strong in this group covers the moment: hop
+  // past each blocker until the new buff would actually be the one applied.
+  let start = now;
+  for (let hops = 0; hops < 20; hops++) {
+    const blocker = effects.find(
+      (e) => buffGroup(e) === group && e.mult >= effect.mult &&
+        goldenStartMs(e) <= start && goldenExpireMs(e) > start,
+    );
+    if (!blocker) break;
+    start = goldenExpireMs(blocker);
+  }
+  effect.starts_at = new Date(start).toISOString();
+  effect.expires_at = new Date(start + durSec * 1000).toISOString();
+  effects.push(effect);
+  // Safety valve: the claim floor makes deep queues unreachable in prod, but
+  // GLIZZY_TEST_MODE's seconds-long floor can build silly ones. Keep the 8
+  // soonest per group, dropping the farthest-out.
+  const same = effects.filter((e) => buffGroup(e) === group);
+  if (same.length > 8) {
+    const drop = same.reduce((a, b) => (goldenStartMs(a) >= goldenStartMs(b) ? a : b));
+    state.golden_effects = effects.filter((e) => e !== drop);
+  }
+  return effect;
 }
 
 /**
@@ -579,32 +617,38 @@ export function claimGoldenGlizzy(userId) {
     }
     if (top) {
       const durSec = Math.round(def.durationSec * gmod.duration);
-      const expires_at = new Date(now + durSec * 1000).toISOString();
-      addGoldenBuff(state, { kind: "building_mult", building: top.id, mult: def.mult, expires_at });
+      const buff = addGoldenBuff(state, { kind: "building_mult", building: top.id, mult: def.mult }, durSec, now);
       reward.building = top.id;
       reward.buildingName = top.name;
       reward.mult = def.mult;
       reward.durationSec = durSec;
-      reward.expires_at = expires_at;
-      reward.message = `${top.name} ×${def.mult} for ${Math.round(durSec / 60)} min`;
+      reward.starts_at = buff.starts_at;
+      reward.expires_at = buff.expires_at;
+      reward.queued = goldenStartMs(buff) > now;
+      reward.message = `${top.name} ×${def.mult} for ${Math.round(durSec / 60)} min` +
+        (reward.queued ? " — queued behind your stronger buff" : "");
     } else {
       def = GOLDEN_BY_ID.get("frenzy");
       const durSec = Math.round(def.durationSec * gmod.duration);
-      const expires_at = new Date(now + durSec * 1000).toISOString();
-      addGoldenBuff(state, { kind: "prod_mult", mult: def.mult, expires_at });
+      const buff = addGoldenBuff(state, { kind: "prod_mult", mult: def.mult }, durSec, now);
       reward.id = def.id; reward.name = def.name; reward.emoji = def.emoji;
-      reward.mult = def.mult; reward.durationSec = durSec; reward.expires_at = expires_at;
-      reward.message = goldenBuffMessage(def, durSec, gmod.duration);
+      reward.mult = def.mult; reward.durationSec = durSec;
+      reward.starts_at = buff.starts_at; reward.expires_at = buff.expires_at;
+      reward.queued = goldenStartMs(buff) > now;
+      reward.message = goldenBuffMessage(def, durSec, gmod.duration) +
+        (reward.queued ? " — queued behind your stronger buff" : "");
     }
   } else {
     // Timed global / click multiplier.
     const durSec = Math.round(def.durationSec * gmod.duration);
-    const expires_at = new Date(now + durSec * 1000).toISOString();
-    addGoldenBuff(state, { kind: def.kind, mult: def.mult, expires_at });
+    const buff = addGoldenBuff(state, { kind: def.kind, mult: def.mult }, durSec, now);
     reward.mult = def.mult;
     reward.durationSec = durSec;
-    reward.expires_at = expires_at;
-    reward.message = goldenBuffMessage(def, durSec, gmod.duration);
+    reward.starts_at = buff.starts_at;
+    reward.expires_at = buff.expires_at;
+    reward.queued = goldenStartMs(buff) > now;
+    reward.message = goldenBuffMessage(def, durSec, gmod.duration) +
+      (reward.queued ? " — queued behind your stronger buff" : "");
   }
 
   state.last_golden_at = new Date(now).toISOString();
@@ -752,9 +796,18 @@ export function computeEffectiveRates(state, bonuses) {
   }
 
   // Active golden-glizzy buffs (server-recorded in state, expire by timestamp).
+  // Per group only the strongest currently-running buff applies — same-group
+  // buffs eclipse rather than compound — and queued buffs (starts_at still in
+  // the future) contribute nothing yet. Mirrored by computeRatesFor in game.js.
   const goldNow = Date.now();
+  const goldWinners = new Map();
   for (const g of state.golden_effects || []) {
-    if (!g || new Date(g.expires_at).getTime() <= goldNow) continue;
+    if (!g || goldenStartMs(g) > goldNow || goldenExpireMs(g) <= goldNow) continue;
+    const group = buffGroup(g);
+    const best = goldWinners.get(group);
+    if (!best || g.mult > best.mult) goldWinners.set(group, g);
+  }
+  for (const g of goldWinners.values()) {
     if (g.kind === "prod_mult") globalMult *= g.mult;
     else if (g.kind === "click_mult") clickPower *= g.mult;
     else if (g.kind === "building_mult" && buildingMult[g.building] !== undefined) {

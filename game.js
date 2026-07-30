@@ -479,6 +479,8 @@ const STYLES = `
     background: linear-gradient(135deg, #ffe89a, #ffd24a); white-space: nowrap;
   }
   .buff-chip.mega { background: linear-gradient(135deg, #fff, #ffd24a); animation: megapulse 0.8s ease-out infinite; }
+  /* Queued / eclipsed buffs: real, but not the one applied right now. */
+  .buff-chip.idle { opacity: 0.55; filter: saturate(0.6); }
   /* Oracle (cheat code) — the recommended next purchase. Violet so it reads
      against both the orange "affordable" border and the emerald "owned" one. */
   .oracle-best { position: relative; border-color: rgba(192,132,252,0.75) !important; box-shadow: 0 0 0 1px rgba(192,132,252,0.35), 0 0 18px rgba(168,85,247,0.25); }
@@ -717,7 +719,7 @@ const GAME_CLIENT_JS = `
   const UPGRADE_MAP = new Map(UPGRADES.map(u => [u.id, u]));
 
   let dirty = false;
-  let saveInFlight = false;
+  let savePromise = null;
   let showAllUpgrades = false;
   let showOwnedUpgrades = false;
 
@@ -749,6 +751,14 @@ const GAME_CLIENT_JS = `
     if (n < 1) return n.toFixed(2) + '/s';
     if (n < 1e3) return n.toFixed(1) + '/s';
     return fmt(n) + '/s';
+  }
+
+  // Same-group golden buffs eclipse each other (strongest running wins);
+  // different groups stack. Mirrors buffGroup in glizzy.js.
+  function buffGroupKey(g) {
+    if (g.kind === 'building_mult') return 'building:' + g.building;
+    if (g.kind === 'click_mult') return 'click';
+    return 'prod';
   }
 
   // ----- effective rates (client-side replica of glizzy.js logic) -----
@@ -785,10 +795,19 @@ const GAME_CLIENT_JS = `
       else if (e.type === 'building_mult') buildingMult[e.building] *= e.value;
       else if (e.type === 'global_mult') globalMult *= e.value;
     }
-    // Active golden-glizzy buffs (mirrors glizzy.js — expire by timestamp).
+    // Active golden-glizzy buffs (mirrors glizzy.js): per group only the
+    // strongest *running* buff applies — same-group buffs eclipse, never
+    // compound — and queued buffs (starts_at in the future) don't count yet.
     const gNow = Date.now();
+    const gBest = {};
     for (const g of (st.golden_effects || [])) {
       if (!g || new Date(g.expires_at).getTime() <= gNow) continue;
+      if (g.starts_at && new Date(g.starts_at).getTime() > gNow) continue;
+      const grp = buffGroupKey(g);
+      if (!gBest[grp] || g.mult > gBest[grp].mult) gBest[grp] = g;
+    }
+    for (const grp in gBest) {
+      const g = gBest[grp];
       if (g.kind === 'prod_mult') globalMult *= g.mult;
       else if (g.kind === 'click_mult') clickPower *= g.mult;
       else if (g.kind === 'building_mult' && buildingMult[g.building] !== undefined) buildingMult[g.building] *= g.mult;
@@ -1284,6 +1303,12 @@ const GAME_CLIENT_JS = `
   // live state away. Without this, a tap that landed during a save silently
   // vanished when the response arrived.
   function adoptServerState(server, sent) {
+    // Responses can arrive out of order (an autosave and a golden claim in
+    // flight together). Adopting an older snapshot than one we've already
+    // adopted would wipe whatever the newer write added — most visibly a
+    // just-claimed golden buff. Newer save_seq always wins; mark dirty so the
+    // next save round-trip resyncs with the server instead.
+    if ((Number(server.save_seq) || 0) < (Number(state.save_seq) || 0)) { dirty = true; return; }
     const next = Object.assign({}, server);
     next.buildings = Object.assign({}, server.buildings);
     let localActivity = false;
@@ -1316,39 +1341,42 @@ const GAME_CLIENT_JS = `
   }
 
   async function save() {
-    if (saveInFlight) return;
+    // Re-entrant: a second caller gets the in-flight save's promise, so
+    // \`await save()\` always means the flush has actually landed (claimGolden
+    // relies on this — Lucky! pays out of the server-side bank).
+    if (savePromise) return savePromise;
     if (!dirty) return;
-    saveInFlight = true;
-    dirty = false;
-    const sent = {
-      save_seq: state.save_seq || 0,
-      glizzies: state.glizzies,
-      lifetime: state.lifetime,
-      total_clicks: state.total_clicks,
-      buildings: Object.assign({}, state.buildings),
-      upgrades_owned: state.upgrades_owned.slice(),
-    };
-    try {
-      const res = await fetch('/api/game/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sent),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        bonuses = data.bonuses;
-        // A \`stale\` reply means our snapshot was behind the server's (another
-        // tab, or a save queued before the device suspended). Take the server's
-        // word for everything — our local numbers describe a dead timeline.
-        adoptServerState(data.state, data.stale ? null : sent);
-        rerender();
+    savePromise = (async () => {
+      dirty = false;
+      const sent = {
+        save_seq: state.save_seq || 0,
+        glizzies: state.glizzies,
+        lifetime: state.lifetime,
+        total_clicks: state.total_clicks,
+        buildings: Object.assign({}, state.buildings),
+        upgrades_owned: state.upgrades_owned.slice(),
+      };
+      try {
+        const res = await fetch('/api/game/save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sent),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          bonuses = data.bonuses;
+          // A \`stale\` reply means our snapshot was behind the server's (another
+          // tab, or a save queued before the device suspended). Take the server's
+          // word for everything — our local numbers describe a dead timeline.
+          adoptServerState(data.state, data.stale ? null : sent);
+          rerender();
+        }
+      } catch (e) {
+        console.warn('save failed', e);
+        dirty = true;  // retry next tick
       }
-    } catch (e) {
-      console.warn('save failed', e);
-      dirty = true;  // retry next tick
-    } finally {
-      saveInFlight = false;
-    }
+    })();
+    try { await savePromise; } finally { savePromise = null; }
   }
   setInterval(save, 5000);
 
@@ -1409,9 +1437,15 @@ const GAME_CLIENT_JS = `
   }
 
   // ----- golden glizzy: active buff chips -----
-  function buffLabel(g) {
-    const secs = Math.max(0, Math.ceil((new Date(g.expires_at).getTime() - Date.now()) / 1000));
-    const t = secs >= 60 ? Math.ceil(secs / 60) + 'm' : secs + 's';
+  // mode: 'on' (applied now), 'queued' (starts_at in the future — shows its
+  // full run length), 'eclipsed' (running but beaten by a stronger same-group
+  // buff — still burns wall-clock, shows remaining time, dimmed).
+  function buffLabel(g, mode) {
+    const ms = mode === 'queued'
+      ? new Date(g.expires_at).getTime() - new Date(g.starts_at).getTime()
+      : new Date(g.expires_at).getTime() - Date.now();
+    const secs = Math.max(0, Math.ceil(ms / 1000));
+    const t = (secs >= 60 ? Math.ceil(secs / 60) + 'm' : secs + 's') + (mode === 'queued' ? ' next' : '');
     if (g.kind === 'prod_mult') {
       const mega = g.mult >= 100;
       return { mega, html: (mega ? '🌠' : '🔥') + ' ×' + fmt(g.mult) + ' prod · ' + t };
@@ -1423,18 +1457,29 @@ const GAME_CLIENT_JS = `
     }
     return { mega: false, html: '✨ buff · ' + t };
   }
+  let lastBuffSig = '';
   function renderBuffs() {
     const bar = document.getElementById('buffs-bar');
     if (!bar) return;
     const now = Date.now();
     const active = (state.golden_effects || []).filter(g => g && new Date(g.expires_at).getTime() > now);
-    if (active.length !== (state.golden_effects || []).length) {
-      state.golden_effects = active;  // prune client-side; rates recompute below
-      recomputeRates();
+    if (active.length !== (state.golden_effects || []).length) state.golden_effects = active;
+    // Which buff actually applies per group right now (mirrors computeRatesFor).
+    const winners = {};
+    for (const g of active) {
+      if (g.starts_at && new Date(g.starts_at).getTime() > now) continue;
+      const k = buffGroupKey(g);
+      if (!winners[k] || g.mult > winners[k].mult) winners[k] = g;
     }
+    // Rates change whenever the applied set changes — a buff expired, a queued
+    // one kicked in, a stronger one eclipsed a weaker — not only on prune.
+    const sig = Object.keys(winners).map(k => k + ':' + winners[k].mult + ':' + winners[k].expires_at).sort().join('|');
+    if (sig !== lastBuffSig) { lastBuffSig = sig; recomputeRates(); }
     bar.innerHTML = active.map(g => {
-      const l = buffLabel(g);
-      return '<span class="buff-chip' + (l.mega ? ' mega' : '') + '">' + l.html + '</span>';
+      const mode = (g.starts_at && new Date(g.starts_at).getTime() > now) ? 'queued'
+        : (winners[buffGroupKey(g)] === g ? 'on' : 'eclipsed');
+      const l = buffLabel(g, mode);
+      return '<span class="buff-chip' + (l.mega ? ' mega' : '') + (mode === 'on' ? '' : ' idle') + '">' + l.html + '</span>';
     }).join('');
   }
   setInterval(renderBuffs, 1000);
@@ -1459,7 +1504,7 @@ const GAME_CLIENT_JS = `
   // ----- golden glizzy: claim -----
   async function claimGolden() {
     try {
-      if (dirty) await save();  // flush local earnings so the server's bank is fresh (for Lucky!)
+      await save();  // flush local earnings — including a save already in flight — so the server's bank is fresh (for Lucky!)
       const sent = {
         glizzies: state.glizzies,
         lifetime: state.lifetime,

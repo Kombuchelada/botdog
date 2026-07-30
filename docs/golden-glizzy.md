@@ -95,14 +95,39 @@ clamped right back off. Golden glizzies are therefore rolled and recorded on the
   appear *more* often. If you add another `golden_frequency` upgrade, this stays
   correct automatically; a hardcoded number would not.
 
-**Buffs don't stack.** `addGoldenBuff` replaces any existing buff in the same
-group rather than adding a second (newest wins). All global production
-multipliers — Frenzy, Super Frenzy, Golden Rush — share the `prod` group, so two
-×4 Frenzies never compound to ×16. A building boost (Overdrive) only conflicts
-with another boost on the *same* building and still combines with a global
-Frenzy (different effect, not a stack). In production this is mostly belt-and-
-suspenders: spawns are ≥4 min apart and timed buffs last ≤3 min, so two timed
-buffs can't normally overlap anyway.
+**Same-group buffs eclipse; different groups stack.** All global production
+multipliers — Frenzy, Super Frenzy, Golden Rush — share the `prod` group; a
+building boost (Overdrive) is its own group per building, so it genuinely
+stacks with a global Frenzy (both applied multiplicatively). Within a group,
+buffs never compound — two ×4 Frenzies are never ×16 — because at any instant
+only the strongest *running* buff applies. And a claim can never downgrade or
+void a buff (`addGoldenBuff`):
+
+- A **stronger** claim starts immediately. The weaker buff it eclipses keeps
+  ticking on the wall clock and resumes if it outlives the stronger one (catch
+  a Golden Rush mid-Frenzy → ×500 for 10 s, then back to your Frenzy).
+- A **weaker or equal** claim is queued (`starts_at`) to begin the moment the
+  buffs beating it expire, with its full duration intact. The toast says
+  "queued behind your stronger buff" and its chip renders dimmed with "next".
+  (Equal-mult claims queue too, so a second Frenzy is a duration extension.)
+
+The original "newest wins" replacement assumed timed buffs could never overlap
+(spawns ≥4 min apart, buffs ≤3 min) — the frequency + duration upgrades broke
+that assumption, and a ×4 Frenzy would flat-out replace a running ×13 Super
+Frenzy. `computeEffectiveRates` (server) and `computeRatesFor` (client) both
+implement strongest-running-per-group and must stay in lockstep. A per-group
+cap of 8 stored effects (drop the farthest-out) keeps `GLIZZY_TEST_MODE`'s
+seconds-long claim floor from building silly queues; the prod claim floor makes
+the cap unreachable in real play.
+
+**Responses race; the newer `save_seq` wins.** An autosave and a golden claim
+can be in flight together (`save()` is re-entrant — a second caller awaits the
+same in-flight promise — but the 5 s interval can still overlap a claim). If
+the autosave's response landed *after* the claim's, the client used to adopt
+the older snapshot and wipe the just-granted buff — buffs looked like they
+"didn't stick". `adoptServerState` now drops any response whose `save_seq` is
+older than what's already adopted and marks the state dirty so the next tick
+resyncs.
 
 ## Local testing
 

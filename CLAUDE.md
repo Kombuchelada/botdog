@@ -114,6 +114,14 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   `goldenBaseRate` = `max(perSecond, perClick, 1)`, not `perSecond` alone,
   which is 0 until the first building. The client toasts on failure too — a
   glizzy that disappears with no feedback reads as a broken game.
+- **Golden buffs never downgrade.** Same-group buffs eclipse — at any instant
+  only the strongest *running* one applies, never a product — and a weaker or
+  equal claim queues behind the stronger via `starts_at` with its full
+  duration. "Newest wins" replacement was wrong the moment frequency/duration
+  upgrades let buffs overlap (a ×4 Frenzy replaced a running ×13 Super Frenzy).
+  Client `adoptServerState` also drops out-of-order responses (older
+  `save_seq`) — an autosave echo landing after a claim used to wipe the fresh
+  buff. See `docs/golden-glizzy.md`.
 - **The sticky header and game balance bar are opaque, not `backdrop-blur`.**
   A `backdrop-filter` layer re-rasterises whenever anything animates beneath
   it, and the game scales the glizzy on every click; on Safari that makes the
@@ -297,8 +305,10 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: the Oracle (Konami-code
-purchase optimizer) + the client-side `building_synergy` fix; before that,
+and this doc should be updated. Last meaningful update: golden-buff
+eclipse/queue stacking (no more downgrades) + out-of-order save-response guard;
+before that, the Oracle (Konami-code purchase optimizer) + the client-side
+`building_synergy` fix; before that,
 lifetime total in the game's sticky bar + in-page leaderboard peek modal,
 streak/protest fix, GlizzyClicker stale-save + tap-loss + golden-glizzy
 claim-floor fixes, ×10/×100 buying, shared responsive nav, mobile
