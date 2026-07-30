@@ -23,6 +23,7 @@ const LINKS = [
   { href: "/", label: "Server", key: "server" },
   { href: "/users", label: "Users", key: "users" },
   { href: "/compare", label: "Compare", key: "compare" },
+  { href: "/numbers", label: "By the Numbers", key: "numbers" },
   { href: "/archive", label: "Archive", key: "archive" },
   { href: "/game", label: "Glizzy Clicker", key: "game" },
 ];

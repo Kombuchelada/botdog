@@ -39,6 +39,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `nav.js` | Shared site header (`renderNav(activeKey)`), imported by `dashboard.js` and `game.js`. Collapses to a toggle panel below `md`. |
 | `charts.js` | Server-rendered PNG charts via `@napi-rs/canvas` + Chart.js: heatmap, timeline, leaderboard, stat card, when-heatmap. Uses bundled Inter font. |
 | `dashboard.js` | Public website. SSR'd HTML with Tailwind CDN + Chart.js CDN. Routes: `/`, `/users`, `/user/:id`, `/compare`, `/archive`, `/archive/:id`. |
+| `numbers.js` | "Hot Dogs by the Numbers" magazine-scroll page at `/numbers`. Every stat derives from the Average Glizzy (CONTEXT.md) × `hotdog_events`; constants all carry cited sources for the per-section "show your work" panels. Trailing-28-day Pace + projection fan; milestone ladders auto-upgrade to ~15k glizzies; health stats are collective-only (per-user rates never leave the server). GSAP ScrollTrigger + Chart.js. See `docs/by-the-numbers.md`. |
 | `admin.js` | Cookie-protected `/admin/*` admin UI. Edit/split/delete hot dog events, manage archive stories, backup/restore, retry/reset, refresh profiles, send digest. |
 | `archive.js` | Channel poller + Spaces uploader + Claude story curator. Runs on `setInterval(POLL_INTERVAL_MS = 1h)`. Backfills history on first boot, then forward-polls. Weekly story job + daily digest dispatch + daily profile refresh run from the same tick. |
 | `claude.js` | Anthropic SDK wrapper. `proposeStories({messages, attachmentsByMessageId, periodStart, periodEnd})` uses Sonnet 4.6 with a forced tool-call (`publish_stories`) for structured output. Resizes images via sharp, base64-encodes them (avoids URL fetch rate limits). HEIC→JPEG via `heic-convert`. |
@@ -305,7 +306,8 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: golden-buff
+and this doc should be updated. Last meaningful update: the By the Numbers
+page (`numbers.js`, `/numbers`) + `CONTEXT.md` glossary; before that, golden-buff
 eclipse/queue stacking (no more downgrades) + out-of-order save-response guard;
 before that, the Oracle (Konami-code purchase optimizer) + the client-side
 `building_synergy` fix; before that,

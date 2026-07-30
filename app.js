@@ -9,6 +9,7 @@ import { startBackups } from "./backup.js";
 import { db } from "./database.js";
 import { registerOAuth } from "./oauth.js";
 import { registerGame } from "./game.js";
+import { registerNumbers } from "./numbers.js";
 
 // Create an express app
 const app = express();
@@ -20,6 +21,7 @@ registerApi(app);
 registerAdmin(app);
 registerOAuth(app);
 registerGame(app);
+registerNumbers(app);
 registerDashboard(app);
 
 const server = app.listen(PORT, () => {
