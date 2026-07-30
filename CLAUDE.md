@@ -55,6 +55,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
+| `brawl-art.js` | GlizzyBrawl Fighter art: Kenney CC0 bodies (`assets/brawl/`) plus per-Fighter costumes drawn over them, and the pose mapping. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
@@ -180,6 +181,12 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   And queued input frames merge rather than replace — under load the server can
   tick slower than a client sends, and "newest wins" swallows taps outright.
   Both are covered by tests; both were invisible bugs found by them.
+- **GlizzyBrawl's Fighters are borrowed bodies in costume.** Kenney's CC0
+  platformer characters do the acting (they have real attack poses); the bun,
+  bottle, lid and batter are painted over them. Costumes draw in a back and a
+  front layer and never cover the face — the face is the whole reason the
+  sprites are there. Anything committed under `assets/` must permit
+  redistribution: this repo is public, which rules out most itch "free" packs.
 - **In GlizzyBrawl, jump is Space — never the same key as "up".** Sharing them
   makes every ground up-attack jump first and come out as its aerial variant,
   silently deleting half the ground moveset.

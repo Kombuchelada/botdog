@@ -101,6 +101,8 @@ fight with no lobby or queue.
   and leave no stats behind.
 - Controller (Gamepad API, Smash layout) and keyboard (WASD *and* arrows, both
   live) supported.
+- Fighter bodies are [Kenney](https://kenney.nl)'s CC0 platformer characters,
+  dressed in hand-drawn food costumes.
 
 See [docs/glizzybrawl.md](docs/glizzybrawl.md).
 

@@ -164,13 +164,42 @@ pitch on purpose: hot dog stats decorate a Fighter and **never** touch weight,
 speed, damage, reach, or knockback. Nothing gameplay-shaped may be added to
 that function's output.
 
-## Art is provisional
+## Art
 
-Fighter art is hand-drawn on canvas, and the owner is skeptical it will
-satisfy. The renderer is built so that judging it is cheap to act on: every
-character is one function in the `ART` table, and the renderer knows only
-"draw this Fighter at a position, with a facing and an animation state".
-Swapping to sprite sheets means replacing that table and nothing else.
+Fighter bodies are Kenney's CC0 **Platformer Characters 1** (licence text lives
+in `assets/brawl/LICENSE-kenney.txt`; credit is optional but the page gives it
+anyway). Each body ships `stand / walk1 / walk2 / jump / fall / duck / hurt`
+plus three attack poses — `action1`, `kick`, `action2` — which `poseFor` maps
+to light, heavy, and special. That mapping is why the three attacks read as
+different moves without the sim knowing anything about art.
+
+The food identity is a **costume** painted over the borrowed body in
+`brawl-art.js`: bun and frank, bottle and cap, grill lid and grate, batter and
+stick. CPUs wear the zombie body, so a practice partner is never mistaken for a
+person.
+
+Three rules hold the composite together, each learned by rendering it wrong:
+
+- **Costumes have a back and a front layer.** A bun cradling a Fighter has to
+  be behind them, or it reads as a barrel.
+- **Nothing covers the face.** These bodies are worth borrowing *because* they
+  act; a costume over the face throws away the only thing procedural drawing
+  couldn't do. Hats seat on the hair at `HAT_BASE`; everything else sits at the
+  waist.
+- **Signature flourishes belong to the special alone** — the ketchup splat, the
+  grill's coals. Firing them on every jab made all three attacks look the same.
+
+`brawl-art.js` follows the same shared-file rule as the sim: no imports, no
+browser-only globals beyond the 2D context it is handed. That is what lets
+`scripts/brawl-art-preview.mjs` render the whole roster to a PNG with
+node-canvas and have it match the Arena exactly:
+
+```bash
+node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
+```
+
+Swapping in different art means replacing `assets/brawl/` and the tables at the
+top of `brawl-art.js`; nothing else knows what a Fighter looks like.
 
 ## Testing
 

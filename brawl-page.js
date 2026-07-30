@@ -163,6 +163,7 @@ ${NAV}
           </div>
         </div>
         <div class="text-xs text-slate-500 mt-3">
+          Fighter bodies are <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 platformer characters, in costume.
           Percent has no ceiling and never kills on its own — it just means you fly farther. You only lose a stock by crossing the blast zone.
           Idle for a minute and your Fighter fades out; any button brings them back.
         </div>
@@ -216,6 +217,9 @@ import {
   TICK_HZ, TICK_MS, STAGE, BODY, FIGHTERS,
   createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
 } from "/brawl/sim.js";
+import {
+  SPRITE, allSprites, bodyFor, poseFor, spriteKey, spritePath, drawCostume, drawCrown,
+} from "/brawl/art.js";
 
 const BOOT = window.BRAWL;
 const canvas = document.getElementById("arena");
@@ -551,13 +555,6 @@ function ease() {
 // animation state" — swapping these for sprite sheets later is a change to
 // this table and nothing else.
 
-const ART = {
-  glizzy: drawGlizzy,
-  ketchup: drawKetchup,
-  grill: drawGrill,
-  corndog: drawCorndog,
-};
-
 function draw(now) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
@@ -616,6 +613,36 @@ function drawStage() {
   }
 }
 
+// Kenney's CC0 bodies do the acting; brawl-art.js paints each Fighter's
+// costume over them. Sprites are preloaded once and drawn from a cache — if
+// one is missing the Fighter still renders as a plain block, because an asset
+// 404 must never blank the Arena.
+
+const sprites = new Map();
+let spritesReady = false;
+
+(function preloadSprites() {
+  const all = allSprites();
+  let left = all.length;
+  for (const { body, pose, url } of all) {
+    const img = new Image();
+    img.addEventListener("load", () => {
+      sprites.set(spriteKey(body, pose), img);
+      if (--left <= 0) spritesReady = true;
+    });
+    img.addEventListener("error", () => {
+      if (--left <= 0) spritesReady = true;
+    });
+    img.src = url;
+  }
+})();
+
+function spriteFor(f, now) {
+  const body = bodyFor(f);
+  const pose = poseFor(f, now);
+  return sprites.get(spriteKey(body, pose)) || sprites.get(spriteKey(body, "stand"));
+}
+
 function drawFighter(f, now) {
   const pos = drawPos.get(f.id) || { x: f.x, y: f.y };
   if (f.state === "respawn") {
@@ -632,7 +659,7 @@ function drawFighter(f, now) {
   if (f.fading) ctx.globalAlpha = 0.4;
   if (f.invuln > 0) ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now / 60);
 
-  // Trail cosmetic, drawn behind the body.
+  // Trail cosmetic, drawn behind everything.
   const cos = f.cosmetics || {};
   if (cos.trail && (Math.abs(f.vx) > 40 || !f.onGround)) {
     const colors = { smoke: "148,163,184", ember: "249,115,22", plasma: "217,70,239" };
@@ -647,13 +674,20 @@ function drawFighter(f, now) {
 
   ctx.translate(pos.x, pos.y);
   ctx.scale(f.facing, 1);
-  const art = ART[f.character] || drawGlizzy;
-  art(f, now);
-  ctx.restore();
+  drawCostume(ctx, f, now, "back");
 
-  ctx.save();
-  ctx.translate(pos.x, pos.y);
-  if (cos.crown) drawCrown(cos.crown);
+  const img = spriteFor(f, now);
+  const h = SPRITE.drawHeight;
+  const w = (SPRITE.width / SPRITE.height) * h;
+  if (img) {
+    ctx.drawImage(img, -w / 2, -h, w, h);
+  } else {
+    ctx.fillStyle = (FIGHTERS[f.character] && FIGHTERS[f.character].color) || "#94a3b8";
+    ctx.fillRect(-w / 2, -h, w, h);
+  }
+
+  drawCostume(ctx, f, now, "front");
+  if (cos.crown) drawCrown(ctx, cos.crown);
   ctx.restore();
 
   // Dodge shimmer.
@@ -669,10 +703,10 @@ function drawFighter(f, now) {
   ctx.textAlign = "center";
   ctx.font = "600 14px Inter, sans-serif";
   ctx.fillStyle = f.id === myId ? "#ff6b35" : "#cbd5e1";
-  ctx.fillText(f.name + (f.cpu ? " (CPU)" : ""), pos.x, pos.y - BODY.height - 26);
+  ctx.fillText(f.name + (f.cpu ? " (CPU)" : ""), pos.x, pos.y - SPRITE.drawHeight - 30);
   ctx.font = "700 20px Inter, sans-serif";
   ctx.fillStyle = percentColor(f.percent);
-  ctx.fillText(Math.round(f.percent) + "%", pos.x, pos.y - BODY.height - 6);
+  ctx.fillText(Math.round(f.percent) + "%", pos.x, pos.y - SPRITE.drawHeight - 10);
 }
 
 function percentColor(p) {
@@ -681,143 +715,6 @@ function percentColor(p) {
   if (p < 90) return "#f0abfc";
   if (p < 150) return "#e879f9";
   return "#fb923c";
-}
-
-function drawCrown(kind) {
-  const colors = { bronze: "#d97706", silver: "#cbd5e1", gold: "#facc15" };
-  ctx.fillStyle = colors[kind] || "#facc15";
-  const y = -BODY.height - 34;
-  ctx.beginPath();
-  ctx.moveTo(-14, y + 10);
-  ctx.lineTo(-14, y);
-  ctx.lineTo(-6, y + 6);
-  ctx.lineTo(0, y - 4);
-  ctx.lineTo(6, y + 6);
-  ctx.lineTo(14, y);
-  ctx.lineTo(14, y + 10);
-  ctx.closePath();
-  ctx.fill();
-}
-
-/** Shared body scaffold: legs, a lean, and an arm that swings when attacking. */
-function bodyPose(f) {
-  const t = performance.now() / 1000;
-  const running = f.onGround && Math.abs(f.vx) > 30;
-  const legSwing = running ? Math.sin(t * 14) * 10 : 0;
-  const attackReach = f.attack ? Math.min(1, (f.attack.frame + 1) / 6) : 0;
-  const airLean = f.onGround ? 0 : Math.max(-0.25, Math.min(0.25, f.vy / 3000));
-  return { legSwing, attackReach, airLean, running };
-}
-
-function drawLimbs(f, color) {
-  const p = bodyPose(f);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 6;
-  ctx.lineCap = "round";
-  // Legs
-  ctx.beginPath();
-  ctx.moveTo(-4, -12);
-  ctx.lineTo(-8 - p.legSwing, 0);
-  ctx.moveTo(4, -12);
-  ctx.lineTo(8 + p.legSwing, 0);
-  ctx.stroke();
-  // Arm — reaches out through an attack's startup, which is the whole tell.
-  ctx.beginPath();
-  ctx.moveTo(0, -34);
-  ctx.lineTo(14 + 26 * p.attackReach, -30 - 10 * p.attackReach);
-  ctx.stroke();
-}
-
-function drawGlizzy(f, now) {
-  const h = BODY.height;
-  // Bun
-  ctx.fillStyle = "#f4b860";
-  roundRect(-20, -h, 40, h - 8, 18);
-  ctx.fill();
-  // Frank
-  ctx.fillStyle = "#c2410c";
-  roundRect(-14, -h + 8, 28, h - 24, 12);
-  ctx.fill();
-  // Mustard zig
-  ctx.strokeStyle = "#facc15";
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    ctx.moveTo(-10 + i * 6, -h + 16 + (i % 2) * 8);
-    ctx.lineTo(-4 + i * 6, -h + 24 - (i % 2) * 8);
-  }
-  ctx.stroke();
-  drawLimbs(f, "#7c2d12");
-  drawFace(f);
-}
-
-function drawKetchup(f) {
-  const h = BODY.height;
-  ctx.fillStyle = "#e11d48";
-  roundRect(-16, -h, 32, h - 6, 14);
-  ctx.fill();
-  ctx.fillStyle = "#fda4af";
-  roundRect(-10, -h + 10, 20, 16, 6);
-  ctx.fill();
-  ctx.fillStyle = "#9f1239";
-  roundRect(-8, -h - 8, 16, 10, 4);
-  ctx.fill();
-  drawLimbs(f, "#881337");
-  drawFace(f);
-}
-
-function drawGrill(f) {
-  const h = BODY.height;
-  ctx.fillStyle = "#334155";
-  roundRect(-24, -h + 6, 48, h - 12, 10);
-  ctx.fill();
-  ctx.fillStyle = "#a855f7";
-  for (let i = 0; i < 3; i++) ctx.fillRect(-18 + i * 13, -h + 12, 5, h - 26);
-  ctx.fillStyle = "#1e293b";
-  roundRect(-26, -h - 4, 52, 12, 6);
-  ctx.fill();
-  drawLimbs(f, "#0f172a");
-  drawFace(f);
-}
-
-function drawCorndog(f) {
-  const h = BODY.height;
-  ctx.fillStyle = "#b45309";
-  roundRect(-2, -18, 5, 24, 2);
-  ctx.fill();
-  ctx.fillStyle = "#f59e0b";
-  roundRect(-15, -h, 30, h - 16, 14);
-  ctx.fill();
-  ctx.fillStyle = "#fbbf24";
-  roundRect(-11, -h + 6, 22, 12, 6);
-  ctx.fill();
-  drawLimbs(f, "#78350f");
-  drawFace(f);
-}
-
-function drawFace(f) {
-  const hurt = f.state === "hitstun";
-  ctx.fillStyle = "#0f172a";
-  ctx.beginPath();
-  ctx.arc(4, -BODY.height + 20, 3, 0, Math.PI * 2);
-  ctx.arc(-6, -BODY.height + 20, 3, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  if (hurt) ctx.arc(-1, -BODY.height + 32, 5, Math.PI, Math.PI * 2);
-  else ctx.arc(-1, -BODY.height + 28, 5, 0, Math.PI);
-  ctx.stroke();
-}
-
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
 }
 
 function drawSparks() {

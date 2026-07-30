@@ -180,6 +180,12 @@ export const SPECIALS = {
   pogo: move({ kind: "pogo", startup: 3, active: 8, endlag: 12, damage: 10, baseKb: 300, kbGrowth: 2.0, angle: 1.31, dx: 0, dy: 26, w: 48, h: 60, dive: 900, bounce: 640 }),
 };
 
+// Every move knows its own name. The renderer needs it to pick an animation,
+// and a predicted attack (a live move object) has to answer the same question
+// as a serialised one (a name string) — see `moveNameOf`, which this replaces.
+for (const [name, m] of Object.entries(MOVES)) m.name = name;
+for (const [name, m] of Object.entries(SPECIALS)) m.name = name;
+
 export const PROJECTILE = { speed: 620, gravity: 260, radius: 12, ttlTicks: 45, slowTicks: 60 };
 
 // ---------------------------------------------------------------- the state
@@ -811,7 +817,7 @@ export function snapshot(state) {
       percent: Math.round(f.percent),
       state: f.state,
       onGround: f.onGround,
-      attack: f.attack ? { kind: f.attack.kind, frame: f.attack.frame, move: moveNameOf(f.attack.move) } : null,
+      attack: f.attack ? { kind: f.attack.kind, frame: f.attack.frame, move: f.attack.move.name } : null,
       invuln: f.invuln,
       slowTicks: f.slowTicks,
       dodgeCooldown: f.dodgeCooldown,
@@ -823,12 +829,6 @@ export function snapshot(state) {
     })),
     projectiles: state.projectiles.map((p) => ({ id: p.id, kind: p.kind, x: round2(p.x), y: round2(p.y), owner: p.owner })),
   };
-}
-
-function moveNameOf(m) {
-  for (const [k, v] of Object.entries(MOVES)) if (v === m) return k;
-  for (const [k, v] of Object.entries(SPECIALS)) if (v === m) return k;
-  return null;
 }
 
 function round2(n) {
