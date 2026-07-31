@@ -55,8 +55,8 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
-| `brawl-art.js` | GlizzyBrawl Fighter art: Kenney CC0 bodies (`assets/brawl/`) plus per-Fighter costumes drawn over them, and the pose mapping. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
-| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art (generated or commissioned) — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. A Fighter in that manifest draws its own sprites and gets no costume, so new art lands one Fighter at a time. Brief: `docs/glizzybrawl-art-brief.md`. |
+| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping, plus Kenney CC0 bodies (`assets/brawl/`) and per-Fighter costumes for Fighters that don't yet have bespoke art. The Glizzy is bespoke (PixelLab, south-east 3/4); the rest are still costumed. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
+| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art (generated or commissioned) — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. A Fighter in that manifest draws its own sprites and gets no costume, so new art lands one Fighter at a time. Recipe: `docs/glizzybrawl-art-brief.md`. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
@@ -195,6 +195,33 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   an attack begun mid-run keeps all of that run: you slide past your own hitbox
   and off the ledge, and the attack reads as broken. Found by the WebSocket
   tests, not by playing.
+- **GlizzyBrawl's food Fighters face south-east (3/4), not in profile.** A
+  person in profile still reads as a person; a hot dog in profile is a
+  featureless lump with no face, no arms and one leg. The face is why these
+  sprites work at 64px. See `docs/adr/0002-food-characters-face-three-quarter.md`
+  — this reversed an explicit rule in the art brief, so don't re-derive it per
+  character. The renderer still mirrors for left-facing.
+- **Humanoid animation templates don't work on stub-limbed characters.**
+  PixelLab's templates rotate a skeleton, and these Fighters have no thigh or
+  upper arm to rotate — `walking`, `crouching`, `taking-punch` and both punch
+  templates all came back with almost no visible motion (a "crouch" at 89% of
+  standing height, a "punch" extending 3px). v3 custom descriptions that deform
+  the whole body are the tool; only `jumping-1` and `high-kick` survived.
+- **Judge poses by measurement, not by eye.** Both art defects found in the
+  bespoke-art session passed a visual check and failed a bounding box: a crouch
+  must land ≤75% of standing height, an attack must extend ≥+15px, a hurt pose
+  must show lift. Measure the alpha bounding box directly — `sharp.trim()` keys
+  off the top-left pixel and returns the full canvas on transparent art.
+- **`FRAME.width` in the sprite importer is the apparent-size dial.** The
+  renderer normalises every sprite to `SPRITE.drawHeight` and takes the aspect
+  from the image, so a Fighter's on-screen size is the fraction of frame height
+  its art fills. The importer's shared scale factor is set by the widest pose —
+  usually a fully extended attack — so a narrow frame pins the whole Fighter
+  small. Widen the frame to grow a Fighter; no regeneration needed.
+- **Anything reading `assets/brawl/` must read `manifest.json` too.**
+  `scripts/brawl-art-preview.mjs` didn't, so it painted costumes over bespoke
+  art and drew it at Kenney's aspect ratio while the game drew it correctly —
+  a preview tool that disagrees with the thing it previews is worse than none.
 - **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
   time during practice. CPUs exist only while a lone human is present, so
   "are there CPUs in the Arena?" is the entire check — there is never a

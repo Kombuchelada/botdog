@@ -1,123 +1,192 @@
-# GlizzyBrawl — Fighter art brief
+# GlizzyBrawl — Fighter art recipe
 
-What to hand an image generator, and how to get the result into the game.
+How a Fighter gets bespoke art, end to end, using the PixelLab MCP server.
+The Glizzy was built this way; the other three follow the same path.
 
 The Arena treats art as swappable: `assets/brawl/manifest.json` records which
 Fighters have art of their own, and those stop getting a costume drawn over a
-borrowed body. So you can do **one Fighter at a time** — import The Glizzy,
-play it, and the other three keep their current look until you're happy.
+borrowed Kenney body. So this is a **one-Fighter-at-a-time** process — convert
+Corn Dog, play it, and the rest keep their current look until you're happy.
 
 ## The four Fighters
 
-| Fighter | What it is | Frame stats it should look like |
-|---|---|---|
-| **The Glizzy** | A hot dog in a bun — the everyman | Balanced, middleweight, friendly |
-| **Ketchup** | A ketchup bottle | Fast and light; lean, top-heavy, twitchy |
-| **The Grill** | A charcoal grill | Slow heavyweight; wide, heavy, planted |
-| **Corn Dog** | A corn dog on a stick | Long reach; tall and thin, the stick reads as a weapon |
+| Fighter | What it is | Proportions to prompt for | Special (from `brawl-sim.js`) |
+|---|---|---|---|
+| **The Glizzy** | A frankfurter in a bun | Balanced, middleweight | **Snap** — a bite-lunge |
+| **Ketchup** | A ketchup bottle | Lean, top-heavy, twitchy | **Splat** — a thrown projectile |
+| **The Grill** | A charcoal kettle grill | Squat, wide, planted | **Flare-Up** — 16-frame wind-up, then a vertical launcher |
+| **Corn Dog** | A battered sausage on a stick | Tall and thin | **Pogo** — a downward stab that spikes |
 
 The food *is* the character — arms and legs on the food itself, not a person
-holding food or wearing a costume. That last one is what we tried and it
-didn't work.
+holding food or wearing a costume. That was tried and rejected twice.
+
+**Take the specials from the sim, not from memory.** `MOVES` in `brawl-sim.js`
+is authoritative, and Ketchup's Splat is a *real projectile* that
+`brawl-page.js` already draws — so its `action2` sprite shows the **squeeze**
+and never the blob, or you get two blobs.
+
+**Aim for about a 15% spread in apparent size** across the roster (Grill
+shortest, Corn Dog tallest). Don't go further: all four share one hurtbox
+(`BODY = { halfWidth: 18, height: 54 }`), so size differences are already a
+small lie about where a Fighter can be hit.
+
+## Facing
+
+**South-east.** A 3/4 view turned toward the camera, not a profile — see
+[ADR 0002](adr/0002-food-characters-face-three-quarter.md). A food character
+has no readable profile; the side view is a featureless lump. The renderer
+mirrors for left-facing, and that has been played and judged fine.
 
 ## The ten poses
-
-Generate these, in this order if you're making a sheet:
 
 ```
 stand   walk1   walk2   jump   fall
 duck    hurt    action1 kick   action2
 ```
 
-- `walk1` / `walk2` — two contact poses of a run, opposite legs forward
-- `jump` — rising, legs tucked; `fall` — descending, arms up
-- `duck` — crouched, clearly shorter than `stand`
-- `hurt` — knocked back, head snapped away, arms flung
-- `action1` — a quick jab (light attack)
-- `kick` — a big committed swing or kick (heavy attack)
-- `action2` — the signature move, most dramatic pose of the set:
-  Glizzy lunges forward biting · Ketchup squeezes a splat ·
-  Grill flares up with flame · Corn Dog stabs downward with the stick
+`action1` is the light attack, `kick` the heavy, `action2` the special.
 
-## Prompt shape
+## Step 1 — the reference sprite
 
-Something like this, one Fighter at a time:
+One `create_image_pro` call per Fighter, anchored to The Glizzy's style so the
+roster reads as one set:
 
-> 16-bit pixel art sprite sheet of a cartoon hot dog character, a frankfurter
-> in a bun with arms and legs and a friendly face, side view facing right, full
-> body, chunky dark outline, limited palette, flat white background, 5 columns
-> by 2 rows, same character in every cell, poses in order: standing, running
-> step 1, running step 2, jumping, falling, crouching, being knocked back,
-> quick punch, big kick, dramatic lunge attack
-
-Then swap the subject line for the others:
-
-- `a cartoon ketchup bottle character, red glass bottle with a cap for a head`
-- `a cartoon charcoal grill character, squat black kettle grill with glowing coals`
-- `a cartoon corn dog character, battered sausage on a wooden stick`
-
-**Things worth putting in the prompt**, learned from the art already in here:
-
-- **Side view, facing right.** The renderer mirrors for facing; a three-quarter
-  view mirrors badly.
-- **Flat, plain background** (white or magenta). The importer floods the
-  background out from the edges, so a plain one is far more reliable than a
-  "transparent" checkerboard, which models often draw *as squares*.
-- **Chunky outline, limited palette.** Both make the sprite read at 64px. Thin
-  detail disappears at Arena scale.
-- **Whole body in frame, feet visible** in every cell.
-- Avoid a red-versus-green pairing to distinguish anything — the owner is
-  colorblind. The site's palette is dark slate with `#ff6b35` orange, and the
-  Arena uses plasma tones (purple → magenta → orange) everywhere else.
-
-Consistency across cells is the usual failure. If the model drifts, generate
-each pose separately from the same seed/reference and use the folder import
-below.
-
-## Getting it into the game
-
-**From one sheet:**
-
-```bash
-node scripts/brawl-import-sprites.mjs glizzy ~/Downloads/glizzy-sheet.png --grid 5x2
+```
+create_image_pro(
+  description = "cartoon ketchup bottle character, red glass bottle with a cap
+                 for a head, cartoon arms and legs, friendly face, lean and
+                 top-heavy",
+  style_image_url = <The Glizzy's south rotation>,
+  style_copy = ["color_palette", "outline", "detail", "shading"],
+  width = 64, height = 64)
 ```
 
-**From a folder of one-pose-per-file** (named `stand.png`, `walk1.png`, …):
+It returns a grid of candidates in one call (64 of them at ≤42px, 16 at ≤85px),
+so you still pick the one you like — but every candidate is already locked to
+The Glizzy's palette and outline weight. Cost 20–40 generations.
 
-```bash
-node scripts/brawl-import-sprites.mjs ketchup ~/Downloads/ketchup-poses/
+## Step 2 — the character
+
+```
+create_character(
+  description = <same subject line>,
+  mode = "v3", view = "side", size = 64,
+  reference_image_base64 = <the chosen 64x64 cell>)
 ```
 
-Useful flags: `--bg "#ffffff"` to name the background colour explicitly,
-`--tolerance 60` if the background is gradient-ish and bits of it survive,
-`--keep-bg` if the art already has real transparency, `--dry-run` to see what
-it would do, `--poses stand,walk1` if you only made some.
+1 generation, ~8 minutes. v3 is the only mode that accepts a reference. It
+always produces 8 rotations; only **south-east** is used, and its rotation PNG
+is `stand` for free.
 
-The importer removes the background, trims, scales **every frame by the same
-factor** (so a duck stays shorter than a stand), stands each frame on the floor
-line, and writes `assets/brawl/<fighter>_<pose>.png` at 64×72. Then it adds the
-Fighter to `manifest.json`, which is what tells the game to stop drawing a
-costume over it.
+## Step 3 — the animations
+
+Fire **both** a template and a v3 custom for every pose in one batch, then keep
+whichever reads better per pose. A round trip is ~5 minutes whether it carries
+one job or twenty, and credits are the cheap resource.
+
+Always `directions: ["south-east"]` — the game needs one facing, and animating
+all eight costs 8× for art that is never drawn.
+
+Always `frame_count: 4` on v3 customs. Cost is
+`ceil(canvas × frames ÷ 65536)` per direction, so 4 frames on a 124px canvas
+costs **1** generation and 6 frames costs **2** — and only one frame per pose
+is ever kept.
+
+| Pose | Template to try | v3 custom description |
+|---|---|---|
+| `walk1`/`walk2` | `walking` | walking with big bouncy exaggerated steps, whole body squashing and stretching, arms swinging wide |
+| `jump`/`fall` | `jumping-1` | — (the template gives 9 frames to choose from) |
+| `duck` | `crouching` | hunkering down low, legs bent deep and body squashed short and wide, head held up and facing forward |
+| `hurt` | `taking-punch` | knocked backwards hard, body flung back and tilted, head snapped away, arms flung outward, feet leaving the ground |
+| `action1` | `lead-jab`, `cross-punch` | punching forward hard, arm fully extended at full reach, body leaning into the punch |
+| `kick` | `high-kick` | — |
+| `action2` | none | per-Fighter, from the specials table above |
+
+**Expect the templates to lose.** They are humanoid skeleton animations and
+these characters have stub limbs, so there is no thigh or upper arm to rotate.
+On The Glizzy only `jumping-1` and `high-kick` survived; `walking`,
+`crouching`, `taking-punch`, `lead-jab` and `cross-punch` were all rejected for
+producing almost no visible motion. Generate both anyway — the failure mode
+differs by body shape, and a losing variant costs one generation.
+
+**Never write "friendly face" into a v3 description.** It reads as an
+instruction to amplify the smile and comes back unsettling. To keep an
+expression, say nothing about it; the reference already carries it.
+
+## Step 4 — picking keyframes
+
+One frame per pose. Measure rather than eyeball — both defects found on The
+Glizzy were caught by measurement after passing a visual check:
+
+- **crouch** ≤ 75% of standing height (the `crouching` template gave 89%, which
+  does not read as a crouch at all)
+- **attacks** ≥ +15px of extension over the standing bounding box (`lead-jab`
+  gave +3px; the v3 custom gave +28px)
+- **hurt** shows lift — feet off the floor line (`taking-punch` gave zero)
+
+Measure the alpha bounding box, not `sharp.trim()`, which keys off the
+top-left pixel and returns the full canvas on transparent art.
+
+## Step 5 — import and review
+
+```bash
+node scripts/brawl-import-sprites.mjs <fighter> <folder>/ --keep-bg
+node scripts/brawl-art-preview.mjs      # writes brawl-roster.png
+```
+
+Name the files `stand.png`, `walk1.png`, … in the folder. `--keep-bg` is right
+for PixelLab output, which has real alpha — without it the importer tries to
+flood-fill a background that isn't there.
+
+The importer trims, scales **every frame by one shared factor** (so a duck
+stays shorter than a stand), plants each frame on the floor line, writes
+`assets/brawl/<fighter>_<pose>.png`, and adds the Fighter to `manifest.json`.
+
+**`FRAME.width` is the size dial.** The renderer normalises every sprite to
+`SPRITE.drawHeight` and takes the aspect from the image, so how big a Fighter
+looks is the fraction of frame height its art fills. The shared scale factor is
+set by the *widest* pose — usually a fully extended attack — so a narrow frame
+pins the whole Fighter small and leaves dead space above the head. 110×110
+makes height the binding constraint. Narrow it to shrink a Fighter; widen it to
+grow one. No regeneration needed, and re-importing is a two-second round trip.
 
 Reload `/brawl` — no restart needed, the manifest is re-read per request.
 
-## Checking it
+## Re-fetching frames without spending anything
 
-```bash
-node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
-```
+`pixellab/` is gitignored, but PixelLab keeps every character and animation
+group server-side. `get_character(character_id)` returns download URLs for all
+of them, so any keyframe can be re-picked for free as long as the IDs survive.
 
-Renders every Fighter in every pose through the same code the Arena uses, so
-what you see is what the game draws. Worth a look before playing: it's how the
-last two art passes got caught.
+**The Glizzy** — character `3cb0cf71-9e50-465b-b3b7-053149b71f01`,
+account prefix `3a6ffff3-54a7-40b4-a199-91fc10560ec0`.
 
-## If you'd rather not generate anything
+Frames are at
+`https://backblaze.pixellab.ai/file/pixellab-characters/<account>/<character>/animations/<animation>/south-east/<n>.png`.
 
-`scripts/brawl-make-sprites.mjs` builds a pixel-art prototype set from ASCII
-rigs in the repo (`assets/brawl/pixel/`). It's rough — stubby limbs — but it's
-a working example of the bespoke path, and importable:
+| Pose | Kept | Animation id |
+|---|---|---|
+| `stand` | south-east rotation | — |
+| `walk1`, `walk2` | f4, f6 | `b18777bc-3551-4536-8ee6-e958484b0c06` (walk-v3) |
+| `jump`, `fall` | f2, f7 | `93bc02d7-3812-47bd-8627-64af4b6cdea1` (jumping-1) |
+| `duck` | f4 | `b6f27e5d-322c-4fd3-b615-ce4c363176e3` (duck-hunker) |
+| `hurt` | f3 | `4f5b0993-69d0-41e3-958c-d6cd62251199` (hurt-v3) |
+| `action1` | f4 | `e47c9786-1d36-4a20-b08a-9ac32803e80a` (jab-v3) |
+| `kick` | f2 | `24df09e2-149b-44e7-a14c-563b1387fdc3` (high-kick) |
+| `action2` | f5 | `506d2d02-56f8-43c0-9c45-25b555473b0f` (bite) |
 
-```bash
-node scripts/brawl-make-sprites.mjs
-node scripts/brawl-import-sprites.mjs glizzy assets/brawl/pixel/ --keep-bg
-```
+Rejected variants are still on the account too, should a pick need revisiting:
+`791d8592` (walking template), `538bf01a` (running-6-frames), `d3d40041`
+(crouching template), `db9562fb` (duck-v3), `33ebc088` (duck-neutral),
+`cf806279` (lead-jab), `907ececb` (cross-punch), `3db7f01f` (taking-punch).
+
+## Known gap
+
+Converting a Fighter to bespoke **removes its special-move flourish** — the
+splat leaving Ketchup's nozzle, the coals roaring on The Grill's flare. Those
+are drawn inside `COSTUMES` in `brawl-art.js`, and `wearsCostume` returns false
+for bespoke Fighters. The Glizzy didn't notice (its bite is just a pose), but
+The Grill will: Flare-Up's 16-frame wind-up is currently telegraphed entirely
+by the coals, and a single keyframe would make it read as instant. **Extract
+the flourishes into a layer drawn for every Fighter before converting Ketchup
+or The Grill.** Corn Dog is unblocked.

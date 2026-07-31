@@ -8,3 +8,8 @@ claude-sandbox.sh
 # Generated art previews (scripts/brawl-art-preview.mjs)
 brawl-roster.png
 preview-*.png
+
+# PixelLab working folder — raw generated frames, previews, scratch scripts.
+# The artifact is assets/brawl/*.png; frames are re-fetchable free via the IDs
+# recorded in docs/glizzybrawl-art-brief.md.
+pixellab/

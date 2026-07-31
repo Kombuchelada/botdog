@@ -38,8 +38,18 @@ export const POSES = [
   "duck", "hurt", "action1", "kick", "action2",
 ];
 
-/** Frame the Arena draws. Art is scaled to fit this, feet on the bottom edge. */
-const FRAME = { width: 64, height: 72, floorMargin: 2 };
+/**
+ * Frame the Arena draws. Art is scaled to fit this, feet on the bottom edge.
+ *
+ * The renderer normalises every sprite to `SPRITE.drawHeight` and takes the
+ * aspect from the image, so how BIG a Fighter looks is the fraction of the frame
+ * height its art fills — not the frame's dimensions. That makes the width
+ * deliberately generous: the scale is shared across the set, so a wide pose (a
+ * fully extended punch) would otherwise pin the whole Fighter small and leave
+ * vertical padding. Wide frame => height is the binding constraint => the
+ * character fills the frame and draws at the same size as the Kenney bodies.
+ */
+const FRAME = { width: 110, height: 110, floorMargin: 3 };
 
 // ------------------------------------------------------------------- args
 

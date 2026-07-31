@@ -1,8 +1,10 @@
 {
-  "bespoke": [],
+  "bespoke": [
+    "glizzy"
+  ],
   "frame": {
-    "width": 64,
-    "height": 72,
-    "floorMargin": 2
+    "width": 110,
+    "height": 110,
+    "floorMargin": 3
   }
 }
