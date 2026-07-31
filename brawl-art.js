@@ -41,9 +41,20 @@ export function spriteKey(body, pose) {
   return `${body}:${pose}`;
 }
 
-/** Every sprite the renderer will ever need, for preloading. */
+/**
+ * Every sprite the renderer will ever need, for preloading.
+ *
+ * A Fighter draws from exactly one body, so only that one is fetched: with all
+ * four Fighters bespoke, preloading every borrowed body as well would put 40
+ * unreachable images on the wire before the Arena's first frame, which is a
+ * real cost on a phone.
+ */
 export function allSprites(bespoke = []) {
-  const bodies = [...new Set([...Object.values(BODY), CPU_BODY, ...bespoke])];
+  const has = new Set(bespoke);
+  const bodies = [...new Set([
+    ...Object.keys(BODY).map((character) => (has.has(character) ? character : BODY[character])),
+    CPU_BODY,
+  ])];
   const out = [];
   for (const body of bodies) {
     for (const pose of POSES) out.push({ body, pose, url: spritePath(body, pose) });
@@ -112,8 +123,8 @@ export function poseFor(fighter, nowMs = 0) {
 // as instant.
 //
 // Deciding *whether* a flourish is showing is separate from drawing it, and is
-// a pure function of a Fighter snapshot — that is the seam `test/brawl-art.js`
-// tests. See `docs/glizzybrawl-art-brief.md`.
+// a pure function of a Fighter snapshot — that is the seam
+// `test/brawl-art.test.js` pins. See `docs/glizzybrawl-art-brief.md`.
 
 /**
  * Flourishes, keyed by the special's name in `brawl-sim.js`. `windup` is how
@@ -124,7 +135,7 @@ export function poseFor(fighter, nowMs = 0) {
  * Fighter's face is the whole reason these sprites work at 64px.
  */
 export const FLOURISHES = {
-  splat: { windup: 6, layer: "front", draw: drawSplatBurst },
+  splat: { windup: 2, layer: "front", draw: drawSplatBurst },
   flare: { windup: 16, layer: "back", draw: drawCoals },
 };
 
@@ -153,7 +164,7 @@ export function flourishFor(fighter) {
 
 /**
  * Draw the flourish for a Fighter, if one is showing. Called for **every**
- * Fighter, costumed or bespoke.
+ * Fighter, whichever sprite set it draws.
  *
  * @param layer "back" (before the body sprite) or "front" (after)
  */
@@ -167,18 +178,20 @@ export function drawFlourish(ctx, fighter, nowMs = 0, layer = "front") {
 
 /**
  * Ketchup's Splat: a burst of sauce at the nozzle. Deliberately stays *on the
- * Fighter* — the blob in flight is a real projectile the renderer already
- * draws, and a second travelling blob here means the player cannot tell where
- * the shot actually is.
+ * Fighter* and never travels — the blob in flight is a real projectile the
+ * renderer already draws, and a second moving blob here means the player cannot
+ * tell where the shot actually is.
+ *
+ * Splat's startup is two frames, so this is at full strength by the time the
+ * projectile leaves and simply hangs at the nozzle through the endlag.
  */
 function drawSplatBurst(ctx, { progress }) {
-  const reach = 6 + progress * 12;
-  ctx.globalAlpha = 1 - progress * 0.5;
+  ctx.globalAlpha = 0.9;
   ctx.fillStyle = "#e11d48";
   for (let i = 0; i < 3; i++) {
     const t = (i + 1) / 3;
     ctx.beginPath();
-    ctx.arc(14 + reach * t, -34 - i * 4 + progress * 5, 4 - i, 0, Math.PI * 2);
+    ctx.arc(14 + progress * 8 * t, -34 - i * 4, 4 - i, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.globalAlpha = 1;
@@ -215,8 +228,8 @@ function drawCoals(ctx, { progress, nowMs }) {
 // caller has already flipped the context for facing, so nothing here needs to
 // know which way anyone is looking.
 
-/** Where a costume's hat used to sit; now only the crown needs the height. */
-const HAT_BASE = -62;
+/** Head height in Fighter-local space; the crown seats above it. */
+const CROWN_BASE = -62;
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -232,7 +245,7 @@ function roundRect(ctx, x, y, w, h, r) {
 export function drawCrown(ctx, kind) {
   const colors = { bronze: "#d97706", silver: "#cbd5e1", gold: "#facc15" };
   ctx.fillStyle = colors[kind] || "#facc15";
-  const y = HAT_BASE - 24;
+  const y = CROWN_BASE - 24;
   ctx.beginPath();
   ctx.moveTo(-13, y + 9);
   ctx.lineTo(-13, y);

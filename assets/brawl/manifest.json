@@ -12,7 +12,12 @@
   },
   "frames": {
     "corndog": {
-      "width": 150,
+      "width": 154,
+      "height": 110,
+      "floorMargin": 3
+    },
+    "grill": {
+      "width": 93,
       "height": 110,
       "floorMargin": 3
     }

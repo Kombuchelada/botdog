@@ -251,9 +251,17 @@ rigs — rough, but a worked example of the bespoke path end to end.
 Swapping art wholesale means replacing `assets/brawl/` and the tables at the
 top of `brawl-art.js`; nothing else knows what a Fighter looks like.
 
-Two poses ship below their gates and are known: Corn Dog's crouch at 79% of
-standing height against a 75% gate, and The Grill's attacks at +9px against
-+15px. The art brief records why more generations were not the fix.
+Known shortfalls against the measured gates, all documented in the art brief
+with why more generations were not the fix: **every crouch fails** — Corn Dog at
+79% of standing height against a 75% gate, Ketchup and The Grill at 93%, which
+does not read as ducking at all — and The Grill's attacks reach +9px against a
++15px gate, which is a fifth of its own body width and all a round kettle with
+stub arms has. The hurt gate's "lift off the floor line" also does not survive
+import, since the importer plants every frame on the floor line; it selects the
+frame where the body is flung, and the tilt is what ships.
+
+Apparent size runs ~15% across the roster as intended: The Grill fills 84.5% of
+its frame height and everyone else 97.3%, tuned entirely with `--frame-width`.
 
 ## Testing
 

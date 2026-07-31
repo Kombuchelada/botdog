@@ -52,22 +52,6 @@ export const POSES = [
 const FRAME = { width: 110, height: 110, floorMargin: 3 };
 const DEFAULT_FRAME_WIDTH = FRAME.width;
 
-// `--frame-width` is the per-Fighter size dial, and the reason it exists is
-// Corn Dog: its light attack is a stick thrust that reaches 20px past the
-// standing silhouette, so the shared scale factor was set by *that* frame and
-// the whole Fighter came out visibly smaller than the rest of the roster.
-// Widening the frame lets the widest pose fit without shrinking the set, so
-// height goes back to being the binding constraint. Retuning size is a
-// re-import; it is never a reason to regenerate art.
-if (process.argv.includes("--frame-width")) {
-  const n = Number(process.argv[process.argv.indexOf("--frame-width") + 1]);
-  if (!Number.isFinite(n) || n < FRAME.height) {
-    console.error("--frame-width must be a number >= the frame height (widening only)");
-    process.exit(1);
-  }
-  FRAME.width = n;
-}
-
 // ------------------------------------------------------------------- args
 
 const argv = process.argv.slice(2);
@@ -108,6 +92,41 @@ if (!FIGHTERS.includes(fighter)) {
 const poses = String(flag("poses", POSES.join(","))).split(",").map((p) => p.trim());
 const tolerance = Number(flag("tolerance", 40));
 const dryRun = has("dry-run");
+
+// The manifest is read here, not just written at the end, because a Fighter's
+// frame width is part of its import and has to survive the *next* one. Without
+// that, re-importing Corn Dog to swap a single pose would silently shrink it
+// back to the roster default.
+let manifest = { bespoke: [], frame: { ...FRAME } };
+if (fs.existsSync(MANIFEST)) {
+  try {
+    manifest = { ...manifest, ...JSON.parse(fs.readFileSync(MANIFEST, "utf8")) };
+  } catch {
+    console.warn("manifest.json was unreadable; rewriting it");
+  }
+}
+
+// `--frame-width` is the per-Fighter size dial, and the reason it exists is
+// Corn Dog: its light attack is a stick thrust reaching 20px past the standing
+// silhouette, so the shared scale factor was set by *that* frame and the whole
+// Fighter came out visibly smaller than the rest of the roster. Widening the
+// frame lets the widest pose fit without shrinking the set, so height goes back
+// to being the binding constraint. Retuning size is a re-import; it is never a
+// reason to regenerate art.
+// Narrowing is as legitimate as widening — it is how The Grill ends up the
+// shortest Fighter on the roster and Corn Dog the tallest.
+const storedWidth = manifest.frames && manifest.frames[fighter] && manifest.frames[fighter].width;
+if ("frame-width" in flags) {
+  const n = Number(flag("frame-width"));
+  if (!Number.isFinite(n) || n < 40 || n > 400) {
+    console.error("--frame-width must be a number between 40 and 400");
+    process.exit(1);
+  }
+  FRAME.width = n;
+} else if (Number.isFinite(storedWidth)) {
+  FRAME.width = storedWidth;
+  console.log(`using ${fighter}'s recorded frame width of ${storedWidth}px`);
+}
 
 // -------------------------------------------------------------- image ops
 
@@ -320,19 +339,10 @@ for (let i = 0; i < poses.length; i++) {
   written.push(path.relative(ROOT, file));
 }
 
-// The manifest is how the game knows this Fighter now has art of its own and
-// should stop painting a costume over a borrowed body.
-let manifest = { bespoke: [], frame: FRAME };
-if (fs.existsSync(MANIFEST)) {
-  try {
-    manifest = { ...manifest, ...JSON.parse(fs.readFileSync(MANIFEST, "utf8")) };
-  } catch {
-    console.warn("manifest.json was unreadable; rewriting it");
-  }
-}
-// `frame` is the roster default. A Fighter imported through a wider frame
-// records that separately rather than moving the default, so re-importing one
-// Fighter can never silently resize the next one.
+// The manifest is how the game knows this Fighter draws sprites of its own.
+// `frame` is the roster default; a Fighter imported through a wider frame
+// records that separately and reads it back on the next import, so retuning one
+// Fighter neither resizes the next nor evaporates when the flag is left off.
 if (FRAME.width === DEFAULT_FRAME_WIDTH) {
   manifest.frame = { ...FRAME, width: DEFAULT_FRAME_WIDTH };
   if (manifest.frames) delete manifest.frames[fighter];

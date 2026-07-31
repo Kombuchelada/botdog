@@ -218,10 +218,11 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   from the image, so a Fighter's on-screen size is the fraction of frame height
   its art fills. The importer's shared scale factor is set by the widest pose —
   usually a fully extended attack — so a narrow frame pins the whole Fighter
-  small. Widen the frame to grow a Fighter (`--frame-width`, which records
-  itself per Fighter so one import can't resize the next); no regeneration
-  needed. Corn Dog needed 150 because its stick thrust is the widest pose in
-  its set.
+  small. `--frame-width` is the dial in both directions — widen to grow, narrow
+  to shrink — and it records itself per Fighter in the manifest *and reads it
+  back*, so one import can neither resize the next nor silently undo a tuning
+  when the flag is left off. That is how the roster gets its ~15% size spread
+  (Grill 84.5% of frame height, everyone else 97.3%) with no regeneration.
 - **Anything reading `assets/brawl/` must read `manifest.json` too.**
   `scripts/brawl-art-preview.mjs` didn't, so it drew bespoke art at Kenney's
   aspect ratio while the game drew it correctly — a preview tool that disagrees

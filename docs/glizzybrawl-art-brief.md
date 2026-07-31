@@ -145,7 +145,9 @@ Glizzy were caught by measurement after passing a visual check:
   gave +3px; the v3 custom gave +28px)
 - **hurt** ≥ 3px of lift off the floor line (`taking-punch` gave zero — and a
   template that visibly does nothing still drifts a pixel, so "any lift" is not
-  a gate)
+  a gate). Note the importer plants every frame on the floor line, so the lift
+  itself does **not** ship: it is a proxy for "this is the frame where the body
+  is actually flung", and what survives import is the tilt and the flung limbs.
 
 ```bash
 node scripts/brawl-art-measure.mjs <working-folder>
@@ -163,8 +165,9 @@ its side. A pass is permission to look, not a substitute for looking.
 
 **The crouch is the pose this pipeline cannot do.** Six attempts across three
 Fighters: v3 tilts these bodies rather than compressing them, and only the
-tip-over — which reads as death, not ducking — ever cleared 75%. Corn Dog ships
-at 79% and Ketchup and The Grill in the low 90s. If the duck has to read
+tip-over — which reads as death, not ducking — ever cleared 75%. **All three
+crouches ship failing the gate**: Corn Dog at 79%, Ketchup and The Grill at 93%,
+where 93% is not distinguishable from standing. If the duck has to read
 properly, the next thing to try is the renderer squashing the stand frame
 vertically, not another generation.
 

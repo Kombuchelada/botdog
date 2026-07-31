@@ -14,8 +14,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  allSprites,
   poseFor,
   bodyFor,
+  BODY,
   flourishFor,
   FLOURISHES,
 } from "../brawl-art.js";
@@ -66,9 +68,15 @@ test("a Fighter with no flourish defined shows none", () => {
   assert.equal(flourishFor(null), null);
 });
 
-test("every flourish names a special the simulation actually has", () => {
-  for (const id of Object.keys(FLOURISHES)) {
+test("every flourish names a special, and covers that special's wind-up", () => {
+  // A telegraph shorter than the startup it warns about finishes before the
+  // hitbox arrives; one longer keeps growing after the move has committed.
+  for (const [id, spec] of Object.entries(FLOURISHES)) {
     assert.ok(SPECIALS[id], `${id} is a special in brawl-sim.js`);
+    assert.ok(
+      spec.windup >= SPECIALS[id].startup,
+      `${id}'s telegraph covers its ${SPECIALS[id].startup}-frame startup`,
+    );
   }
 });
 
@@ -85,9 +93,10 @@ test("The Grill's telegraph spans its whole wind-up, not a fixed six frames", ()
   // Flare-Up is a 16-frame startup and the coals are the only warning the
   // opponent gets; a telegraph that finished at frame 6 would be a lie about
   // when the launcher lands.
-  const windup = FLOURISHES.flare.windup;
-  assert.ok(windup >= SPECIALS.flare.startup, "the telegraph covers the startup");
-  assert.ok(flourishFor(attacking("grill", "flare", windup - 2)).progress < 1);
+  assert.ok(flourishFor(attacking("grill", "flare", FLOURISHES.flare.windup - 2)).progress < 1);
+  // Ketchup's Splat is the opposite shape: two frames of startup, so its burst
+  // is out by the time the projectile is, and never grows past it.
+  assert.equal(flourishFor(attacking("ketchup", "splat", 1)).progress, 1);
 });
 
 test("a locally predicted attack reads the same as one off the wire", () => {
@@ -115,12 +124,29 @@ test("the manifest alone decides which sprite set a Fighter draws", () => {
   const f = { character: "corndog", cpu: false };
   assert.equal(bodyFor(f, new Set(["corndog"])), "corndog");
   // Dropping a Fighter from the manifest reverts it to a borrowed body, which
-  // is what makes a conversion the owner dislikes a one-line undo.
-  assert.equal(bodyFor(f, new Set()), "adventurer");
+  // is what makes a conversion the owner dislikes a one-line undo. Which
+  // borrowed body is art bookkeeping, so assert only that it is one of them.
+  assert.notEqual(bodyFor(f, new Set()), "corndog");
+  assert.ok(Object.values(BODY).includes(bodyFor(f, new Set())));
 });
 
 test("the CPU keeps its borrowed body even when its character has art", () => {
   const cpu = { character: "corndog", cpu: true };
   assert.equal(bodyFor(cpu, new Set(["corndog"])), "zombie");
   assert.equal(bodyFor(cpu, new Set()), "zombie");
+});
+
+test("only sprites a Fighter can actually draw are preloaded", () => {
+  // Every borrowed body preloaded alongside the bespoke ones is ten images
+  // fetched and never drawn, before the Arena's first frame.
+  const bodies = (list) => new Set(allSprites(list).map((s) => s.body));
+  assert.deepEqual(bodies([...BESPOKE_ALL]), new Set([...BESPOKE_ALL, "zombie"]));
+  assert.deepEqual(
+    bodies(["glizzy"]),
+    new Set(["glizzy", BODY.ketchup, BODY.grill, BODY.corndog, "zombie"]),
+    "a Fighter without art still preloads the body it falls back to",
+  );
+  for (const s of allSprites([...BESPOKE_ALL])) {
+    assert.equal(s.url, `/brawl/art/${s.body}_${s.pose}.png`);
+  }
 });
