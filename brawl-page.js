@@ -220,6 +220,7 @@ import {
 import {
   SPRITE, allSprites, bodyFor, poseFor, spriteKey, spritePath, drawFlourish, drawCrown,
 } from "/brawl/art.js";
+import { allStageArt, buildScene, drawStage } from "/brawl/stage.js";
 
 const BOOT = window.BRAWL;
 const canvas = document.getElementById("arena");
@@ -559,15 +560,10 @@ function draw(now) {
   const w = canvas.width, h = canvas.height;
   ctx.clearRect(0, 0, w, h);
 
-  // Backdrop
-  const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, "#0b1220");
-  sky.addColorStop(1, "#050a17");
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, w, h);
-
+  // The Ballpark. Every surface draws its art if the prop has loaded and its
+  // placeholder primitive if it hasn't, so a missing asset costs one piece.
+  drawStage(ctx, scene, stageArt);
   drawBlastZone();
-  drawStage();
 
   for (const p of local.projectiles) {
     ctx.fillStyle = "#e11d48";
@@ -595,23 +591,22 @@ function drawBlastZone() {
   ctx.setLineDash([]);
 }
 
-function drawStage() {
-  const g = STAGE.ground;
-  const grad = ctx.createLinearGradient(0, g.y, 0, g.y + 120);
-  grad.addColorStop(0, "#7c2d12");
-  grad.addColorStop(1, "#1c1917");
-  ctx.fillStyle = grad;
-  ctx.fillRect(g.x1, g.y, g.x2 - g.x1, 160);
-  ctx.fillStyle = "#ff6b35";
-  ctx.fillRect(g.x1, g.y - 6, g.x2 - g.x1, 6);
+// The Ballpark is composed from props rather than painted, and the scene that
+// places them is derived from the sim's own geometry — so a platform cannot
+// move out from under its Catwalk. Props load like sprites do: into a cache,
+// with each surface falling back to its placeholder shape until (or unless) its
+// art arrives.
 
-  for (const p of STAGE.platforms) {
-    ctx.fillStyle = "rgba(255,107,53,0.75)";
-    ctx.fillRect(p.x1, p.y - 6, p.x2 - p.x1, 6);
-    ctx.fillStyle = "rgba(124,45,18,0.35)";
-    ctx.fillRect(p.x1, p.y, p.x2 - p.x1, 10);
+const scene = buildScene(STAGE);
+const stageArt = new Map();
+
+(function preloadStageArt() {
+  for (const { name, url } of allStageArt()) {
+    const img = new Image();
+    img.addEventListener("load", () => stageArt.set(name, img));
+    img.src = url;
   }
-}
+})();
 
 // Every Fighter draws its own sprite set (the CPU borrows a Kenney body).
 // Sprites are preloaded once and drawn from a cache — if one is missing the

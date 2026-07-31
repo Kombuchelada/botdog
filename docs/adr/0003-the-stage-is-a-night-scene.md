@@ -44,11 +44,14 @@ Ballpark satisfies that while still being a place.
 ## Consequences
 
 - **Stage art is judged against a contrast floor, not by eye.**
-  `test/brawl-stage.test.js` composites each Fighter's `stand` sprite over the
-  backdrop at all eight spawn points and requires a minimum mean luminance delta
-  along the silhouette. The threshold is derived by measuring the *placeholder*
-  Stage, which is known-readable — if new art reads worse than a flat gradient,
-  that is a finding, not a matter of taste.
+  `scripts/brawl-stage-preview.mjs` composites each Fighter's `stand` sprite
+  over the backdrop at all eight spawn points and requires a minimum mean
+  luminance delta along the silhouette. The threshold is derived by measuring
+  the *placeholder* Stage (`--baseline`), which is known-readable — if new art
+  reads worse than a flat gradient, that is a finding, not a matter of taste.
+  The check lives in the preview rather than in `npm test` because it is a
+  property of *assets*, and assets change only when art is imported; the test
+  file stays pure, with no canvas and no images, like the art seam beside it.
 - **This constrains the crowd more than anything else.** A crowd is the one
   element sitting directly behind the fighting, so it is silhouettes rim-lit
   from above, never faces. That choice is downstream of this ADR, not

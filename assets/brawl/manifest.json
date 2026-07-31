@@ -15,5 +15,115 @@
       "height": 110,
       "floorMargin": 3
     }
+  },
+  "stage": {
+    "walk_a": {
+      "width": 220,
+      "height": 40,
+      "source": {
+        "x1": 0,
+        "y1": 0,
+        "x2": 219,
+        "y2": 39,
+        "width": 220,
+        "height": 40
+      }
+    },
+    "board_main": {
+      "width": 266,
+      "height": 173,
+      "source": {
+        "x1": 67,
+        "y1": 43,
+        "x2": 332,
+        "y2": 215,
+        "width": 266,
+        "height": 173
+      }
+    },
+    "tower_light": {
+      "width": 100,
+      "height": 300,
+      "source": {
+        "x1": 0,
+        "y1": 15,
+        "x2": 99,
+        "y2": 299,
+        "width": 100,
+        "height": 285
+      }
+    },
+    "crowd_band": {
+      "width": 400,
+      "height": 100,
+      "source": {
+        "x1": 0,
+        "y1": 0,
+        "x2": 399,
+        "y2": 99,
+        "width": 400,
+        "height": 100
+      }
+    },
+    "walk_b": {
+      "width": 220,
+      "height": 40,
+      "source": {
+        "x1": 5,
+        "y1": 0,
+        "x2": 214,
+        "y2": 39,
+        "width": 210,
+        "height": 40
+      }
+    },
+    "walk_c": {
+      "width": 220,
+      "height": 40,
+      "source": {
+        "x1": 0,
+        "y1": 0,
+        "x2": 219,
+        "y2": 39,
+        "width": 220,
+        "height": 40
+      }
+    },
+    "wall_cap": {
+      "width": 32,
+      "height": 32,
+      "source": {
+        "x1": 0,
+        "y1": 16,
+        "x2": 31,
+        "y2": 31,
+        "width": 32,
+        "height": 16
+      }
+    },
+    "wall_lower": {
+      "width": 32,
+      "height": 32,
+      "source": {
+        "x1": 0,
+        "y1": 0,
+        "x2": 31,
+        "y2": 31,
+        "width": 32,
+        "height": 32
+      }
+    },
+    "wall_end": {
+      "width": 32,
+      "height": 32,
+      "source": {
+        "x1": 18,
+        "y1": 0,
+        "x2": 31,
+        "y2": 31,
+        "width": 14,
+        "height": 32
+      }
+    }
   }
 }

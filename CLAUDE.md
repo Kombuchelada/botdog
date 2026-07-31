@@ -58,6 +58,10 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping and the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/` and draw sprites named after themselves; the costume layer and the manifest's bespoke list are both retired. The only borrowed art left is Kenney's CC0 zombie for CPUs. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
 | `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
 | `scripts/brawl-art-measure.mjs` | Gates keyframe picks on measured alpha bounding boxes (crouch ≤75% of standing height, attack ≥+15px extension, hurt ≥3px lift) instead of on judgement. |
+| `brawl-stage.js` | GlizzyBrawl's Stage — **the Ballpark**, a night game seen from the outfield. Composed from props at native scale (scoreboard rig, light towers, crowd band, a 32px wall tileset, three Catwalks), not painted as one image. The scene is *derived* from the sim's `STAGE`, so a platform can't move out from under its Catwalk. `planScene` is the pure fallback decision (art → primitive → sky); placement lives here as readable coordinates. Shared with the browser at `/brawl/stage.js`. See `docs/glizzybrawl-stage-brief.md`. |
+| `scripts/brawl-import-stage.mjs` | Imports Ballpark props — chroma-keys the background out, trims, cuts to the size the scene draws them at, records bounds in the manifest. Three gates fail the import: **scale** (a prop must land 1:1, never resampled — the fix is to put the art's size into `LAYOUT`), **floor** (the wall cap's surface must be on the wang midline, or the wall sits off the floor line) and **clearance** (nothing standing above a Catwalk's walk line — a phantom railing). |
+| `scripts/lib/pixel-art.mjs` | The image ops both importers need: flood-fill de-background, chroma key, alpha bounding box. Shared because two copies had already drifted (`hexToRgb` fell back to white in one and black in the other). |
+| `scripts/brawl-stage-preview.mjs` | Renders the Ballpark to a PNG from `brawl-stage.js` itself, and gates silhouette contrast — each Fighter's `stand` over the backdrop at all eight spawn points. `--baseline` measures the placeholder Stage, which is where the threshold comes from. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
@@ -231,6 +235,43 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   thing it previews is worse than none. It also has to throw each Fighter's
   *own* special: a shared move name showed every row The Glizzy's and hid the
   flourishes the preview exists to check.
+- **The Stage is derived from the sim, never described alongside it.**
+  `buildScene(STAGE)` takes the sim's geometry as an argument (it can't import
+  it — the browser's specifier for `brawl-sim.js` isn't the server's) and places
+  every Catwalk from `STAGE.platforms`. A scene with its own copy of the
+  coordinates is the one way this feature can break *silently*: move a platform
+  and the art keeps drawing at the old width over a surface that's no longer
+  under it. What the test pins is the part deriving can't fix — that each
+  Catwalk's art was *generated* at its platform's width.
+- **Every Stage surface falls back to its placeholder shape, per surface.** A
+  missing prop costs one piece: the wall can be bespoke while the Catwalks are
+  still orange bars. Backdrop props (board, towers, crowd) fall through to sky
+  instead, because they hide nothing — inventing a grey box for them would ship
+  a placeholder that looks like a bug. Nothing may make a *surface* invisible;
+  Fighters standing on an invisible floor is the failure this rule exists for.
+- **Stage props are drawn 1:1 and generated on a chroma key.** The Ballpark is
+  composed from props precisely because no upscale of a 400×400 backdrop to
+  1280×720 gives pixels the same size as the Fighters' — so resampling a prop on
+  the way in loses that by the back door. The importer refuses it: the fix is to
+  put the art's own size into `LAYOUT`, where placement lives and is meant to be
+  iterated. And props are generated on magenta rather than "transparent",
+  because an edge flood fill can never reach the background trapped inside a
+  lattice truss's bracing, and `no_background` is also what made PixelLab's
+  `create_image_pro` stall at 49% indefinitely.
+- **A wang tile's terrain boundary is its midline, not its edge.** The wall
+  tileset's cap tile is air above the midline and wall below it, so the scene
+  offsets the whole tile grid by half a tile in both axes. Line the grid up with
+  `STAGE.ground` instead and the walking surface lands 16px below the floor the
+  sim collides against — Fighters standing in the wall. Tiles are also copied
+  verbatim at import: trimming one and stretching what's left doubles a cap
+  tile's pixels and slides the wall face half a tile sideways, both silently.
+- **The Stage's art gates live at import and in the preview, not in `npm test`.**
+  A floating floor and a phantom railing are properties of an asset, and assets
+  change only when art is imported — so they fail `scripts/brawl-import-stage.mjs`,
+  at the moment the art is wrong. Silhouette contrast is measured in the preview
+  script against a floor *derived* from the placeholder Stage (`--baseline`),
+  which is known-readable. `test/brawl-stage.test.js` stays pure — no canvas, no
+  images — like the art seam beside it.
 - **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
   time during practice. CPUs exist only while a lone human is present, so
   "are there CPUs in the Arena?" is the entire check — there is never a

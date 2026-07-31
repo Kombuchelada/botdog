@@ -5,8 +5,9 @@ node_modules
 *.csv
 Dockerfile.claude-sandbox
 claude-sandbox.sh
-# Generated art previews (scripts/brawl-art-preview.mjs)
+# Generated art previews (scripts/brawl-art-preview.mjs, brawl-stage-preview.mjs)
 brawl-roster.png
+brawl-stage.png
 preview-*.png
 
 # PixelLab working folder — raw generated frames, previews, scratch scripts.

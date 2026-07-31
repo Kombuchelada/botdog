@@ -796,8 +796,17 @@ export function registerBrawl(app) {
     fs.createReadStream(path.join(HERE, "brawl-art.js")).pipe(res);
   });
 
-  // Kenney's CC0 sprites. Whitelisted by name shape so the route can never be
-  // talked into serving anything else out of the repo.
+  // The Stage's scene description and draw code, shared for the same reason —
+  // `scripts/brawl-stage-preview.mjs` renders the Ballpark from this very file,
+  // so a preview can't show a composition the Arena doesn't draw.
+  app.get("/brawl/stage.js", (req, res) => {
+    res.type("application/javascript");
+    res.setHeader("Cache-Control", "no-cache");
+    fs.createReadStream(path.join(HERE, "brawl-stage.js")).pipe(res);
+  });
+
+  // Fighter sprites and Stage props. Whitelisted by name shape so the route can
+  // never be talked into serving anything else out of the repo.
   app.get("/brawl/art/:file", (req, res) => {
     if (!/^[a-z0-9]+_[a-z0-9]+\.png$/.test(req.params.file)) return res.status(404).end();
     const file = path.join(HERE, "assets", "brawl", req.params.file);

@@ -21,6 +21,7 @@
 //   --dry-run        report what it would write, write nothing
 
 import { createCanvas, loadImage } from "@napi-rs/canvas";
+import { contentBounds, removeBackground, toCanvas } from "./lib/pixel-art.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,94 +129,10 @@ if ("frame-width" in flags) {
 }
 
 // -------------------------------------------------------------- image ops
-
-function toCanvas(img, sx = 0, sy = 0, sw = img.width, sh = img.height) {
-  const canvas = createCanvas(sw, sh);
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-  return canvas;
-}
-
-/**
- * Knock out the background. Generated art usually has a flat backdrop rather
- * than alpha; we flood from the edges so a colour that also appears *inside*
- * the character (white eyes, a pale bun) survives.
- */
-function removeBackground(canvas, bgHex) {
-  const ctx = canvas.getContext("2d");
-  const { width: w, height: h } = canvas;
-  const image = ctx.getImageData(0, 0, w, h);
-  const data = image.data;
-
-  const at = (x, y) => (y * w + x) * 4;
-  const target = bgHex ? hexToRgb(bgHex) : sampleCorners(data, w, h);
-
-  const close = (i) =>
-    Math.abs(data[i] - target[0]) <= tolerance &&
-    Math.abs(data[i + 1] - target[1]) <= tolerance &&
-    Math.abs(data[i + 2] - target[2]) <= tolerance;
-
-  const queue = [];
-  for (let x = 0; x < w; x++) {
-    queue.push([x, 0], [x, h - 1]);
-  }
-  for (let y = 0; y < h; y++) {
-    queue.push([0, y], [w - 1, y]);
-  }
-
-  const seen = new Uint8Array(w * h);
-  while (queue.length) {
-    const [x, y] = queue.pop();
-    if (x < 0 || y < 0 || x >= w || y >= h) continue;
-    const key = y * w + x;
-    if (seen[key]) continue;
-    seen[key] = 1;
-    const i = at(x, y);
-    if (data[i + 3] === 0) continue;
-    if (!close(i)) continue;
-    data[i + 3] = 0;
-    queue.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
-  }
-  ctx.putImageData(image, 0, 0);
-  return canvas;
-}
-
-function sampleCorners(data, w, h) {
-  const corners = [[0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1]];
-  const sums = [0, 0, 0];
-  for (const [x, y] of corners) {
-    const i = (y * w + x) * 4;
-    sums[0] += data[i];
-    sums[1] += data[i + 1];
-    sums[2] += data[i + 2];
-  }
-  return sums.map((s) => Math.round(s / corners.length));
-}
-
-function hexToRgb(hex) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex));
-  if (!m) return [255, 255, 255];
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-/** Bounding box of everything non-transparent. */
-function contentBounds(canvas) {
-  const { width: w, height: h } = canvas;
-  const data = canvas.getContext("2d").getImageData(0, 0, w, h).data;
-  let x1 = w, y1 = h, x2 = -1, y2 = -1;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (data[(y * w + x) * 4 + 3] < 8) continue;
-      if (x < x1) x1 = x;
-      if (y < y1) y1 = y;
-      if (x > x2) x2 = x;
-      if (y > y2) y2 = y;
-    }
-  }
-  if (x2 < 0) return null;
-  return { x1, y1, x2, y2, width: x2 - x1 + 1, height: y2 - y1 + 1 };
-}
+//
+// De-background, measure, cut. All three are shared with the Stage importer in
+// `lib/pixel-art.mjs`; a Fighter and a floodlight tower arrive from a generator
+// with exactly the same problems.
 
 /**
  * Horizontal centre of the feet: the middle of the bottom slice of content.
@@ -327,7 +244,7 @@ if (!stat.isDirectory() && frames.length < poses.length) {
 
 const cleaned = frames
   .slice(0, poses.length)
-  .map((frame) => (!frame ? null : has("keep-bg") ? frame : removeBackground(frame, flag("bg"))));
+  .map((frame) => (!frame ? null : has("keep-bg") ? frame : removeBackground(frame, flag("bg"), tolerance)));
 const fitted = fitAll(cleaned);
 
 const written = [];
