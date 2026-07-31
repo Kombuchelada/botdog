@@ -218,7 +218,7 @@ import {
   createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
 } from "/brawl/sim.js";
 import {
-  SPRITE, allSprites, bodyFor, poseFor, spriteKey, spritePath, drawFlourish, drawCrown,
+  SPRITE, allSprites, bodyFor, frameFor, spriteKey, drawFlourish, drawCrown,
 } from "/brawl/art.js";
 import { allStageArt, buildScene, drawStage } from "/brawl/stage.js";
 
@@ -551,10 +551,10 @@ function ease() {
 
 // ------------------------------------------------------------- the renderer
 //
-// Fighter art is deliberately behind one function per character in ART. The
-// renderer knows only "draw this Fighter at a position, with a facing and an
-// animation state" — swapping these for sprite sheets later is a change to
-// this table and nothing else.
+// Fighter art is deliberately behind brawl-art.js. The renderer knows only
+// "draw this Fighter at a position, with a facing" — which clip is playing and
+// which frame of it is showing are decided there, from the snapshot, and this
+// file never asks why.
 
 function draw(now) {
   const w = canvas.width, h = canvas.height;
@@ -608,10 +608,11 @@ const stageArt = new Map();
   }
 })();
 
-// Every Fighter draws its own sprite set (the CPU borrows a Kenney body).
-// Sprites are preloaded once and drawn from a cache — if one is missing the
-// Fighter still renders as a plain block, because an asset 404 must never
-// blank the Arena.
+// Every Fighter draws its own sprite set (the CPU borrows a Kenney body), and
+// every action is a clip rather than a pose — so this is a few dozen small
+// PNGs per body, preloaded once and drawn from a cache. If one is missing the
+// Fighter falls back to its stand frame and, failing that, renders as a plain
+// block: an asset 404 must never blank the Arena.
 
 const sprites = new Map();
 let spritesReady = false;
@@ -619,10 +620,10 @@ let spritesReady = false;
 (function preloadSprites() {
   const all = allSprites();
   let left = all.length;
-  for (const { body, pose, url } of all) {
+  for (const { body, clip, index, url } of all) {
     const img = new Image();
     img.addEventListener("load", () => {
-      sprites.set(spriteKey(body, pose), img);
+      sprites.set(spriteKey(body, clip, index), img);
       if (--left <= 0) spritesReady = true;
     });
     img.addEventListener("error", () => {
@@ -634,8 +635,12 @@ let spritesReady = false;
 
 function spriteFor(f, now) {
   const body = bodyFor(f);
-  const pose = poseFor(f, now);
-  return sprites.get(spriteKey(body, pose)) || sprites.get(spriteKey(body, "stand"));
+  const { clip, index } = frameFor(f, now);
+  return (
+    sprites.get(spriteKey(body, clip, index)) ||
+    sprites.get(spriteKey(body, clip, 0)) ||
+    sprites.get(spriteKey(body, "stand", 0))
+  );
 }
 
 function drawFighter(f, now) {

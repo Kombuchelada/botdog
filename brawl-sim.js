@@ -265,6 +265,7 @@ export function spawnFighter(state, {
     state: "air",
     attack: null,
     hitstun: 0,
+    hitstunTotal: 0,
     invuln,
     dodgeTicks: 0,
     dodgeCooldown: 0,
@@ -659,7 +660,7 @@ function applyHit(state, attacker, victim, m, events) {
   const dir = attacker.facing;
   victim.vx = Math.cos(m.angle) * kb * dir;
   victim.vy = Math.sin(m.angle) * kb;
-  victim.hitstun = Math.min(45, Math.round(kb * 0.045) + 3);
+  victim.hitstunTotal = victim.hitstun = Math.min(45, Math.round(kb * 0.045) + 3);
   victim.onGround = false;
   victim.jumpsUsed = Math.max(victim.jumpsUsed, 1);
   victim.attack = null;
@@ -701,7 +702,7 @@ function stepProjectiles(state, events) {
       const kb = (p.baseKb + victim.percent * p.kbGrowth) * (100 / victimDef.weight);
       victim.vx = Math.cos(p.angle) * kb * p.facing;
       victim.vy = Math.sin(p.angle) * kb;
-      victim.hitstun = Math.min(45, Math.round(kb * 0.045) + 3);
+      victim.hitstunTotal = victim.hitstun = Math.min(45, Math.round(kb * 0.045) + 3);
       victim.onGround = false;
       victim.state = "hitstun";
       victim.slowTicks = PROJECTILE.slowTicks;
@@ -817,9 +818,31 @@ export function snapshot(state) {
       percent: Math.round(f.percent),
       state: f.state,
       onGround: f.onGround,
-      attack: f.attack ? { kind: f.attack.kind, frame: f.attack.frame, move: f.attack.move.name } : null,
+      // The attack carries its own frame data, not just its name. Art animates
+      // a move across its wind-up, its hitbox and its recovery, and only the
+      // sim knows how long each of those is — see the rule below.
+      attack: f.attack
+        ? {
+            kind: f.attack.kind,
+            frame: f.attack.frame,
+            move: f.attack.move.name,
+            startup: f.attack.move.startup,
+            active: f.attack.move.active,
+            endlag: f.attack.move.endlag,
+          }
+        : null,
       invuln: f.invuln,
       slowTicks: f.slowTicks,
+      // A timed state that art animates emits both what is LEFT of it and what
+      // it started at, because "how far through am I" is the only question an
+      // animation asks and the sim is the only thing that can answer it. The
+      // alternative is `brawl-art.js` carrying its own copy of DODGE_TICKS and
+      // the hitstun formula — a second source of truth for a number the sim
+      // owns, which is the drift this codebase keeps designing out.
+      hitstun: f.hitstun,
+      hitstunTotal: f.hitstunTotal,
+      dodgeTicks: f.dodgeTicks,
+      dodgeTotal: DODGE_TICKS,
       dodgeCooldown: f.dodgeCooldown,
       respawnTimer: f.respawnTimer,
       kos: f.kos,

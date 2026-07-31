@@ -55,8 +55,8 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
-| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping and the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/` and draw sprites named after themselves; the costume layer and the manifest's bespoke list are both retired. The only borrowed art left is Kenney's CC0 zombie for CPUs. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
-| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
+| `brawl-art.js` | GlizzyBrawl Fighter art. Every action is a **clip** (`CLIPS`), and `frameFor(fighter, nowMs)` returns `{ clip, index }` from a snapshot — attacks driven by their own frame counter against the move's frame data, hitstun/dodge by the sim's timers, the air clips by vertical velocity, only the walk on a clock. Also the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/`; the only borrowed art left is Kenney's CC0 zombie for CPUs, whose clips are one frame each. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster as a filmstrip so the *mapping* can be judged without a browser. |
+| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art, one `--clip` per action — de-backgrounds, trims, resamples each animation to the length `CLIPS` declares, scales the whole set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. Fails if a peak clip's most extreme frame is its first (a dead animation). `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
 | `scripts/brawl-art-measure.mjs` | Gates keyframe picks on measured alpha bounding boxes (crouch ≤75% of standing height, attack ≥+15px extension, hurt ≥3px lift) instead of on judgement. |
 | `brawl-stage.js` | GlizzyBrawl's Stage — **the Ballpark**, a night game seen from the outfield. Composed from props at native scale (scoreboard rig, light towers, crowd band, a 32px wall tileset, three Catwalks), not painted as one image. The scene is *derived* from the sim's `STAGE`, so a platform can't move out from under its Catwalk. `planScene` is the pure fallback decision (art → primitive → sky); placement lives here as readable coordinates. Shared with the browser at `/brawl/stage.js`. See `docs/glizzybrawl-stage-brief.md`. |
 | `scripts/brawl-import-stage.mjs` | Imports Ballpark props — chroma-keys the background out, trims, cuts to the size the scene draws them at, records bounds in the manifest. Three gates fail the import: **scale** (a prop must land 1:1, never resampled — the fix is to put the art's size into `LAYOUT`), **floor** (the wall cap's surface must be on the wang midline, or the wall sits off the floor line) and **clearance** (nothing standing above a Catwalk's walk line — a phantom railing). |
@@ -187,6 +187,22 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   And queued input frames merge rather than replace — under load the server can
   tick slower than a client sends, and "newest wins" swallows taps outright.
   Both are covered by tests; both were invisible bugs found by them.
+- **A GlizzyBrawl action is a clip, and its `contact` frame is pinned to the
+  move's first *active* frame.** Wind-up plays over the startup, contact holds
+  for exactly the hitbox's lifetime, recovery plays over the endlag — so one
+  4-frame clip per attack reads correctly on a 3-frame jab and a 16-frame
+  launcher alike, and the moment a Fighter looks most committed is the moment it
+  can actually hit you. Clip lengths live in `CLIPS` in `brawl-art.js` (not the
+  manifest — the browser reads them without a fetch), are the same for every
+  Fighter so timing belongs to the move, and are *gated* at import rather than
+  generated. Same call as the Stage's `LAYOUT`.
+- **A duration GlizzyBrawl's art animates is reported by the sim.** The snapshot
+  carries each attack's `startup`/`active`/`endlag` and each timed state's
+  remaining ticks *and* its total (`hitstun`/`hitstunTotal`,
+  `dodgeTicks`/`dodgeTotal`). The alternative is `brawl-art.js` holding its own
+  copy of `DODGE_TICKS` and the hitstun formula — a second source of truth for
+  numbers the sim owns. Almost nothing in the art is on a clock as a result:
+  only the walk cycle, which has no state of its own to track.
 - **Every GlizzyBrawl Fighter now has art of its own**, generated through
   PixelLab, so `bodyFor` is `cpu ? zombie : character` and nothing branches on
   a manifest list any more. The costume layer, the bespoke list and the four
@@ -234,7 +250,10 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   while the game drew it correctly — a preview tool that disagrees with the
   thing it previews is worse than none. It also has to throw each Fighter's
   *own* special: a shared move name showed every row The Glizzy's and hid the
-  flourishes the preview exists to check.
+  flourishes the preview exists to check. It is a **filmstrip** now, walking
+  each action forward in real sim time and shading the frames on which the move
+  can hit: a grid of stills cannot show whether the animation lands contact
+  inside the hitbox, which is the thing most likely to be wrong.
 - **The Stage is derived from the sim, never described alongside it.**
   `buildScene(STAGE)` takes the sim's geometry as an argument (it can't import
   it — the browser's specifier for `brawl-sim.js` isn't the server's) and places
@@ -444,6 +463,9 @@ of the production database the owner downloaded for testing. There's also a
 
 If anything here drifts from the actual code, the code is the source of truth
 and this doc should be updated. Last meaningful update: GlizzyBrawl
+Fighter animation — every action a clip driven by
+sim state, with contact pinned to the hitbox
+(`brawl-art.js`, `scripts/brawl-import-sprites.mjs`); before that, GlizzyBrawl
 (`brawl-sim.js` / `brawl.js` / `brawl-page.js`, `/brawl`) + the repo's first
 test suite (`npm test`); before that, the By the Numbers
 page (`numbers.js`, `/numbers`) + `CONTEXT.md` glossary; before that, golden-buff

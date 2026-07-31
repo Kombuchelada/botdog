@@ -114,7 +114,9 @@ function silhouetteDelta(sprite, x, y) {
 
 /** A Fighter's `stand`, rasterised at exactly the size the Arena draws it. */
 async function standSprite(character) {
-  const img = await loadImage(path.join(ART_DIR, `${character}_stand.png`));
+  // Frame 0 of the `stand` clip: a Fighter's actions are animated now, but the
+  // one this gate reads is the pose it holds when it is doing nothing.
+  const img = await loadImage(path.join(ART_DIR, `${character}_stand_0.png`));
   const h = SPRITE.drawHeight;
   const w = Math.round((img.width / img.height) * h);
   const c = createCanvas(w, h);

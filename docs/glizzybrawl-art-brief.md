@@ -4,12 +4,19 @@ How a Fighter gets bespoke art, end to end, using the PixelLab MCP server.
 All four Fighters have been through it — The Glizzy first, then Corn Dog,
 Ketchup and The Grill — and everything below is what that cost to learn.
 
-Each Fighter draws `<character>_<pose>.png` from `assets/brawl/`, so replacing
-one is a matter of dropping ten files in. While conversions were in flight the
-manifest carried a list of which Fighters had art of their own and the renderer
-branched on it, which is what made this a one-Fighter-at-a-time process; all
-four are converted now, so that list and the costume system are gone and the
-manifest carries frame geometry only.
+Each Fighter's actions are **animated**, not posed. An action is a *clip* — an
+ordered run of frames — and a Fighter draws `<character>_<clip>_<n>.png` from
+`assets/brawl/`, so replacing one is a matter of pointing the importer at a
+folder of animation folders. While conversions were in flight the manifest
+carried a list of which Fighters had art of their own and the renderer branched
+on it, which is what made this a one-Fighter-at-a-time process; all four are
+converted now, so that list and the costume system are gone and the manifest
+carries frame geometry only.
+
+Clip *lengths* don't live in the manifest either. They are in `CLIPS` in
+`brawl-art.js`, where the browser reads them without a fetch and where they are
+readable next to the code that plays them — the same call the Stage's `LAYOUT`
+makes. The importer imports that table and satisfies it; it never writes it.
 
 ## The four Fighters
 
@@ -40,14 +47,33 @@ small lie about where a Fighter can be hit.
 has no readable profile; the side view is a featureless lump. The renderer
 mirrors for left-facing, and that has been played and judged fine.
 
-## The ten poses
+## The nine clips
 
-```
-stand   walk1   walk2   jump   fall
-duck    hurt    action1 kick   action2
-```
+| Clip | Frames | What drives it |
+|---|---|---|
+| `stand` | 1 | — |
+| `walk` | 4 | a clock, paced by how fast the Fighter is moving |
+| `jump` | 3 | vertical velocity, from launch to the apex |
+| `fall` | 3 | vertical velocity, from the apex to terminal |
+| `duck` | 3 | the dodge's own tick counter |
+| `hurt` | 3 | the hitstun the sim reports, played forward as it drains |
+| `action1` | 4, contact 2 | the attack's frame counter against the move's frame data |
+| `kick` | 4, contact 2 | ” |
+| `action2` | 4, contact 2 | ” |
 
 `action1` is the light attack, `kick` the heavy, `action2` the special.
+
+**Only the walk is on a clock.** Everything else is driven by sim state, which
+is what makes the animation honest: a Fighter hanging at the apex holds the
+apex frame however long the hang lasts, and a wind-up cannot drift out of step
+with the hitbox it warns about under a slow tick.
+
+**`contact` is the frame of maximum extension, and it is load-bearing.** The
+renderer pins it to the move's first *active* frame, so wind-up plays over the
+startup, contact is held for exactly as long as the hitbox exists, and the rest
+plays out over the endlag. One clip per attack therefore reads correctly on a
+3-frame jab and a 16-frame launcher alike, and a player who learns to watch for
+the extension is watching the real hitbox.
 
 ## Step 1 — the reference sprite
 
@@ -75,7 +101,8 @@ and a kettle grill produced three full grids on palette and outline weight.
 Validate on one Fighter before spending on the rest anyway.
 
 **Whatever the chosen cell is holding, the Fighter holds forever.** Corn Dog's
-reference carries a little pennant flag, and it is in all ten of its poses.
+reference carries a little pennant flag, and it is in every frame of every
+clip it has.
 Props are a choice, not an accident — make it deliberately.
 
 ## Step 2 — the character
@@ -105,13 +132,14 @@ all eight costs 8× for art that is never drawn.
 
 Always `frame_count: 4` on v3 customs. Cost is
 `ceil(canvas × frames ÷ 65536)` per direction, so 4 frames on a 124px canvas
-costs **1** generation and 6 frames costs **2** — and only one frame per pose
-is ever kept.
+costs **1** generation and 6 frames costs **2**. Every frame is kept now — the
+importer resamples the run down to the clip length, so a 4-frame job and a
+7-frame one both land as a 4-frame clip and more frames only buy smoothness.
 
-| Pose | What to send | Prompt |
+| Clip | What to send | Prompt |
 |---|---|---|
-| `walk1`/`walk2` | v3 custom | walking with big bouncy exaggerated steps, whole body squashing and stretching, arms swinging wide |
-| `jump`/`fall` | `jumping-1` template | — (9 frames to choose from; the one template worth sending) |
+| `walk` | v3 custom | walking with big bouncy exaggerated steps, whole body squashing and stretching, arms swinging wide |
+| `jump`/`fall` | `jumping-1` template | — (one 9-frame job, split into both clips; the one template worth sending) |
 | `duck` | v3 custom | compressing straight downward like a squashed spring, body staying perfectly upright and vertical without tilting, squashed to half its height and bulging wider, head low and level |
 | `hurt` | v3 custom | blasted off its feet and flying backwards through the air, whole body airborne well above the ground and tilted back, legs kicked up off the ground |
 | `action1` | v3 custom | *name the Fighter's own anatomy* — see below |
@@ -135,10 +163,14 @@ the attack should use it.
 instruction to amplify the smile and comes back unsettling. To keep an
 expression, say nothing about it; the reference already carries it.
 
-## Step 4 — picking keyframes
+## Step 4 — judging the animation
 
-One frame per pose. Measure rather than eyeball — both defects found on The
-Glizzy were caught by measurement after passing a visual check:
+Clips keep whole animations, so there is no keyframe to pick any more — the
+importer resamples the run and places the extreme frame itself. What is still
+worth measuring is whether the animation *has* an extreme frame, because the
+failure mode that made the humanoid templates useless is exactly a run of four
+frames where nothing moves. Measure rather than eyeball — both defects found on
+The Glizzy were caught by measurement after passing a visual check:
 
 - **crouch** ≤ 75% of standing height (the `crouching` template gave 89%, which
   does not read as a crouch at all)
@@ -158,6 +190,11 @@ It reads `stand.png` plus one subfolder of numbered frames per animation, and
 prints height %, extension and lift per frame with a PASS/fail against the
 gates above. It measures the **alpha bounding box**, not `sharp.trim()`, which
 keys off the top-left pixel and returns the full canvas on transparent art.
+
+The importer enforces the weaker version of this on every import (see Step 5),
+so a dead animation cannot ship silently even if this step is skipped. Run this
+anyway before spending another generation: it tells you *how* dead, which is
+what decides whether to re-prompt or accept.
 
 **Measure *and* look.** The gate catches poses that look fine and measure
 wrong; it cannot catch the inverse. Ketchup's crouch prompt "sink down until
@@ -179,34 +216,75 @@ shape. Take the best of three and move on.
 
 ## Step 5 — import and review
 
+One `--clip` per action, naming the animation folder it comes from and
+optionally a range of frames within it. This is the whole Glizzy import:
+
 ```bash
-node scripts/brawl-import-sprites.mjs <fighter> <folder>/ --keep-bg
+node scripts/brawl-import-sprites.mjs glizzy pixellab/ --keep-bg \
+  --clip stand=walk-v3:0-0 --clip walk=walk-v3 \
+  --clip jump=jump:2-4 --clip fall=jump:4-6 \
+  --clip duck=duck-hunker --clip hurt=hurt-v3 \
+  --clip action1=jab-v3 --clip kick=kick --clip action2=bite
 node scripts/brawl-art-preview.mjs      # writes brawl-roster.png
 ```
 
-Name the files `stand.png`, `walk1.png`, … in the folder. `--keep-bg` is right
-for PixelLab output, which has real alpha — without it the importer tries to
-flood-fill a background that isn't there.
+`--keep-bg` is right for PixelLab output, which has real alpha — without it the
+importer tries to flood-fill a background that isn't there. With no `--clip`
+flags at all it looks for a subfolder per clip name instead.
 
-The importer trims, scales **every frame by one shared factor** (so a duck
-stays shorter than a stand), plants each frame on the floor line, writes
-`assets/brawl/<fighter>_<pose>.png`, and adds the Fighter to `manifest.json`.
+The one 9-frame `jumping-1` job supplies both air clips: frames 2–4 are the
+launch through the apex, 4–6 the apex through the fall. Frame 0 is a standing
+anticipation and 7–8 a landing, and neither is ever drawn — the Fighter is
+airborne for the whole of both clips.
+
+The importer trims, resamples each run to its declared clip length, scales
+**every frame of every clip by one shared factor** (so a duck stays shorter
+than a stand *and* a wind-up stays smaller than the punch it leads to), plants
+each frame on the floor line, writes `assets/brawl/<fighter>_<clip>_<n>.png`,
+and records any frame-width override in `manifest.json`.
+
+**Which frames it keeps depends on the action, and that is a real distinction.**
+A `loop` (the walk) must not include both its first and last source frame or
+the Fighter stutters once per stride. A `span` (jump, fall, hurt) plays evenly
+start to end. A `peak` (both attacks, the special, and the duck) is built
+*around* its most extreme frame: the importer measures which source frame that
+is — silhouette area for an attack, height for a duck — and lands it on the
+index `CLIPS` declares. Some of these animations peak halfway and recover; some
+peak on their very last frame and have no recovery at all (Corn Dog's stick
+thrust), in which case the clip walks back through its own wind-up rather than
+holding a fully extended punch through the whole endlag, which reads as a
+freeze.
+
+**The extension gate.** An import fails if a `peak` clip's most extreme frame
+is its *first*: there is nothing to place at contact, so the wind-up, the
+hitbox and the recovery all draw the same picture and the move reads as the
+game ignoring you. This is the +15px gate's cheap cousin, and it runs at the
+moment the art changes rather than in `npm test` — same rule as the Stage's
+import gates.
 
 **`FRAME.width` is the size dial.** The renderer normalises every sprite to
 `SPRITE.drawHeight` and takes the aspect from the image, so how big a Fighter
 looks is the fraction of frame height its art fills. The shared scale factor is
-set by the *widest* pose — usually a fully extended attack — so a narrow frame
+set by the *widest* frame — usually a fully extended attack — so a narrow frame
 pins the whole Fighter small and leaves dead space above the head. 110×110
 makes height the binding constraint. Narrow it to shrink a Fighter; widen it to
 grow one. No regeneration needed, and re-importing is a two-second round trip.
 
 Reload `/brawl` — no restart needed, the manifest is re-read per request.
 
+**The preview is a filmstrip, not a grid of stills.** `brawl-art-preview.mjs`
+walks each action forward in real sim time and draws whatever `frameFor` picks,
+shading the columns on which the move can actually hit. What it exists to check
+is the *mapping*: the Fighter should look most committed inside the shading. A
+grid of stills cannot show that, which is the whole reason the poses became
+clips. It exits non-zero and paints a red box for any frame `CLIPS` promises
+and the art does not have.
+
 ## Re-fetching frames without spending anything
 
 `pixellab/` is gitignored, but PixelLab keeps every character and animation
 group server-side. `get_character(character_id)` returns download URLs for all
-of them, so any keyframe can be re-picked for free as long as the IDs survive.
+of them, so a clip can be rebuilt for free as long as the IDs survive.
 
 Account prefix for all four: `3a6ffff3-54a7-40b4-a199-91fc10560ec0`.
 
@@ -217,24 +295,30 @@ Account prefix for all four: `3a6ffff3-54a7-40b4-a199-91fc10560ec0`.
 | Ketchup | `1f4d160e-4f8c-45be-96ef-7682f5238a4c` | `1b269daf-48ec-496c-a806-fb8ad244ba90` #0 |
 | The Grill | `994c950d-c600-4211-9731-1e11742a95ca` | `cd246fb5-2895-4938-8006-6369e10db5b6` #0 |
 
-`get_character(<id>)` lists every animation group with download URLs, so any
-keyframe can be re-picked for free. The frames kept for the three Fighters
-converted here are named after their animation groups (`walk-v3`, `jab-stick`,
-`duck-compress`, `hurt-airborne`, `flare-open`, `pogo-stick-down`, …).
+`get_character(<id>)` lists every animation group with download URLs, so a clip
+can be rebuilt for free. The working folders under `pixellab/` are named after
+their animation groups (`walk-v3`, `jab-stick`, `duck-compress`,
+`hurt-airborne`, `flare-open`, `pogo-stick-down`, …), which is exactly what the
+`--clip` flags name.
 
 Frames are at
 `https://backblaze.pixellab.ai/file/pixellab-characters/<account>/<character>/animations/<animation>/south-east/<n>.png`.
 
-| Pose | Kept | Animation id |
+The Glizzy's, as an example — the other three differ only in which group is
+named, and `stand` is now frame 0 of the walk rather than the rotation, so a
+Fighter at rest matches the frame its walk cycle starts from.
+
+| Clip | Source | Animation id |
 |---|---|---|
-| `stand` | south-east rotation | — |
-| `walk1`, `walk2` | f4, f6 | `b18777bc-3551-4536-8ee6-e958484b0c06` (walk-v3) |
-| `jump`, `fall` | f2, f7 | `93bc02d7-3812-47bd-8627-64af4b6cdea1` (jumping-1) |
-| `duck` | f4 | `b6f27e5d-322c-4fd3-b615-ce4c363176e3` (duck-hunker) |
-| `hurt` | f3 | `4f5b0993-69d0-41e3-958c-d6cd62251199` (hurt-v3) |
-| `action1` | f4 | `e47c9786-1d36-4a20-b08a-9ac32803e80a` (jab-v3) |
-| `kick` | f2 | `24df09e2-149b-44e7-a14c-563b1387fdc3` (high-kick) |
-| `action2` | f5 | `506d2d02-56f8-43c0-9c45-25b555473b0f` (bite) |
+| `stand` | walk-v3 f0 | `b18777bc-3551-4536-8ee6-e958484b0c06` (walk-v3) |
+| `walk` | walk-v3, all 7 | ” |
+| `jump` | jumping-1 f2–4 | `93bc02d7-3812-47bd-8627-64af4b6cdea1` (jumping-1) |
+| `fall` | jumping-1 f4–6 | ” |
+| `duck` | duck-hunker, all | `b6f27e5d-322c-4fd3-b615-ce4c363176e3` (duck-hunker) |
+| `hurt` | hurt-v3, all | `4f5b0993-69d0-41e3-958c-d6cd62251199` (hurt-v3) |
+| `action1` | jab-v3, all | `e47c9786-1d36-4a20-b08a-9ac32803e80a` (jab-v3) |
+| `kick` | high-kick, all | `24df09e2-149b-44e7-a14c-563b1387fdc3` (high-kick) |
+| `action2` | bite, all | `506d2d02-56f8-43c0-9c45-25b555473b0f` (bite) |
 
 Rejected variants are still on the account too, should a pick need revisiting:
 `791d8592` (walking template), `538bf01a` (running-6-frames), `d3d40041`
@@ -251,10 +335,11 @@ drawn for **every** Fighter, so a conversion no longer costs a Fighter its
 special. (The costume layer itself is gone — with all four Fighters
 converted it had no users left.)
 
-That means a Fighter's `action2` sprite only has to carry the *pose*. The
-effect is already on screen:
+That means a Fighter's `action2` clip only has to carry the *motion*. The
+effect is already on screen — and it now runs alongside a real wind-up, which
+is what The Grill's 16-frame Flare-Up always wanted:
 
-| Fighter | Flourish | The sprite shows |
+| Fighter | Flourish | The clip shows |
 |---|---|---|
 | Ketchup | sauce burst at the nozzle | the **squeeze**, never a blob |
 | The Grill | coals roaring through the wind-up | the lid rearing back |

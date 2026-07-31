@@ -1,27 +1,41 @@
 // Import bespoke Fighter art into GlizzyBrawl.
 //
-//   node scripts/brawl-import-sprites.mjs <fighter> <sheet.png> --grid 5x2
-//   node scripts/brawl-import-sprites.mjs <fighter> <folder-of-poses/>
+//   node scripts/brawl-import-sprites.mjs <fighter> <root/> --clip walk=walk-v3 ...
+//   node scripts/brawl-import-sprites.mjs <fighter> <root/>          (clip-per-subfolder)
 //   node scripts/brawl-import-sprites.mjs --list
 //
 // <fighter> is one of: glizzy, ketchup, grill, corndog.
 //
+// A Fighter's actions are animated, so what gets imported is a **clip** per
+// action, not a pose per action. Each clip is written out as
+// `<fighter>_<clip>_<n>.png` and the renderer plays it — see `CLIPS` in
+// `brawl-art.js`, which this script imports and enforces rather than writes.
+//
 // Art from an image generator never arrives game-ready: it has a background,
-// inconsistent margins, and whatever size the model felt like. This does the
-// boring part — knock out the background, trim, scale to the Arena's frame,
-// and plant the feet on the floor line — then writes the per-pose PNGs the
-// renderer expects, and records any frame-width override in the manifest.
+// inconsistent margins, whatever size the model felt like, and whatever frame
+// count the animation job happened to produce. This does the boring part —
+// knock out the background, resample each clip to its declared length, scale
+// the whole set by one factor, and plant every frame's feet on the floor line.
+//
+// Sources. A clip's frames come from a folder of numbered PNGs (`0.png`,
+// `1.png`, …) or from a single image for a one-frame clip. A generator names
+// those folders after the animation job, not after the game's action, so:
+//
+//   --clip action1=jab-v3        take every frame of jab-v3/
+//   --clip jump=jump:1-4         take frames 1 through 4 of jump/
+//   --clip stand=reference.png   a single image
 //
 // Options:
-//   --grid CxR       slice a sheet into C columns by R rows, read left-to-right
+//   --clip name=path[:a-b]   where a clip's frames come from (repeatable)
 //   --bg "#ffffff"   background colour to remove (default: sampled from corners)
 //   --tolerance 40   how close a pixel must be to count as background (0-255)
 //   --keep-bg        don't remove any background (art already has alpha)
-//   --poses a,b,c    override the pose order used when slicing a sheet
+//   --frame-width N  the per-Fighter apparent-size dial (see below)
 //   --dry-run        report what it would write, write nothing
 
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { contentBounds, removeBackground, toCanvas } from "./lib/pixel-art.mjs";
+import { CLIPS, clipInfo } from "../brawl-art.js";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -32,11 +46,37 @@ const MANIFEST = path.join(ART_DIR, "manifest.json");
 
 const FIGHTERS = ["glizzy", "ketchup", "grill", "corndog"];
 
-/** The poses the renderer asks for, in the order a sheet is read. */
-export const POSES = [
-  "stand", "walk1", "walk2", "jump", "fall",
-  "duck", "hurt", "action1", "kick", "action2",
-];
+/**
+ * How each clip picks its frames out of a source run. Which frames matter is a
+ * property of the *action*, not of the animation job, and a flat "take every
+ * Nth" gets all three of these wrong:
+ *
+ *   loop   a cycle, so the last frame must not duplicate the first — including
+ *          both makes a Fighter stutter once per stride.
+ *   span   plays start to end, evenly.
+ *   peak   built around its most extreme frame: `brawl-art.js` says which index
+ *          of the clip that must be, and the importer lands it there. A punch
+ *          reaches contact where the renderer expects to hold it, and a duck
+ *          reaches its lowest frame at the end and stays there.
+ *
+ * The peak itself is measured, never assumed. Some of these animations peak
+ * halfway and recover; some peak on their very last frame and have no recovery
+ * at all (Corn Dog's stick thrust) — which is why `peak` can walk back through
+ * its own wind-up when the source gives it nothing to walk back through.
+ */
+const STRATEGY = {
+  stand: { kind: "span" },
+  walk: { kind: "loop" },
+  jump: { kind: "span" },
+  fall: { kind: "span" },
+  hurt: { kind: "span" },
+  // Compress into the most compressed frame and hold it: a duck is a pose you
+  // are *in*, and one that reaches its lowest point as it ends never reads.
+  duck: { kind: "peak", measure: "shortest", land: "last" },
+  action1: { kind: "peak", measure: "largest", land: "contact" },
+  kick: { kind: "peak", measure: "largest", land: "contact" },
+  action2: { kind: "peak", measure: "largest", land: "contact" },
+};
 
 /**
  * Frame the Arena draws. Art is scaled to fit this, feet on the bottom edge.
@@ -55,9 +95,10 @@ const DEFAULT_FRAME_WIDTH = FRAME.width;
 // ------------------------------------------------------------------- args
 
 const argv = process.argv.slice(2);
-const VALUE_FLAGS = new Set(["grid", "bg", "tolerance", "poses", "frame-width"]);
+const VALUE_FLAGS = new Set(["bg", "tolerance", "frame-width"]);
 
 const flags = {};
+const clipArgs = [];
 const positional = [];
 for (let i = 0; i < argv.length; i++) {
   const arg = argv[i];
@@ -66,7 +107,8 @@ for (let i = 0; i < argv.length; i++) {
     continue;
   }
   const name = arg.slice(2);
-  if (VALUE_FLAGS.has(name)) flags[name] = argv[++i];
+  if (name === "clip") clipArgs.push(argv[++i]);
+  else if (VALUE_FLAGS.has(name)) flags[name] = argv[++i];
   else flags[name] = true;
 }
 const flag = (name, fallback = null) => (name in flags ? flags[name] : fallback);
@@ -74,14 +116,18 @@ const has = (name) => flags[name] === true;
 
 if (has("list")) {
   console.log("Fighters:", FIGHTERS.join(", "));
-  console.log("Poses:   ", POSES.join(", "));
   console.log("Frame:   ", `${FRAME.width}x${FRAME.height}`);
+  console.log("Clips:");
+  for (const [name, spec] of Object.entries(CLIPS)) {
+    const contact = Number.isFinite(spec.contact) ? `, contact ${spec.contact}` : "";
+    console.log(`   ${name.padEnd(8)} ${spec.frames} frame${spec.frames === 1 ? "" : "s"}${contact}`);
+  }
   process.exit(0);
 }
 
 const [fighter, source] = positional;
 if (!fighter || !source) {
-  console.error("usage: brawl-import-sprites.mjs <fighter> <sheet.png|folder/> [--grid CxR]");
+  console.error("usage: brawl-import-sprites.mjs <fighter> <root/> [--clip name=path[:a-b]]");
   process.exit(1);
 }
 if (!FIGHTERS.includes(fighter)) {
@@ -89,13 +135,33 @@ if (!FIGHTERS.includes(fighter)) {
   process.exit(1);
 }
 
-const poses = String(flag("poses", POSES.join(","))).split(",").map((p) => p.trim());
 const tolerance = Number(flag("tolerance", 40));
 const dryRun = has("dry-run");
 
+/** `name=path:a-b` -> { clip, dir, from, to }. Defaults to a subfolder per clip. */
+const sources = new Map();
+for (const clip of Object.keys(CLIPS)) sources.set(clip, { path: clip, from: null, to: null });
+for (const spec of clipArgs) {
+  const eq = String(spec || "").indexOf("=");
+  if (eq < 0) {
+    console.error(`--clip expects name=path, got "${spec}"`);
+    process.exit(1);
+  }
+  const clip = spec.slice(0, eq).trim();
+  if (!CLIPS[clip]) {
+    console.error(`unknown clip "${clip}" — brawl-art.js declares ${Object.keys(CLIPS).join(", ")}`);
+    process.exit(1);
+  }
+  const rest = spec.slice(eq + 1).trim();
+  const range = rest.match(/^(.*):(\d+)-(\d+)$/);
+  sources.set(clip, range
+    ? { path: range[1], from: Number(range[2]), to: Number(range[3]) }
+    : { path: rest, from: null, to: null });
+}
+
 // The manifest is read here, not just written at the end, because a Fighter's
 // frame width is part of its import and has to survive the *next* one. Without
-// that, re-importing Corn Dog to swap a single pose would silently shrink it
+// that, re-importing Corn Dog to swap a single clip would silently shrink it
 // back to the roster default.
 let manifest = { frame: { ...FRAME } };
 if (fs.existsSync(MANIFEST)) {
@@ -161,10 +227,12 @@ function feetCentre(canvas, bounds) {
 /**
  * Scale every frame by the SAME factor and stand each on the floor line.
  *
- * Both halves matter. A per-frame scale would blow each pose up to fill the
- * frame, so a duck would come out as tall as a stand and the poses would stop
- * meaning anything. And feet-on-floor beats centring: frames sitting at
- * different heights make a Fighter bob for no reason while running.
+ * Both halves matter, and "every frame" now means every frame of every clip,
+ * not every pose. A per-frame scale would blow each drawing up to fill the
+ * frame, so a duck would come out as tall as a stand and a wind-up as big as
+ * the punch it leads to — the clip would pump. And feet-on-floor beats
+ * centring: frames sitting at different heights make a Fighter bob for no
+ * reason while running.
  */
 function fitAll(canvases) {
   const boundsList = canvases.map((c) => (c ? contentBounds(c) : null));
@@ -197,66 +265,169 @@ function fitAll(canvases) {
 
 // ---------------------------------------------------------------- sources
 
-async function framesFromSheet(file, grid) {
-  const [cols, rows] = String(grid).split("x").map(Number);
-  if (!cols || !rows) throw new Error(`--grid expects CxR, got "${grid}"`);
-  const img = await loadImage(file);
-  const cw = Math.floor(img.width / cols);
-  const ch = Math.floor(img.height / rows);
-  const frames = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      frames.push(toCanvas(img, c * cw, r * ch, cw, ch));
-    }
+const IMAGE_EXT = [".png", ".webp", ".jpg", ".jpeg"];
+
+/** Every frame a source offers, in numeric order. A file is a one-frame clip. */
+async function readSource(root, spec, clip) {
+  const candidates = [
+    path.join(root, spec.path),
+    ...IMAGE_EXT.map((ext) => path.join(root, spec.path + ext)),
+  ];
+  const hit = candidates.find((p) => fs.existsSync(p));
+  if (!hit) return null;
+
+  if (!fs.statSync(hit).isDirectory()) return [toCanvas(await loadImage(hit))];
+
+  const files = fs
+    .readdirSync(hit)
+    .filter((f) => IMAGE_EXT.includes(path.extname(f).toLowerCase()))
+    .map((f) => ({ f, n: Number(path.basename(f, path.extname(f))) }))
+    .filter((e) => Number.isFinite(e.n))
+    .sort((a, b) => a.n - b.n);
+  if (!files.length) {
+    console.warn(`  ! ${clip}: ${spec.path}/ holds no numbered frames`);
+    return null;
   }
-  return frames;
+
+  const from = Number.isFinite(spec.from) ? spec.from : files[0].n;
+  const to = Number.isFinite(spec.to) ? spec.to : files[files.length - 1].n;
+  const picked = files.filter((e) => e.n >= from && e.n <= to);
+  if (!picked.length) {
+    console.warn(`  ! ${clip}: ${spec.path}/ has no frames in ${from}-${to}`);
+    return null;
+  }
+  return Promise.all(picked.map((e) => loadImage(path.join(hit, e.f)).then((img) => toCanvas(img))));
 }
 
-async function framesFromFolder(dir) {
-  const out = [];
-  for (const pose of poses) {
-    // Accept both `stand.png` and `glizzy_stand.png` — generators and the
-    // repo's own prototype set name files differently, and neither is wrong.
-    const names = [pose, `${fighter}_${pose}`];
-    const hit = names
-      .flatMap((name) => ["png", "webp", "jpg", "jpeg"].map((ext) => path.join(dir, `${name}.${ext}`)))
-      .find((p) => fs.existsSync(p));
-    if (!hit) {
-      console.warn(`  ! no image for "${pose}" — the renderer will fall back to stand`);
-      out.push(null);
-      continue;
+/**
+ * The most extreme frame of a source run, and by how much.
+ *
+ * `largest` is silhouette AREA, not width: Corn Dog's Pogo is a downward stab
+ * and The Grill's Flare-Up rears its lid upward, so an attack's extension is
+ * not reliably horizontal. `shortest` is height, which is the whole question a
+ * duck asks. Both measure the cleaned source, before the importer plants every
+ * frame on the floor line and throws the vertical away.
+ */
+function extremeFrame(canvases, measure) {
+  const score = (c) => {
+    const b = contentBounds(c);
+    return measure === "shortest" ? -b.height : b.width * b.height;
+  };
+  let best = 0;
+  let bestScore = -Infinity;
+  const scores = canvases.map((c) => (c ? score(c) : -Infinity));
+  for (let i = 0; i < scores.length; i++) {
+    if (scores[i] > bestScore) {
+      bestScore = scores[i];
+      best = i;
     }
-    out.push(toCanvas(await loadImage(hit)));
+  }
+  return { index: best, score: bestScore, first: scores[0] };
+}
+
+/**
+ * Build a clip of exactly `count` frames out of whatever the generator produced
+ * — 4 frames, 5, 7, 9 — using the action's strategy.
+ *
+ * For a `peak` clip the extreme frame is placed at `land` and everything else
+ * is sampled around it: the wind-up spread across the frames before it, and the
+ * recovery across the frames after. When the source has nothing after its peak
+ * the recovery walks back through the wind-up instead, which costs no art and
+ * still gives the snap-back — holding a fully extended punch through the whole
+ * endlag reads as the game having frozen.
+ */
+function buildClip(frames, count, strategy) {
+  const S = frames.length;
+  if (S <= 1 || count <= 1) return Array.from({ length: Math.max(1, count) }, () => frames[0]);
+  const pick = (n) => frames[Math.min(S - 1, Math.max(0, Math.round(n)))];
+
+  if (strategy.kind === "loop") {
+    return Array.from({ length: count }, (_, i) => pick(Math.floor((i * S) / count)));
+  }
+  if (strategy.kind !== "peak") {
+    return Array.from({ length: count }, (_, i) => pick((i * (S - 1)) / (count - 1)));
+  }
+
+  const { index: peak } = extremeFrame(frames, strategy.measure);
+  const land = strategy.land === "last" ? count - 1 : strategy.contact;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    if (i < land) out.push(pick(land > 0 ? (i * peak) / land : 0));
+    else if (i === land) out.push(frames[peak]);
+    else if (peak < S - 1) out.push(pick(peak + ((i - land) * (S - 1 - peak)) / (count - 1 - land)));
+    else out.push(pick(peak * (1 - (i - land) / (count - land))));
   }
   return out;
 }
 
 // ------------------------------------------------------------------- main
 
-const stat = fs.statSync(source);
-const frames = stat.isDirectory()
-  ? await framesFromFolder(source)
-  : await framesFromSheet(source, flag("grid", "5x2"));
-
-if (!stat.isDirectory() && frames.length < poses.length) {
-  console.warn(`sheet gave ${frames.length} cells for ${poses.length} poses — later poses will be missing`);
+if (!fs.statSync(source).isDirectory()) {
+  console.error(`${source} is not a folder — a clip import reads one source per clip from a root folder`);
+  process.exit(1);
 }
 
-const cleaned = frames
-  .slice(0, poses.length)
-  .map((frame) => (!frame ? null : has("keep-bg") ? frame : removeBackground(frame, flag("bg"), tolerance)));
-const fitted = fitAll(cleaned);
+// Read, clean and build every clip, then fit the whole set together so one
+// scale factor covers the Fighter. Clips are kept as runs so the gate below can
+// talk about "frame 2 of action1" rather than an index into a flat list.
+const clips = [];
+const failures = [];
+for (const [clip, spec] of sources) {
+  const { frames: want, contact } = clipInfo(fighter, clip);
+  const raw = await readSource(source, spec, clip);
+  if (!raw) {
+    console.warn(`  ! no source for "${clip}" — the renderer will fall back to stand`);
+    continue;
+  }
+  if (raw.length < want) {
+    console.warn(`  ! ${clip}: ${raw.length} source frame(s) for a ${want}-frame clip — frames will repeat`);
+  }
+  const cleaned = raw.map((f) => (has("keep-bg") ? f : removeBackground(f, flag("bg"), tolerance)));
+  const strategy = { ...(STRATEGY[clip] || { kind: "span" }), contact };
+
+  // The extension gate. An attack whose most extended frame is its FIRST has no
+  // attack in it at all: the clip is backwards, or the animation job came back
+  // dead — which is exactly what the humanoid templates kept doing to these
+  // stub-limbed Fighters, and what a visual check kept passing. There is
+  // nothing to place at `contact`, so the wind-up, the hitbox and the recovery
+  // all draw the same picture and the move reads as the game ignoring you.
+  if (strategy.kind === "peak" && want > 1 && cleaned.length > 1) {
+    const { index, score, first } = extremeFrame(cleaned, strategy.measure);
+    if (index === 0 || score <= first) {
+      failures.push(
+        `  ${fighter} ${clip}: the source's most extreme frame is its first, so the\n` +
+        `    clip has no ${strategy.measure === "shortest" ? "compression" : "extension"} to build around.\n` +
+        `    Re-pick the source range, or regenerate the animation — see docs/glizzybrawl-art-brief.md.`,
+      );
+    }
+  }
+
+  clips.push({ clip, frames: buildClip(cleaned, want, strategy) });
+}
+
+if (failures.length) {
+  console.error("art gate failed:\n");
+  console.error(failures.join("\n\n"));
+  process.exit(1);
+}
+
+const flat = clips.flatMap((c) => c.frames);
+const fitted = fitAll(flat);
 
 const written = [];
-for (let i = 0; i < poses.length; i++) {
-  if (!cleaned[i]) continue;
-  const file = path.join(ART_DIR, `${fighter}_${poses[i]}.png`);
-  if (!dryRun) fs.writeFileSync(file, fitted[i].toBuffer("image/png"));
-  written.push(path.relative(ROOT, file));
+let cursor = 0;
+for (const { clip, frames } of clips) {
+  for (let i = 0; i < frames.length; i++) {
+    const file = path.join(ART_DIR, `${fighter}_${clip}_${i}.png`);
+    if (!dryRun) fs.writeFileSync(file, fitted[cursor + i].toBuffer("image/png"));
+    written.push(path.relative(ROOT, file));
+  }
+  cursor += frames.length;
 }
 
-// The manifest carries frame geometry only. It used to carry a list of which
-// Fighters had art of their own; every Fighter does now, so nothing reads one.
+// The manifest carries frame geometry only. Clip lengths deliberately do NOT
+// live here — they are in `CLIPS` in `brawl-art.js`, where the browser can read
+// them without a fetch and where they are gated above rather than generated.
 // `frame` is the roster default; a Fighter imported through a wider frame
 // records that separately and reads it back on the next import, so retuning one
 // Fighter neither resizes the next nor evaporates when the flag is left off.
@@ -269,5 +440,5 @@ if (FRAME.width === DEFAULT_FRAME_WIDTH) {
 if (!dryRun) fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
 
 console.log(`${dryRun ? "[dry run] would write" : "wrote"} ${written.length} frames for ${fighter}:`);
-for (const f of written) console.log("  " + f);
-console.log(`${fighter} now draws these frames in the Arena.`);
+for (const { clip, frames } of clips) console.log(`  ${clip.padEnd(8)} ${frames.length} frames`);
+console.log(`${fighter} now animates these clips in the Arena.`);

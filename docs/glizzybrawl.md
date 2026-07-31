@@ -166,14 +166,45 @@ that function's output.
 
 ## Art
 
-Fighter bodies are Kenney's CC0 **Platformer Characters 1** (licence text lives
-in `assets/brawl/LICENSE-kenney.txt`; credit is optional but the page gives it
-anyway). Each body ships `stand / walk1 / walk2 / jump / fall / duck / hurt`
-plus three attack poses — `action1`, `kick`, `action2` — which `poseFor` maps
-to light, heavy, and special. That mapping is why the three attacks read as
-different moves without the sim knowing anything about art.
+Every action is a **clip** — an ordered run of frames — not a pose. Nine of
+them: `stand`, `walk`, `jump`, `fall`, `duck`, `hurt`, and the three attacks
+`action1`, `kick` and `action2`, which map to light, heavy and special. That
+last mapping is why the three attacks read as different moves without the sim
+knowing anything about art.
 
-All four Fighters now draw sprites of their own, generated through PixelLab and
+Clip lengths live in `CLIPS` in `brawl-art.js` and are the same for every
+Fighter, so a move's timing belongs to the move rather than to the character.
+`frameFor(fighter, nowMs)` returns `{ clip, index }` and is the whole seam: the
+renderer draws `<body>_<clip>_<index>.png` and never asks why.
+
+**Almost nothing is on a clock.** An attack is driven by its own frame counter,
+hitstun and dodges by the timers the sim reports, and the air clips by vertical
+velocity — so a Fighter hanging at the apex holds the apex frame however long
+the hang lasts, and a slow tick cannot desynchronise a wind-up from the hitbox
+it warns about. Only the walk cycle, which has no state of its own to track,
+runs on a clock, and even that paces itself to how fast the Fighter is moving.
+
+**An attack's `contact` frame is pinned to the move's first active frame.**
+Wind-up plays across the startup, contact is held for exactly as long as the
+hitbox exists, and the rest of the clip plays out over the endlag. One clip per
+attack therefore reads correctly on a 3-frame jab and a 16-frame launcher
+alike, and the moment a Fighter looks most committed is the moment it can
+actually hit you. That invariant is what `test/brawl-art.test.js` pins hardest.
+
+For that to work the snapshot carries each attack's `startup`/`active`/`endlag`
+and each timed state's remaining ticks *and* what it started at
+(`hitstun`/`hitstunTotal`, `dodgeTicks`/`dodgeTotal`). **A duration art animates
+belongs to the sim, so the sim reports it** — the alternative is `brawl-art.js`
+holding its own copy of `DODGE_TICKS` and the hitstun formula, a second source
+of truth for numbers the sim owns.
+
+The CPU's borrowed body is Kenney's CC0 **Platformer Characters 1** (licence
+text lives in `assets/brawl/LICENSE-kenney.txt`; credit is optional but the page
+gives it anyway). It is a pack of static poses, so every one of its clips is a
+single frame — which keeps the one-frame fallback path open in production, and
+it is the same path a half-imported Fighter lands on.
+
+All four Fighters draw animation of their own, generated through PixelLab and
 imported into `assets/brawl/` — see [the art recipe](glizzybrawl-art-brief.md).
 The costume layer that used to paint a bun, a bottle, a lid or batter over a
 borrowed body is **gone**, and so is the manifest list that named which Fighters
@@ -221,33 +252,47 @@ node-canvas and have it match the Arena exactly:
 node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
 ```
 
+It is a **filmstrip**, not a grid of stills: each row walks one action forward
+in real sim time and draws whatever `frameFor` picks, shading the columns on
+which the move can hit. The thing worth checking is that the Fighter looks most
+committed inside the shading — which a grid of stills cannot show, and which is
+the whole reason poses became clips.
+
 ### Importing art
 
-Each Fighter draws `<character>_<pose>.png` from `assets/brawl/`, so replacing a
-Fighter's look is dropping ten files in — no restart, no code change. While art
+Each Fighter draws `<character>_<clip>_<n>.png` from `assets/brawl/`, so
+replacing a Fighter's look is a re-import — no restart, no code change. While art
 was landing one Fighter at a time the manifest carried a `bespoke` list and the
 renderer branched on it; with every Fighter converted, that list and the
 costumes it gated are gone. The manifest now carries frame geometry only.
 
 `scripts/brawl-import-sprites.mjs` does the import: background removal, trim,
-one uniform scale across the whole set (so a duck stays shorter than a stand),
-feet planted on the floor line, and the manifest entry.
-`scripts/brawl-art-measure.mjs` gates the keyframe picks on measured
-thresholds before any of that. See
+resampling each animation to its declared clip length, one uniform scale across
+every frame of every clip (so a duck stays shorter than a stand *and* a wind-up
+stays smaller than the punch it leads to), feet planted on the floor line, and
+the manifest entry. Which frames it keeps depends on the action — a walk must
+not repeat its first frame at the end, and an attack or a duck is built *around*
+its measured most-extreme frame so contact lands where `CLIPS` says it does.
+It **fails** if a peak clip's most extreme frame is its first, which means the
+animation is dead and the wind-up, hitbox and recovery would all draw the same
+picture. `scripts/brawl-art-measure.mjs` reports the same thing in more detail
+before any of that. See
 [the art brief](glizzybrawl-art-brief.md) for what to generate and how to feed
 it in.
 
 **`--frame-width` is the apparent-size dial.** The renderer normalises every
 sprite to `SPRITE.drawHeight` and takes the aspect from the image, so a
 Fighter's on-screen size is the fraction of frame height its art fills — and
-the importer's shared scale factor is set by the *widest* pose. Corn Dog's
+the importer's shared scale factor is set by the *widest* frame. Corn Dog's
 stick thrust pinned the whole Fighter small until its frame was widened to 150.
 An override records itself per Fighter in the manifest rather than moving the
 roster default, so retuning one Fighter cannot resize the next. Tuning size is
 always a re-import, never a regeneration.
 
 `scripts/brawl-make-sprites.mjs` builds a pixel-art prototype set from ASCII
-rigs — rough, but a worked example of the bespoke path end to end.
+rigs into `assets/brawl/pixel/`, which the game never loads. It predates clips
+and still emits one still per pose, so it is a record of an approach rather
+than a path into the Arena.
 
 Swapping art wholesale means replacing `assets/brawl/` and the tables at the
 top of `brawl-art.js`; nothing else knows what a Fighter looks like.

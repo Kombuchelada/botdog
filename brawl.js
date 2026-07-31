@@ -808,7 +808,9 @@ export function registerBrawl(app) {
   // Fighter sprites and Stage props. Whitelisted by name shape so the route can
   // never be talked into serving anything else out of the repo.
   app.get("/brawl/art/:file", (req, res) => {
-    if (!/^[a-z0-9]+_[a-z0-9]+\.png$/.test(req.params.file)) return res.status(404).end();
+    // `<body>_<clip>_<n>.png` for a Fighter's animation frames, `<prop>_<part>.png`
+    // for the Ballpark's.
+    if (!/^[a-z0-9]+_[a-z0-9]+(_[0-9]+)?\.png$/.test(req.params.file)) return res.status(404).end();
     const file = path.join(HERE, "assets", "brawl", req.params.file);
     res.type("image/png");
     res.setHeader("Cache-Control", "public, max-age=86400");
