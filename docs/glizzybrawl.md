@@ -198,7 +198,24 @@ node-canvas and have it match the Arena exactly:
 node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
 ```
 
-Swapping in different art means replacing `assets/brawl/` and the tables at the
+### Bespoke art, one Fighter at a time
+
+A Fighter listed in `assets/brawl/manifest.json` under `bespoke` draws sprites
+named after itself (`glizzy_stand.png`) and gets **no costume** — art of its
+own already *is* the food. Everyone else keeps the borrowed body. That split is
+what lets new art land one Fighter at a time instead of as a big-bang swap, and
+the manifest is re-read per request, so dropping files in needs no restart.
+
+`scripts/brawl-import-sprites.mjs` does the import: background removal, trim,
+one uniform scale across the whole set (so a duck stays shorter than a stand),
+feet planted on the floor line, and the manifest entry. See
+[the art brief](glizzybrawl-art-brief.md) for what to generate and how to feed
+it in.
+
+`scripts/brawl-make-sprites.mjs` builds a pixel-art prototype set from ASCII
+rigs — rough, but a worked example of the bespoke path end to end.
+
+Swapping art wholesale means replacing `assets/brawl/` and the tables at the
 top of `brawl-art.js`; nothing else knows what a Fighter looks like.
 
 ## Testing

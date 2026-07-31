@@ -37,8 +37,8 @@ export function spriteKey(body, pose) {
 }
 
 /** Every sprite the renderer will ever need, for preloading. */
-export function allSprites() {
-  const bodies = [...new Set([...Object.values(BODY), CPU_BODY])];
+export function allSprites(bespoke = []) {
+  const bodies = [...new Set([...Object.values(BODY), CPU_BODY, ...bespoke])];
   const out = [];
   for (const body of bodies) {
     for (const pose of POSES) out.push({ body, pose, url: spritePath(body, pose) });
@@ -58,8 +58,21 @@ export function moveNameOf(attack) {
   return (move && move.name) || attack.kind || "";
 }
 
-export function bodyFor(fighter) {
+/**
+ * Which sprite set a Fighter draws from.
+ *
+ * A Fighter with art of its own ("bespoke", per `assets/brawl/manifest.json`)
+ * uses sprites named after the character and gets no costume — the art already
+ * *is* the food. Everyone else wears a borrowed Kenney body plus a costume.
+ * This is what lets bespoke art land one Fighter at a time.
+ */
+export function bodyFor(fighter, bespoke = null) {
+  if (bespoke && !fighter.cpu && bespoke.has(fighter.character)) return fighter.character;
   return fighter.cpu ? CPU_BODY : BODY[fighter.character] || BODY.glizzy;
+}
+
+export function wearsCostume(fighter, bespoke = null) {
+  return !(bespoke && !fighter.cpu && bespoke.has(fighter.character));
 }
 
 /**

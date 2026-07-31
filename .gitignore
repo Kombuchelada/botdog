@@ -5,3 +5,6 @@ node_modules
 *.csv
 Dockerfile.claude-sandbox
 claude-sandbox.sh
+# Generated art previews (scripts/brawl-art-preview.mjs)
+brawl-roster.png
+preview-*.png

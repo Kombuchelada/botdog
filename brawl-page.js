@@ -61,8 +61,8 @@ const STYLES = `
   .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
 </style>`;
 
-export function renderBrawlPage({ userId, displayName, avatarUrl, cosmetics, scoreboard, roster, cap }) {
-  const boot = JSON.stringify({ userId, displayName, cosmetics, scoreboard, roster, cap }).replace(/</g, "\\u003c");
+export function renderBrawlPage({ userId, displayName, avatarUrl, cosmetics, scoreboard, roster, cap, art }) {
+  const boot = JSON.stringify({ userId, displayName, cosmetics, scoreboard, roster, cap, art }).replace(/</g, "\\u003c");
 
   const rosterCards = roster
     .map(
@@ -218,10 +218,13 @@ import {
   createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
 } from "/brawl/sim.js";
 import {
-  SPRITE, allSprites, bodyFor, poseFor, spriteKey, spritePath, drawCostume, drawCrown,
+  SPRITE, allSprites, bodyFor, wearsCostume, poseFor, spriteKey, spritePath, drawCostume, drawCrown,
 } from "/brawl/art.js";
 
 const BOOT = window.BRAWL;
+// Fighters listed here have art of their own and are drawn without a costume.
+// Declared after BOOT for the obvious reason: it reads it.
+const bespoke = new Set((BOOT.art && BOOT.art.bespoke) || []);
 const canvas = document.getElementById("arena");
 const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
@@ -622,7 +625,7 @@ const sprites = new Map();
 let spritesReady = false;
 
 (function preloadSprites() {
-  const all = allSprites();
+  const all = allSprites([...bespoke]);
   let left = all.length;
   for (const { body, pose, url } of all) {
     const img = new Image();
@@ -638,7 +641,7 @@ let spritesReady = false;
 })();
 
 function spriteFor(f, now) {
-  const body = bodyFor(f);
+  const body = bodyFor(f, bespoke);
   const pose = poseFor(f, now);
   return sprites.get(spriteKey(body, pose)) || sprites.get(spriteKey(body, "stand"));
 }
@@ -674,11 +677,15 @@ function drawFighter(f, now) {
 
   ctx.translate(pos.x, pos.y);
   ctx.scale(f.facing, 1);
-  drawCostume(ctx, f, now, "back");
+  const costumed = wearsCostume(f, bespoke);
+  if (costumed) drawCostume(ctx, f, now, "back");
 
   const img = spriteFor(f, now);
   const h = SPRITE.drawHeight;
-  const w = (SPRITE.width / SPRITE.height) * h;
+  // Bespoke art needn't share Kenney's proportions, so take the aspect from
+  // the image itself and fall back to the pack's when it hasn't loaded.
+  const aspect = img && img.naturalWidth ? img.naturalWidth / img.naturalHeight : SPRITE.width / SPRITE.height;
+  const w = aspect * h;
   if (img) {
     ctx.drawImage(img, -w / 2, -h, w, h);
   } else {
@@ -686,7 +693,7 @@ function drawFighter(f, now) {
     ctx.fillRect(-w / 2, -h, w, h);
   }
 
-  drawCostume(ctx, f, now, "front");
+  if (costumed) drawCostume(ctx, f, now, "front");
   if (cos.crown) drawCrown(ctx, cos.crown);
   ctx.restore();
 
