@@ -180,13 +180,20 @@ Rejected variants are still on the account too, should a pick need revisiting:
 (crouching template), `db9562fb` (duck-v3), `33ebc088` (duck-neutral),
 `cf806279` (lead-jab), `907ececb` (cross-punch), `3db7f01f` (taking-punch).
 
-## Known gap
+## Flourishes are not the costume's job
 
-Converting a Fighter to bespoke **removes its special-move flourish** — the
-splat leaving Ketchup's nozzle, the coals roaring on The Grill's flare. Those
-are drawn inside `COSTUMES` in `brawl-art.js`, and `wearsCostume` returns false
-for bespoke Fighters. The Glizzy didn't notice (its bite is just a pose), but
-The Grill will: Flare-Up's 16-frame wind-up is currently telegraphed entirely
-by the coals, and a single keyframe would make it read as instant. **Extract
-the flourishes into a layer drawn for every Fighter before converting Ketchup
-or The Grill.** Corn Dog is unblocked.
+Converting a Fighter to bespoke used to **remove its special-move flourish** —
+the splat leaving Ketchup's nozzle, the coals roaring on The Grill's flare —
+because those were drawn inside `COSTUMES` and `wearsCostume` returns false for
+bespoke Fighters. They now live in `FLOURISHES` in `brawl-art.js` and are drawn
+for every Fighter, so converting a Fighter no longer costs it its special.
+
+That means a Fighter's `action2` sprite only has to carry the *pose*. The
+effect is already on screen:
+
+| Fighter | Flourish | The sprite shows |
+|---|---|---|
+| Ketchup | sauce burst at the nozzle | the **squeeze**, never a blob |
+| The Grill | coals roaring through the wind-up | the lid rearing back |
+| Corn Dog | none | the downward stab, stick pointing down |
+| The Glizzy | none | the bite-lunge |

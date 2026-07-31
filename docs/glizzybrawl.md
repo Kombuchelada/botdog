@@ -189,6 +189,29 @@ Three rules hold the composite together, each learned by rendering it wrong:
 - **Signature flourishes belong to the special alone** — the ketchup splat, the
   grill's coals. Firing them on every jab made all three attacks look the same.
 
+### Flourishes are their own layer
+
+The signature-move effects used to live *inside* the costumes, which meant
+giving a Fighter art of its own silently deleted them — the costume is gated on
+the manifest and the flourish went through the gate with it. The Grill is the
+case that matters: Flare-Up's 16-frame wind-up is telegraphed entirely by the
+coals, and without them a stock-ending launcher reads as instant.
+
+They now live in `FLOURISHES` in `brawl-art.js`, keyed by the special's name in
+the sim, and `drawFlourish` runs for **every** Fighter, bespoke or costumed.
+Deciding whether one is showing is separate from drawing it: `flourishFor`
+is a pure function of a Fighter snapshot returning `{ id, progress }` or
+`null`, and it is the unit `test/brawl-art.test.js` pins. Two rules it carries:
+
+- Progress comes from the attack's **own frame counter**, never the clock, so a
+  telegraph cannot drift away from the hitbox it is warning about.
+- A back-layer flourish must be **wider than a Fighter**. A single flame up the
+  centre line was entirely hidden behind the body and telegraphed nothing.
+
+Ketchup's Splat flourish stays on the Fighter — a squeeze at the nozzle, not a
+travelling blob. The blob in flight is a real projectile the renderer already
+draws, and a second one means the player cannot tell where the shot is.
+
 `brawl-art.js` follows the same shared-file rule as the sim: no imports, no
 browser-only globals beyond the 2D context it is handed. That is what lets
 `scripts/brawl-art-preview.mjs` render the whole roster to a PNG with

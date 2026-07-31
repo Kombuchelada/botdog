@@ -5,7 +5,9 @@
 // duck / hurt frames *plus* three real attack poses, which is the part that
 // was never going to look right drawn procedurally. The costumes — bun, cap,
 // grill lid, batter — are drawn on top in canvas so each Fighter still reads
-// as the food it is.
+// as the food it is. A Fighter with art of its own drops the costume; its
+// signature-move *flourish* is a separate layer and never drops (see
+// `FLOURISHES`).
 //
 // Same shared-file rule as `brawl-sim.js`: this module imports nothing and
 // touches no browser-only global beyond the 2D context it is handed, so the
@@ -97,6 +99,114 @@ export function poseFor(fighter, nowMs = 0) {
   return "stand";
 }
 
+// -------------------------------------------------------------- flourishes
+//
+// A signature move's flourish — the splat leaving Ketchup's nozzle, the coals
+// roaring on The Grill's flare — is *not* part of the costume. It used to be,
+// and that made it invisible for any Fighter with art of its own: the costume
+// is gated on the manifest and the flourish went through the gate with it.
+// The Grill is the case that matters. Flare-Up is a 16-frame wind-up, and the
+// coals are the entire telegraph; without them a stock-ending launcher reads
+// as instant.
+//
+// Deciding *whether* a flourish is showing is separate from drawing it, and is
+// a pure function of a Fighter snapshot — that is the seam `test/brawl-art.js`
+// tests. See `docs/glizzybrawl-art-brief.md`.
+
+/**
+ * Flourishes, keyed by the special's name in `brawl-sim.js`. `windup` is how
+ * many attack frames the effect takes to reach full strength; take it from the
+ * move's own startup so the telegraph and the hitbox it warns about agree.
+ *
+ * `layer` is "back" (behind the Fighter) or "front". Flames go behind: a
+ * Fighter's face is the whole reason these sprites work at 64px.
+ */
+export const FLOURISHES = {
+  splat: { windup: 6, layer: "front", draw: drawSplatBurst },
+  flare: { windup: 16, layer: "back", draw: drawCoals },
+};
+
+/**
+ * Is a flourish showing for this Fighter, and how far through it is it?
+ *
+ * Returns `null` or `{ id, progress }` with progress in [0, 1]. Pure, and
+ * blind to the manifest — a bespoke Fighter's flourish must survive exactly
+ * the change that used to delete it.
+ *
+ * Flourishes fire on the special alone. Firing them on every jab made all
+ * three of a Fighter's attacks look like the same move.
+ */
+export function flourishFor(fighter) {
+  if (!fighter || !fighter.attack) return null;
+  const move = moveNameOf(fighter.attack);
+  if (move.includes("light") || move.includes("heavy")) return null;
+  const spec = FLOURISHES[move];
+  if (!spec) return null;
+  const frame = Number.isFinite(fighter.attack.frame) ? fighter.attack.frame : 0;
+  // Progress comes from the attack's own frame counter, never from the clock,
+  // so a telegraph stays in step with the hitbox even under a slow tick.
+  const progress = Math.max(0, Math.min(1, (frame + 1) / spec.windup));
+  return { id: move, progress };
+}
+
+/**
+ * Draw the flourish for a Fighter, if one is showing. Called for **every**
+ * Fighter, costumed or bespoke.
+ *
+ * @param layer "back" (before the body sprite) or "front" (after)
+ */
+export function drawFlourish(ctx, fighter, nowMs = 0, layer = "front") {
+  const showing = flourishFor(fighter);
+  if (!showing) return;
+  const spec = FLOURISHES[showing.id];
+  if (!spec || spec.layer !== layer) return;
+  spec.draw(ctx, { progress: showing.progress, nowMs });
+}
+
+/**
+ * Ketchup's Splat: a burst of sauce at the nozzle. Deliberately stays *on the
+ * Fighter* — the blob in flight is a real projectile the renderer already
+ * draws, and a second travelling blob here means the player cannot tell where
+ * the shot actually is.
+ */
+function drawSplatBurst(ctx, { progress }) {
+  const reach = 6 + progress * 12;
+  ctx.globalAlpha = 1 - progress * 0.5;
+  ctx.fillStyle = "#e11d48";
+  for (let i = 0; i < 3; i++) {
+    const t = (i + 1) / 3;
+    ctx.beginPath();
+    ctx.arc(14 + reach * t, -34 - i * 4 + progress * 5, 4 - i, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * The Grill's Flare-Up: coals roaring higher the closer the launcher gets.
+ *
+ * Drawn behind the Fighter, so it has to be *wider* than one. A single tongue
+ * up the centre line was completely hidden by the body and telegraphed
+ * nothing — the outer licks are what make it visible at a glance.
+ */
+function drawCoals(ctx, { progress, nowMs }) {
+  const flicker = 1 + Math.sin(nowMs / 90) * 0.08;
+  const tongue = (x, halfWidth, height, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x - halfWidth, -4);
+    ctx.quadraticCurveTo(x, -height * flicker, x + halfWidth, -4);
+    ctx.closePath();
+    ctx.fill();
+  };
+  ctx.globalAlpha = 0.85;
+  tongue(-26, 11, 26 + progress * 44, "#ea580c");
+  tongue(26, 11, 26 + progress * 44, "#ea580c");
+  tongue(0, 20, 40 + progress * 62, "#f97316");
+  tongue(0, 10, 28 + progress * 40, "#fde047");
+  ctx.globalAlpha = 1;
+}
+
 // ---------------------------------------------------------------- costumes
 //
 // Costume paths are drawn in the Fighter's local space: feet at (0, 0), head
@@ -133,9 +243,9 @@ export function drawCostume(ctx, fighter, nowMs = 0, layer = "front") {
   const costume = COSTUMES[fighter.character];
   if (!costume || !costume[layer]) return;
   const swing = fighter.attack ? Math.min(1, (fighter.attack.frame + 1) / 6) : 0;
-  // The signature-move flourishes (a splat leaving the nozzle, coals roaring)
-  // belong to the special alone — firing them on every jab made all three
-  // attacks look the same.
+  // Costume geometry may still react to the special (Corn Dog's stick swings
+  // down for its Pogo), but the signature-move *flourishes* have moved out to
+  // `drawFlourish`, which runs for bespoke Fighters too.
   const move = moveNameOf(fighter.attack);
   const special = swing > 0 && !move.includes("light") && !move.includes("heavy");
   costume[layer](ctx, { swing, special, nowMs, fighter });
@@ -182,22 +292,16 @@ function capBack(ctx, { nowMs }) {
   ctx.fill();
 }
 
-function bottleFront(ctx, { swing, special }) {
+function bottleFront(ctx) {
   ctx.fillStyle = "#e11d48";
   roundRect(ctx, -17, -38, 34, 22, 8);
   ctx.fill();
   ctx.fillStyle = "#fecdd3";
   roundRect(ctx, -12, -33, 24, 9, 3);
   ctx.fill();
-  if (special) {
-    ctx.fillStyle = "#e11d48";
-    ctx.beginPath();
-    ctx.arc(24 + swing * 16, -30, 4 + swing * 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
 }
 
-// ---- The Grill: lid for a hat, grate round the middle, coals when it flares ----
+// ---- The Grill: lid for a hat, grate round the middle ----
 
 function lidBack(ctx, { nowMs }) {
   const bob = Math.sin(nowMs / 500) * 1;
@@ -213,29 +317,12 @@ function lidBack(ctx, { nowMs }) {
   ctx.fill();
 }
 
-function grateFront(ctx, { swing, special, nowMs }) {
+function grateFront(ctx) {
   ctx.fillStyle = "#334155";
   roundRect(ctx, -20, -36, 40, 19, 6);
   ctx.fill();
   ctx.fillStyle = "#a855f7";
   for (let i = 0; i < 4; i++) ctx.fillRect(-15 + i * 9, -33, 4, 13);
-
-  if (special) {
-    ctx.globalAlpha = 0.7 + Math.sin(nowMs / 90) * 0.3;
-    ctx.fillStyle = "#f97316";
-    ctx.beginPath();
-    ctx.moveTo(-14, -14);
-    ctx.quadraticCurveTo(0, -34 - swing * 48, 14, -14);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = "#fde047";
-    ctx.beginPath();
-    ctx.moveTo(-7, -14);
-    ctx.quadraticCurveTo(0, -26 - swing * 30, 7, -14);
-    ctx.closePath();
-    ctx.fill();
-    ctx.globalAlpha = 1;
-  }
 }
 
 // ---- Corn Dog: batter round the middle, stick out the back ----

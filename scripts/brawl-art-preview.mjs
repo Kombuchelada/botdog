@@ -11,7 +11,8 @@ import { createCanvas, loadImage } from "@napi-rs/canvas";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BODY, CPU_BODY, SPRITE, poseFor, drawCostume, drawCrown, bodyFor, wearsCostume } from "../brawl-art.js";
+import { BODY, CPU_BODY, SPRITE, poseFor, drawCostume, drawFlourish, drawCrown, bodyFor, wearsCostume } from "../brawl-art.js";
+import { FIGHTERS, SPECIALS } from "../brawl-sim.js";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = process.argv[2] || path.join(ROOT, "brawl-roster.png");
@@ -36,7 +37,10 @@ const states = [
   { label: "jump", f: { onGround: false, vx: 0, vy: -400, state: "air", attack: null } },
   { label: "light", f: { onGround: true, vx: 0, vy: 0, state: "attack", attack: { move: "light_side", frame: 4 } } },
   { label: "heavy", f: { onGround: true, vx: 0, vy: 0, state: "attack", attack: { move: "heavy_side", frame: 4 } } },
-  { label: "special", f: { onGround: true, vx: 0, vy: 0, state: "attack", attack: { move: "snap", frame: 5 } } },
+  // Each Fighter throws its *own* special here — a shared "snap" showed every
+  // row The Glizzy's move and so hid the flourishes this preview exists to
+  // check. Held on the last wind-up frame, where a telegraph is fully out.
+  { label: "special", perCharacter: true, f: { onGround: true, vx: 0, vy: 0, state: "attack", attack: null } },
   { label: "hurt", f: { onGround: false, vx: 200, vy: -200, state: "hitstun", attack: null } },
 ];
 const CELL = 130;
@@ -49,6 +53,12 @@ const rows = [...chars.map((c) => ({ character: c, cpu: false })), { character: 
 for (let r = 0; r < rows.length; r++) {
   for (let c = 0; c < states.length; c++) {
     const fighter = { ...rows[r], ...states[c].f };
+    if (states[c].perCharacter) {
+      // `FIGHTERS[x].special` is the character-select blurb; the move itself
+      // lives in SPECIALS under that id, and the move name is what the art reads.
+      const move = SPECIALS[FIGHTERS[fighter.character].special.id];
+      fighter.attack = { move: move.name, kind: move.kind, frame: Math.max(0, move.startup - 1) };
+    }
     const pose = poseFor(fighter, 300);
     const img = await loadImage(`${ROOT}/assets/brawl/${bodyFor(fighter, bespoke)}_${pose}.png`);
     const cx = 20 + c * CELL + CELL / 2;
@@ -58,6 +68,7 @@ for (let r = 0; r < rows.length; r++) {
     ctx.save();
     ctx.translate(cx, cy);
     if (costumed) drawCostume(ctx, fighter, 1000, "back");
+    drawFlourish(ctx, fighter, 1000, "back");
     const h = SPRITE.drawHeight;
     // Mirror brawl-page.js: aspect comes from the image, so bespoke art needn't
     // share Kenney's proportions. Hardcoding SPRITE's aspect here made imported
@@ -65,6 +76,7 @@ for (let r = 0; r < rows.length; r++) {
     const w = (img.width / img.height) * h;
     ctx.drawImage(img, -w / 2, -h, w, h);
     if (costumed) drawCostume(ctx, fighter, 1000, "front");
+    drawFlourish(ctx, fighter, 1000, "front");
     if (r === 0) drawCrown(ctx, "gold");
     ctx.restore();
 

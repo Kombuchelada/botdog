@@ -55,7 +55,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
-| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping, plus Kenney CC0 bodies (`assets/brawl/`) and per-Fighter costumes for Fighters that don't yet have bespoke art. The Glizzy is bespoke (PixelLab, south-east 3/4); the rest are still costumed. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
+| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping, the signature-move flourish layer (`flourishFor` / `drawFlourish`), plus Kenney CC0 bodies (`assets/brawl/`) and per-Fighter costumes for Fighters that don't yet have bespoke art. The Glizzy is bespoke (PixelLab, south-east 3/4); the rest are still costumed. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
 | `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art (generated or commissioned) — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. A Fighter in that manifest draws its own sprites and gets no costume, so new art lands one Fighter at a time. Recipe: `docs/glizzybrawl-art-brief.md`. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
@@ -230,10 +230,21 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   grow crowns/trails/finishes and nothing else; no weight, speed, damage, reach,
   or knockback may ever derive from a hot dog stat. This reversed the original
   pitch on purpose.
+- **A signature-move flourish is not part of the costume.** The splat at
+  Ketchup's nozzle and The Grill's roaring coals live in `FLOURISHES` and are
+  drawn for *every* Fighter. Inside the costume closures they were gated on the
+  manifest, so giving a Fighter bespoke art silently deleted its special's
+  effect — fatal for Flare-Up, whose 16-frame wind-up the coals are the only
+  warning of. Progress comes from the attack's own frame counter, never the
+  clock. A back-layer flourish must also be *wider* than a Fighter: a single
+  flame up the centre line is completely hidden by the body.
 - **`npm test` is Node's built-in `node:test`, zero new dependencies.** The two
   seams are the WebSocket boundary (primary) and the sim's public API. Tests
   assert what a connected client observes and what the ledger records — never
-  internal state shapes or tick bookkeeping.
+  internal state shapes or tick bookkeeping. `test/brawl-art.test.js` is a
+  deliberate third seam and the only one: neither other seam can observe art,
+  and the flourish layer has a silent failure mode. It tests pure functions
+  only — no canvas, no images, and never the order layers draw in.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.

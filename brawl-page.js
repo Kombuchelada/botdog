@@ -218,7 +218,7 @@ import {
   createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
 } from "/brawl/sim.js";
 import {
-  SPRITE, allSprites, bodyFor, wearsCostume, poseFor, spriteKey, spritePath, drawCostume, drawCrown,
+  SPRITE, allSprites, bodyFor, wearsCostume, poseFor, spriteKey, spritePath, drawCostume, drawFlourish, drawCrown,
 } from "/brawl/art.js";
 
 const BOOT = window.BRAWL;
@@ -679,6 +679,9 @@ function drawFighter(f, now) {
   ctx.scale(f.facing, 1);
   const costumed = wearsCostume(f, bespoke);
   if (costumed) drawCostume(ctx, f, now, "back");
+  // Flourishes are drawn for every Fighter, bespoke or costumed — they are the
+  // telegraph for a special, not decoration on a borrowed body.
+  drawFlourish(ctx, f, now, "back");
 
   const img = spriteFor(f, now);
   const h = SPRITE.drawHeight;
@@ -694,6 +697,7 @@ function drawFighter(f, now) {
   }
 
   if (costumed) drawCostume(ctx, f, now, "front");
+  drawFlourish(ctx, f, now, "front");
   if (cos.crown) drawCrown(ctx, cos.crown);
   ctx.restore();
 
