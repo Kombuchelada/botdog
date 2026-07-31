@@ -50,11 +50,28 @@ export const POSES = [
  * character fills the frame and draws at the same size as the Kenney bodies.
  */
 const FRAME = { width: 110, height: 110, floorMargin: 3 };
+const DEFAULT_FRAME_WIDTH = FRAME.width;
+
+// `--frame-width` is the per-Fighter size dial, and the reason it exists is
+// Corn Dog: its light attack is a stick thrust that reaches 20px past the
+// standing silhouette, so the shared scale factor was set by *that* frame and
+// the whole Fighter came out visibly smaller than the rest of the roster.
+// Widening the frame lets the widest pose fit without shrinking the set, so
+// height goes back to being the binding constraint. Retuning size is a
+// re-import; it is never a reason to regenerate art.
+if (process.argv.includes("--frame-width")) {
+  const n = Number(process.argv[process.argv.indexOf("--frame-width") + 1]);
+  if (!Number.isFinite(n) || n < FRAME.height) {
+    console.error("--frame-width must be a number >= the frame height (widening only)");
+    process.exit(1);
+  }
+  FRAME.width = n;
+}
 
 // ------------------------------------------------------------------- args
 
 const argv = process.argv.slice(2);
-const VALUE_FLAGS = new Set(["grid", "bg", "tolerance", "poses"]);
+const VALUE_FLAGS = new Set(["grid", "bg", "tolerance", "poses", "frame-width"]);
 
 const flags = {};
 const positional = [];
@@ -313,7 +330,15 @@ if (fs.existsSync(MANIFEST)) {
     console.warn("manifest.json was unreadable; rewriting it");
   }
 }
-manifest.frame = FRAME;
+// `frame` is the roster default. A Fighter imported through a wider frame
+// records that separately rather than moving the default, so re-importing one
+// Fighter can never silently resize the next one.
+if (FRAME.width === DEFAULT_FRAME_WIDTH) {
+  manifest.frame = { ...FRAME, width: DEFAULT_FRAME_WIDTH };
+  if (manifest.frames) delete manifest.frames[fighter];
+} else {
+  manifest.frames = { ...(manifest.frames || {}), [fighter]: { ...FRAME } };
+}
 if (!manifest.bespoke.includes(fighter)) manifest.bespoke.push(fighter);
 if (!dryRun) fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
 

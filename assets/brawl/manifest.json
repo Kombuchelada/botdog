@@ -1,10 +1,18 @@
 {
   "bespoke": [
-    "glizzy"
+    "glizzy",
+    "corndog"
   ],
   "frame": {
     "width": 110,
     "height": 110,
     "floorMargin": 3
+  },
+  "frames": {
+    "corndog": {
+      "width": 150,
+      "height": 110,
+      "floorMargin": 3
+    }
   }
 }
