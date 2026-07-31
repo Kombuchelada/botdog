@@ -62,8 +62,15 @@ export const RESPAWN_DELAY_TICKS = 45; // 1.5s
 export const SPAWN_INVULN_TICKS = 30;
 export const DODGE_TICKS = 12;
 export const DODGE_INVULN_TICKS = 9;
-export const DODGE_COOLDOWN_TICKS = 45;
+export const DODGE_COOLDOWN_TICKS = 24;
 export const DROP_THROUGH_TICKS = 9;
+// How long an attack press is remembered when it arrives too early. Every
+// press that landed during an attack's recovery — which is most of them, when
+// you are mashing — used to be swallowed outright, so the only way to attack
+// quickly was to time each press *after* a recovery you cannot see. A buffered
+// press fires the tick the Fighter is free again. It never lets a move come
+// out sooner than the frame data allows; it only stops the input being lost.
+export const INPUT_BUFFER_TICKS = 10;
 const SLOW_FACTOR = 0.6;
 // How long a hit keeps the attacker on the hook for the KO. Longer than any
 // plausible fall, short enough that a stale hit never steals a self-destruct.
@@ -146,38 +153,48 @@ export const FIGHTER_IDS = ["glizzy", "ketchup", "grill", "corndog"];
 // angle is in radians, measured from "forward" (the Fighter's facing) with
 // negative meaning upward — so -Math.PI/2 launches straight up and +0.4 spikes.
 
+// Frame data is *fast*. A jab is out in two ticks and over in nine — a third of
+// a second, start to finish — because the Arena is a party brawler and the
+// thing it has to feel like is mashing. What was cut to get there is startup
+// and endlag only: every hitbox lives exactly as many ticks as it always did,
+// so speeding the game up made nothing harder to land. Heavies keep their
+// commitment in *proportion* (a smash is still four times a jab), just at a
+// pace where whiffing one is a punish rather than a wait.
 function move(o) {
-  return { startup: 4, active: 3, endlag: 8, damage: 5, baseKb: 140, kbGrowth: 2, angle: -0.4, dx: 40, dy: -28, w: 48, h: 36, ...o };
+  return { startup: 3, active: 3, endlag: 6, damage: 5, baseKb: 140, kbGrowth: 2, angle: -0.4, dx: 40, dy: -28, w: 48, h: 36, ...o };
 }
 
 export const MOVES = {
-  light_neutral: move({ startup: 3, active: 3, endlag: 6, damage: 4, baseKb: 120, kbGrowth: 1.6, angle: -0.44, dx: 34, dy: -28, w: 44, h: 34 }),
-  light_side: move({ startup: 4, active: 4, endlag: 8, damage: 6, baseKb: 150, kbGrowth: 2.2, angle: -0.32, dx: 44, dy: -26, w: 56, h: 32 }),
-  light_up: move({ startup: 4, active: 4, endlag: 9, damage: 5, baseKb: 140, kbGrowth: 2.0, angle: -1.4, dx: 14, dy: -60, w: 46, h: 46 }),
-  light_down: move({ startup: 4, active: 4, endlag: 9, damage: 5, baseKb: 130, kbGrowth: 1.8, angle: -0.2, dx: 38, dy: -8, w: 52, h: 26 }),
-  heavy_neutral: move({ startup: 9, active: 4, endlag: 16, damage: 11, baseKb: 260, kbGrowth: 3.0, angle: -0.52, dx: 40, dy: -30, w: 56, h: 44 }),
-  heavy_side: move({ startup: 12, active: 4, endlag: 20, damage: 14, baseKb: 320, kbGrowth: 3.4, angle: -0.38, dx: 56, dy: -28, w: 72, h: 40 }),
-  heavy_up: move({ startup: 10, active: 5, endlag: 18, damage: 12, baseKb: 300, kbGrowth: 3.6, angle: -1.36, dx: 10, dy: -70, w: 56, h: 60 }),
-  heavy_down: move({ startup: 11, active: 5, endlag: 20, damage: 12, baseKb: 280, kbGrowth: 3.0, angle: -0.14, dx: 46, dy: -10, w: 66, h: 30 }),
+  light_neutral: move({ startup: 2, active: 3, endlag: 4, damage: 4, baseKb: 120, kbGrowth: 1.6, angle: -0.44, dx: 34, dy: -28, w: 44, h: 34 }),
+  light_side: move({ startup: 3, active: 4, endlag: 5, damage: 6, baseKb: 150, kbGrowth: 2.2, angle: -0.32, dx: 44, dy: -26, w: 56, h: 32 }),
+  light_up: move({ startup: 3, active: 4, endlag: 6, damage: 5, baseKb: 140, kbGrowth: 2.0, angle: -1.4, dx: 14, dy: -60, w: 46, h: 46 }),
+  light_down: move({ startup: 3, active: 4, endlag: 6, damage: 5, baseKb: 130, kbGrowth: 1.8, angle: -0.2, dx: 38, dy: -8, w: 52, h: 26 }),
+  heavy_neutral: move({ startup: 7, active: 4, endlag: 11, damage: 11, baseKb: 260, kbGrowth: 3.0, angle: -0.52, dx: 40, dy: -30, w: 56, h: 44 }),
+  heavy_side: move({ startup: 9, active: 4, endlag: 14, damage: 14, baseKb: 320, kbGrowth: 3.4, angle: -0.38, dx: 56, dy: -28, w: 72, h: 40 }),
+  heavy_up: move({ startup: 8, active: 5, endlag: 13, damage: 12, baseKb: 300, kbGrowth: 3.6, angle: -1.36, dx: 10, dy: -70, w: 56, h: 60 }),
+  heavy_down: move({ startup: 8, active: 5, endlag: 14, damage: 12, baseKb: 280, kbGrowth: 3.0, angle: -0.14, dx: 46, dy: -10, w: 66, h: 30 }),
 
-  air_light_neutral: move({ startup: 3, active: 4, endlag: 5, damage: 4, baseKb: 110, kbGrowth: 1.6, angle: -0.5, dx: 32, dy: -30, w: 46, h: 40 }),
-  air_light_side: move({ startup: 4, active: 4, endlag: 6, damage: 6, baseKb: 145, kbGrowth: 2.1, angle: -0.36, dx: 46, dy: -28, w: 58, h: 38 }),
-  air_light_up: move({ startup: 4, active: 4, endlag: 7, damage: 5, baseKb: 135, kbGrowth: 2.2, angle: -1.45, dx: 8, dy: -66, w: 50, h: 46 }),
+  air_light_neutral: move({ startup: 2, active: 4, endlag: 4, damage: 4, baseKb: 110, kbGrowth: 1.6, angle: -0.5, dx: 32, dy: -30, w: 46, h: 40 }),
+  air_light_side: move({ startup: 3, active: 4, endlag: 4, damage: 6, baseKb: 145, kbGrowth: 2.1, angle: -0.36, dx: 46, dy: -28, w: 58, h: 38 }),
+  air_light_up: move({ startup: 3, active: 4, endlag: 5, damage: 5, baseKb: 135, kbGrowth: 2.2, angle: -1.45, dx: 8, dy: -66, w: 50, h: 46 }),
   // The aerial down-light is the everyman spike.
-  air_light_down: move({ startup: 5, active: 4, endlag: 9, damage: 6, baseKb: 150, kbGrowth: 1.9, angle: 1.15, dx: 10, dy: 18, w: 44, h: 46 }),
-  air_heavy_neutral: move({ startup: 8, active: 5, endlag: 12, damage: 10, baseKb: 240, kbGrowth: 3.0, angle: -0.55, dx: 38, dy: -30, w: 58, h: 48 }),
-  air_heavy_side: move({ startup: 9, active: 5, endlag: 14, damage: 13, baseKb: 300, kbGrowth: 3.3, angle: -0.34, dx: 56, dy: -28, w: 70, h: 44 }),
-  air_heavy_up: move({ startup: 9, active: 5, endlag: 14, damage: 12, baseKb: 290, kbGrowth: 3.5, angle: -1.42, dx: 8, dy: -70, w: 54, h: 58 }),
-  air_heavy_down: move({ startup: 10, active: 5, endlag: 16, damage: 12, baseKb: 250, kbGrowth: 2.4, angle: 1.25, dx: 12, dy: 24, w: 50, h: 56 }),
+  air_light_down: move({ startup: 4, active: 4, endlag: 6, damage: 6, baseKb: 150, kbGrowth: 1.9, angle: 1.15, dx: 10, dy: 18, w: 44, h: 46 }),
+  air_heavy_neutral: move({ startup: 6, active: 5, endlag: 8, damage: 10, baseKb: 240, kbGrowth: 3.0, angle: -0.55, dx: 38, dy: -30, w: 58, h: 48 }),
+  air_heavy_side: move({ startup: 7, active: 5, endlag: 10, damage: 13, baseKb: 300, kbGrowth: 3.3, angle: -0.34, dx: 56, dy: -28, w: 70, h: 44 }),
+  air_heavy_up: move({ startup: 7, active: 5, endlag: 10, damage: 12, baseKb: 290, kbGrowth: 3.5, angle: -1.42, dx: 8, dy: -70, w: 54, h: 58 }),
+  air_heavy_down: move({ startup: 8, active: 5, endlag: 11, damage: 12, baseKb: 250, kbGrowth: 2.4, angle: 1.25, dx: 12, dy: 24, w: 50, h: 56 }),
 };
 
 // One special per Fighter. `kind` drives the bespoke bits in `startAttack` and
 // `stepAttack`; everything else reuses the ordinary move pipeline.
 export const SPECIALS = {
-  snap: move({ kind: "snap", startup: 4, active: 5, endlag: 12, damage: 9, baseKb: 200, kbGrowth: 2.4, angle: -0.36, dx: 40, dy: -28, w: 64, h: 40, lunge: 420 }),
-  splat: move({ kind: "splat", startup: 2, active: 0, endlag: 16, damage: 6, baseKb: 130, kbGrowth: 1.4, angle: -0.3 }),
-  flare: move({ kind: "flare", startup: 16, active: 6, endlag: 22, damage: 18, baseKb: 380, kbGrowth: 3.2, angle: -1.31, dx: 26, dy: -44, w: 80, h: 92 }),
-  pogo: move({ kind: "pogo", startup: 3, active: 8, endlag: 12, damage: 10, baseKb: 300, kbGrowth: 2.0, angle: 1.31, dx: 0, dy: 26, w: 48, h: 60, dive: 900, bounce: 640 }),
+  snap: move({ kind: "snap", startup: 3, active: 5, endlag: 8, damage: 9, baseKb: 200, kbGrowth: 2.4, angle: -0.36, dx: 40, dy: -28, w: 64, h: 40, lunge: 420 }),
+  splat: move({ kind: "splat", startup: 2, active: 0, endlag: 10, damage: 6, baseKb: 130, kbGrowth: 1.4, angle: -0.3 }),
+  // Flare-Up stays the Arena's one long telegraph — 12 ticks is still four
+  // times a jab's wind-up. `FLOURISHES.flare.windup` in `brawl-art.js` tracks
+  // this number; the coals are the only warning it gives.
+  flare: move({ kind: "flare", startup: 12, active: 6, endlag: 16, damage: 18, baseKb: 380, kbGrowth: 3.2, angle: -1.31, dx: 26, dy: -44, w: 80, h: 92 }),
+  pogo: move({ kind: "pogo", startup: 3, active: 8, endlag: 8, damage: 10, baseKb: 300, kbGrowth: 2.0, angle: 1.31, dx: 0, dy: 26, w: 48, h: 60, dive: 900, bounce: 640 }),
 };
 
 // Every move knows its own name. The renderer needs it to pick an animation,
@@ -264,6 +281,7 @@ export function spawnFighter(state, {
     jumpsUsed: 0,
     state: "air",
     attack: null,
+    buffer: null,
     hitstun: 0,
     hitstunTotal: 0,
     invuln,
@@ -430,16 +448,39 @@ function stepFighter(state, f, input, events) {
     }
   }
 
+  // What the player just asked for, if anything. Read once: whether it happens
+  // now or out of the buffer, it is the same press.
+  const wants = pressed(f, input, "dodge")
+    ? "dodge"
+    : pressed(f, input, "special")
+      ? "special"
+      : pressed(f, input, "heavy")
+        ? "heavy"
+        : pressed(f, input, "light")
+          ? "light"
+          : null;
+
+  if (f.buffer && (f.buffer.ticks -= 1) <= 0) f.buffer = null;
+  // A press that can't happen yet is held rather than dropped. Direction is
+  // *not* stored with it — the move comes out for wherever the stick is at the
+  // moment it fires, which is the one the player is still holding.
+  if (wants && !controllable) f.buffer = { key: wants, ticks: INPUT_BUFFER_TICKS };
+
   if (controllable) {
-    if (pressed(f, input, "dodge") && f.dodgeCooldown <= 0) {
+    const act = wants || (f.buffer && f.buffer.key) || null;
+    // A buffered dodge on cooldown waits out its buffer rather than eating it,
+    // so the press still lands if the cooldown ends first.
+    if (act === "dodge" && f.dodgeCooldown <= 0) {
+      f.buffer = null;
       f.state = "dodge";
       f.dodgeTicks = DODGE_TICKS;
       f.vx *= 0.3;
-    } else if (pressed(f, input, "special")) {
+    } else if (act === "special") {
+      f.buffer = null;
       startAttack(state, f, SPECIALS[def.special.id], input, events);
-    } else if (pressed(f, input, "light") || pressed(f, input, "heavy")) {
-      const strength = pressed(f, input, "heavy") ? "heavy" : "light";
-      startAttack(state, f, MOVES[moveKey(f, input, strength)], input, events);
+    } else if (act === "heavy" || act === "light") {
+      f.buffer = null;
+      startAttack(state, f, MOVES[moveKey(f, input, act)], input, events);
     }
   }
 
@@ -569,6 +610,7 @@ function respawn(state, f, events) {
   f.attack = null;
   f.dodgeTicks = 0;
   f.dodgeCooldown = 0;
+  f.buffer = null;
   events.push({ type: "respawn", tick: state.tick, fighter: f.id });
 }
 

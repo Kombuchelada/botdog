@@ -190,7 +190,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **A GlizzyBrawl action is a clip, and its `contact` frame is pinned to the
   move's first *active* frame.** Wind-up plays over the startup, contact holds
   for exactly the hitbox's lifetime, recovery plays over the endlag — so one
-  4-frame clip per attack reads correctly on a 3-frame jab and a 16-frame
+  4-frame clip per attack reads correctly on a 2-frame jab and a 12-frame
   launcher alike, and the moment a Fighter looks most committed is the moment it
   can actually hit you. Clip lengths live in `CLIPS` in `brawl-art.js` (not the
   manifest — the browser reads them without a fetch), are the same for every
@@ -211,6 +211,20 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   about. The CPU keeps a Kenney zombie on purpose. Anything committed under
   `assets/` must permit redistribution: this repo is public, which rules out
   most itch "free" packs.
+- **GlizzyBrawl's pace is a mashing game, and three things make it one.** The
+  frame data is fast (jab out on frame 2, done on frame 9) — but *only startup
+  and endlag were ever cut*, never `active`, so speeding the Arena up made
+  nothing harder to land. On top of that, attack presses **buffer**
+  (`INPUT_BUFFER_TICKS`): attacks are edge-triggered, so a press during a move's
+  recovery used to be swallowed outright and the only way to attack quickly was
+  to time each press after a recovery you can't see. And the client **latches**
+  key presses between polls (`keyLatched` in `brawl-page.js`) — input is sampled
+  once per 33ms tick, so a tap that went down and up between two samples never
+  happened, which lost the fastest punches specifically. Cutting the frame data
+  alone would not have fixed the feel. No art change was needed for any of it:
+  animation is derived from what the sim reports, so a faster move animates
+  faster on its own. Flare-Up's startup and `FLOURISHES.flare.windup` must move
+  together — the coals are its only telegraph.
 - **In GlizzyBrawl, jump is Space — never the same key as "up".** Sharing them
   makes every ground up-attack jump first and come out as its aerial variant,
   silently deleting half the ground moveset.
@@ -303,7 +317,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   Ketchup's nozzle and The Grill's roaring coals live in `FLOURISHES` and are
   drawn for *every* Fighter. Inside the old costume closures they were gated on
   the manifest, so giving a Fighter bespoke art silently deleted its special's
-  effect — fatal for Flare-Up, whose 16-frame wind-up the coals are the only
+  effect — fatal for Flare-Up, whose 12-frame wind-up the coals are the only
   warning of. Progress comes from the attack's own frame counter, never the
   clock. A back-layer flourish must also be *wider* than a Fighter: a single
   flame up the centre line is completely hidden by the body.

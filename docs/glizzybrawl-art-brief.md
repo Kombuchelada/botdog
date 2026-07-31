@@ -24,7 +24,7 @@ makes. The importer imports that table and satisfies it; it never writes it.
 |---|---|---|---|
 | **The Glizzy** | A frankfurter in a bun | Balanced, middleweight | **Snap** — a bite-lunge |
 | **Ketchup** | A ketchup bottle | Lean, top-heavy, twitchy | **Splat** — a thrown projectile |
-| **The Grill** | A charcoal kettle grill | Squat, wide, planted | **Flare-Up** — 16-frame wind-up, then a vertical launcher |
+| **The Grill** | A charcoal kettle grill | Squat, wide, planted | **Flare-Up** — 12-frame wind-up, then a vertical launcher |
 | **Corn Dog** | A battered sausage on a stick | Tall and thin | **Pogo** — a downward stab that spikes |
 
 The food *is* the character — arms and legs on the food itself, not a person
@@ -72,7 +72,7 @@ with the hitbox it warns about under a slow tick.
 renderer pins it to the move's first *active* frame, so wind-up plays over the
 startup, contact is held for exactly as long as the hitbox exists, and the rest
 plays out over the endlag. One clip per attack therefore reads correctly on a
-3-frame jab and a 16-frame launcher alike, and a player who learns to watch for
+2-frame jab and a 12-frame launcher alike, and a player who learns to watch for
 the extension is watching the real hitbox.
 
 ## Step 1 — the reference sprite
@@ -337,7 +337,7 @@ converted it had no users left.)
 
 That means a Fighter's `action2` clip only has to carry the *motion*. The
 effect is already on screen — and it now runs alongside a real wind-up, which
-is what The Grill's 16-frame Flare-Up always wanted:
+is what The Grill's 12-frame Flare-Up always wanted:
 
 | Fighter | Flourish | The clip shows |
 |---|---|---|

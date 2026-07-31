@@ -111,7 +111,7 @@ test("flourish progress tracks the attack's own frame counter", () => {
 });
 
 test("The Grill's telegraph spans its whole wind-up, not a fixed six frames", () => {
-  // Flare-Up is a 16-frame startup and the coals are the only warning the
+  // Flare-Up is the Arena's longest startup and the coals are the only warning the
   // opponent gets; a telegraph that finished at frame 6 would be a lie about
   // when the launcher lands.
   assert.ok(flourishFor(attacking("grill", "flare", FLOURISHES.flare.windup - 2)).progress < 1);
@@ -193,7 +193,7 @@ test("contact lands on the first active frame and holds for the whole hitbox", (
   // This is the invariant the whole clip model rests on. The moment a Fighter
   // looks most committed must be the moment it can actually hit you, on every
   // move, without the art knowing any move's frame data — and it has to hold
-  // for a 3-frame jab and a 16-frame launcher alike.
+  // for a 2-frame jab and a 12-frame launcher alike.
   for (const name of ["light_neutral", "heavy_side", "air_light_down", "snap", "flare", "pogo"]) {
     const move = MOVES[name] || SPECIALS[name];
     const clip = attackClipFor({ move: name });

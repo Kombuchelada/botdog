@@ -111,6 +111,39 @@ Roster: **The Glizzy** (balanced, Snap bite-lunge), **Ketchup** (fast/light,
 Splat slowing blob), **The Grill** (heavy, Flare-Up launcher), **Corn Dog**
 (disjointed reach, Pogo downward spike).
 
+### Pace
+
+The Arena is a party brawler, and the thing it has to feel like is mashing. A
+jab is out on frame 2 and over on frame 9 — under a third of a second, start to
+finish — and the whole roster's frame data is cut to match. **Only startup and
+endlag were cut; every hitbox lives exactly as many ticks as it always did**, so
+making the game faster made nothing harder to land. Heavies keep their
+commitment in proportion (a smash is still around four times a jab), just at a
+pace where whiffing one is a punish rather than a wait. Flare-Up stays the one
+long telegraph at 12 frames — `FLOURISHES.flare.windup` in `brawl-art.js`
+tracks that number, because the coals *are* the warning.
+
+Three things had to change together, and the frame data was only the first:
+
+- **Attack presses buffer** (`INPUT_BUFFER_TICKS`, ~⅓ s). Attacks are
+  edge-triggered, so a press arriving during a move's recovery — which is most
+  of them, when you are mashing — used to be swallowed whole: the only way to
+  attack quickly was to time every press *after* a recovery you cannot see. A
+  buffered press fires the tick the Fighter is free. It never lets a move come
+  out sooner than the frame data allows; it only stops the input being lost.
+  Direction is not stored with the press, so the move comes out for wherever the
+  stick is when it fires.
+- **The client latches key presses between polls** (`keyLatched` in
+  `brawl-page.js`). Input is sampled once per 33 ms tick, so a tap that went
+  down and up between two samples never happened at all — the *fastest* punches
+  were the ones most likely to vanish. A latched press survives exactly one
+  poll, which is all the sim needs to see an edge.
+- **The dodge cooldown is 24 ticks**, down from 45. A dodge you cannot use again
+  for a second and a half is a move you stop pressing.
+
+Because the art derives every animation from what the sim reports, none of this
+needed an art change: a faster move animates faster on its own.
+
 ### Non-obvious mechanics decisions
 
 - **A grounded attack plants your feet** (`vx *= 0.2` on startup, decayed each
@@ -187,7 +220,7 @@ runs on a clock, and even that paces itself to how fast the Fighter is moving.
 **An attack's `contact` frame is pinned to the move's first active frame.**
 Wind-up plays across the startup, contact is held for exactly as long as the
 hitbox exists, and the rest of the clip plays out over the endlag. One clip per
-attack therefore reads correctly on a 3-frame jab and a 16-frame launcher
+attack therefore reads correctly on a 2-frame jab and a 12-frame launcher
 alike, and the moment a Fighter looks most committed is the moment it can
 actually hit you. That invariant is what `test/brawl-art.test.js` pins hardest.
 
@@ -224,7 +257,7 @@ four bodies from the pack were deleted with the costumes.
 The signature-move effects used to live *inside* the costumes, which meant
 giving a Fighter art of its own silently deleted them — the costume was gated
 on the manifest and the flourish went through the gate with it. The Grill is the
-case that matters: Flare-Up's 16-frame wind-up is telegraphed entirely by the
+case that matters: Flare-Up's 12-frame wind-up is telegraphed entirely by the
 coals, and without them a stock-ending launcher reads as instant.
 
 They now live in `FLOURISHES` in `brawl-art.js`, keyed by the special's name in

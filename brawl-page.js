@@ -425,16 +425,23 @@ const KEYS = {
 // Both layouts are live at once, deliberately: no picker, whichever hand
 // position you try first just works.
 const keyState = new Set();
+// Keys pressed since the last poll, whether or not they are still down. Input
+// is sampled once per 33ms tick, so a mashed tap that went down and up between
+// two samples was simply never seen — the fastest punches were the ones most
+// likely to vanish. A latched press survives exactly one poll, which is all the
+// sim needs to see an edge.
+const keyLatched = new Set();
 
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (isTyping(e.target)) return;
   if (usesKey(e.code)) e.preventDefault();
   keyState.add(e.code);
+  keyLatched.add(e.code);
   wake();
 });
 window.addEventListener("keyup", (e) => keyState.delete(e.code));
-window.addEventListener("blur", () => keyState.clear());
+window.addEventListener("blur", () => { keyState.clear(); keyLatched.clear(); });
 
 function isTyping(el) {
   return el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -480,8 +487,9 @@ function readGamepad(frame) {
 function pollInput() {
   const frame = emptyInput();
   for (const [action, codes] of Object.entries(KEYS)) {
-    for (const code of codes) if (keyState.has(code)) frame[action] = true;
+    for (const code of codes) if (keyState.has(code) || keyLatched.has(code)) frame[action] = true;
   }
+  keyLatched.clear();
   readGamepad(frame);
 
   const active = frame.left || frame.right || frame.up || frame.down ||

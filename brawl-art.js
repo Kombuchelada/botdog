@@ -272,7 +272,7 @@ function walkFrame(body, vx, nowMs) {
 // roaring on The Grill's flare — is *not* part of the costume. It used to be,
 // and that made it invisible for any Fighter with art of its own: the costume
 // is gated on the manifest and the flourish went through the gate with it.
-// The Grill is the case that matters. Flare-Up is a 16-frame wind-up, and the
+// The Grill is the case that matters. Flare-Up is a 12-frame wind-up, and the
 // coals are the entire telegraph; without them a stock-ending launcher reads
 // as instant.
 //
@@ -290,7 +290,7 @@ function walkFrame(body, vx, nowMs) {
  */
 export const FLOURISHES = {
   splat: { windup: 2, layer: "front", draw: drawSplatBurst },
-  flare: { windup: 16, layer: "back", draw: drawCoals },
+  flare: { windup: 12, layer: "back", draw: drawCoals },
 };
 
 /**

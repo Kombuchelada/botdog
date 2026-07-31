@@ -205,6 +205,42 @@ test("attacking on the ground plants your feet instead of sliding you past the t
   assert.ok(victim.percent > 0, "the running attack connected");
 });
 
+// The pace of play. Both of these are about how fast a player can *act*, which
+// is the thing the Arena is judged on before any of its mechanics are.
+
+test("mashing light throws punches several times a second", () => {
+  const s = arena();
+  const attacker = grounded(s, "atk", "glizzy", 620);
+  attacker.facing = 1;
+  spawnFighter(s, { id: "vic", character: "glizzy", name: "vic", x: 664, y: STAGE.ground.y - 1, invuln: 0 });
+
+  // Press and release on alternating ticks, the way a mashing thumb reads to a
+  // 30Hz sim, for one second.
+  let starts = 0;
+  for (let i = 0; i < TICK_HZ; i++) {
+    const events = stepArena(s, { atk: input({ light: i % 2 === 0 }) });
+    starts += events.filter((e) => e.type === "attackStart" && e.fighter === "atk").length;
+  }
+  assert.ok(starts >= 3, `only ${starts} punches came out in a second of mashing`);
+});
+
+test("an attack press during recovery is buffered, not swallowed", () => {
+  const s = arena();
+  const attacker = grounded(s, "atk", "glizzy", 620);
+  attacker.facing = 1;
+  spawnFighter(s, { id: "vic", character: "glizzy", name: "vic", x: 664, y: STAGE.ground.y - 1, invuln: 0 });
+
+  // One press, then a second press two ticks later — far too early, while the
+  // first move is still running. The second must still come out.
+  const starts = [];
+  for (let i = 0; i < 20; i++) {
+    const events = stepArena(s, { atk: input({ light: i === 0 || i === 2 }) });
+    for (const e of events) if (e.type === "attackStart" && e.fighter === "atk") starts.push(i);
+  }
+  assert.equal(starts.length, 2, `presses that came out: ${starts.join(", ")}`);
+  assert.ok(starts[1] > starts[0], "the buffered press fires after the first move, not during it");
+});
+
 test("an attack whiffs when the target is out of reach", () => {
   const s = arena();
   const attacker = grounded(s, "atk", "glizzy", 400);
