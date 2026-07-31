@@ -17,8 +17,10 @@
 // The gate here is silhouette contrast. "Night game, crowd behind the fight" is
 // precisely the composition where sprites get lost, and the crowd is generated
 // blind to the Fighters — so this composites each Fighter's `stand` over the
-// backdrop at all eight spawn points and measures how far the sprite's edge
-// sits from what is behind it. Non-zero exit on failure.
+// backdrop everywhere a Fighter can be and measures how far the sprite's edge
+// sits from what is behind it. Non-zero exit on failure. See `testPoints`: the
+// eight spawn points alone are not those places, and taking them for it left
+// this check blind to the crowd.
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import fs from "node:fs";
 import path from "node:path";
@@ -42,7 +44,7 @@ const OUT = argv.find((a) => !a.startsWith("--")) || path.join(ROOT, "brawl-stag
  * Arena shipped on — and this sits below that score. If bespoke art reads worse
  * than a flat gradient, that is a finding rather than a matter of taste.
  *
- * The placeholder scores a mean of 19.9 and a worst placement of 14.1 (Ketchup
+ * The placeholder scores a mean of 25.3 and a worst placement of 14.1 (Ketchup
  * over the sky at spawns 3 and 4). The floor is the worst case with a little
  * room, because the gate has to fire on *a* Fighter disappearing, not on the
  * roster's average. Re-run `--baseline` before changing it.
@@ -122,19 +124,46 @@ async function standSprite(character) {
   return { canvas: c, data: cx.getImageData(0, 0, w, h).data, width: w, height: h };
 }
 
+/**
+ * Where to test a Fighter against the backdrop.
+ *
+ * The eight spawn points are not enough on their own, and assuming they were
+ * left the check blind to the very thing it exists for. Every spawn is in the
+ * air above y=320; the crowd band sits at 420–520. So the crowd — the asset
+ * that sits *directly behind the fighting*, generated blind to the Fighters,
+ * and named in the plan as the one most likely to fail this — was never once
+ * composited against.
+ *
+ * So: the spawns, plus where Fighters actually stand. Along the wall, which is
+ * the crowd's whole span, and on each Catwalk.
+ */
+function testPoints() {
+  const points = STAGE.spawns.map((s, i) => ({ label: `spawn ${i}`, ...s }));
+  const g = STAGE.ground;
+  for (let i = 0; i <= 8; i++) {
+    const x = Math.round(g.x1 + ((g.x2 - g.x1) * i) / 8);
+    points.push({ label: `wall ${i}`, x, y: g.y });
+  }
+  STAGE.platforms.forEach((p, i) => {
+    points.push({ label: `catwalk ${i}`, x: Math.round((p.x1 + p.x2) / 2), y: p.y });
+  });
+  return points;
+}
+
+const POINTS = testPoints();
+
 const results = [];
 for (const character of CHARACTERS) {
   const sprite = await standSprite(character);
-  for (let s = 0; s < STAGE.spawns.length; s++) {
-    const spawn = STAGE.spawns[s];
-    const x = Math.round(spawn.x - sprite.width / 2);
-    const y = Math.round(spawn.y - sprite.height);
-    results.push({ character, spawn: s, delta: silhouetteDelta(sprite, x, y) });
+  for (const point of POINTS) {
+    const x = Math.round(point.x - sprite.width / 2);
+    const y = Math.round(point.y - sprite.height);
+    results.push({ character, where: point.label, delta: silhouetteDelta(sprite, x, y) });
   }
   if (flag("fighters")) {
-    for (const spawn of STAGE.spawns) {
+    for (const point of POINTS) {
       ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(sprite.canvas, Math.round(spawn.x - sprite.width / 2), Math.round(spawn.y - sprite.height));
+      ctx.drawImage(sprite.canvas, Math.round(point.x - sprite.width / 2), Math.round(point.y - sprite.height));
     }
   }
 }
@@ -160,7 +189,7 @@ const worst = results.slice(0, 5);
 const mean = results.reduce((s, r) => s + r.delta, 0) / results.length;
 console.log(`\nsilhouette contrast — mean ${mean.toFixed(1)}, floor ${CONTRAST_FLOOR}`);
 for (const r of worst) {
-  console.log(`  ${r.delta < CONTRAST_FLOOR ? "FAIL" : "ok  "} ${r.character} @ spawn ${r.spawn}: ${r.delta.toFixed(1)}`);
+  console.log(`  ${r.delta < CONTRAST_FLOOR ? "FAIL" : "ok  "} ${r.character} @ ${r.where}: ${r.delta.toFixed(1)}`);
 }
 
 if (flag("baseline")) {

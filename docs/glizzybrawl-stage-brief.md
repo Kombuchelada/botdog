@@ -246,6 +246,17 @@ The plan survived contact. Five things it didn't predict, all now load-bearing:
   railing. It now finds the first row that reads as a deck and fails on
   anything standing more than 2px clear of it.
 
+- **"At all eight spawn points" is the wrong place to measure contrast.** Every
+  spawn is in the air above y=320 and the crowd band sits at 420–520, so a check
+  written to that letter never composites a Fighter against the crowd — the one
+  asset this plan singles out as most likely to fail it. It now tests the
+  spawns, nine positions along the wall, and each Catwalk's centre.
+- **The crowd's food-shaped silhouettes had to be asked for twice.** The first
+  roll obeyed "silhouettes, rim-lit, no faces" and quietly dropped the wrong
+  shapes; naming each one concretely (a crimped bottle cap, a bun lying
+  sideways, a kettle-grill lid with a knob) and giving a rate — "roughly one in
+  six" — is what landed them.
+
 Two calls worth revisiting, neither blocking:
 
 - **The wall reads lighter than the rest of the Ballpark.** Three rolls, and
@@ -262,6 +273,117 @@ The silhouette-contrast gate lives in the preview script, not in
 originally said; that ADR has been corrected. The placeholder Stage measures a
 mean of 19.9 and a worst placement of 14.1, so the floor is 12. The finished
 Ballpark measures 23.7 mean, nothing below the floor.
+
+## The recipe
+
+Everything a future session needs to re-fetch, re-roll or extend the Ballpark.
+Downloads are `https://api.pixellab.ai/mcp/images/<id>/download` for props and
+`https://api.pixellab.ai/mcp/sidescroller-tilesets/<id>/image` (plus
+`/metadata`) for the tileset.
+
+### Props (`create_image_pro`)
+
+Every one was generated with `no_background: false` on a **magenta background**
+and keyed out at import — see the two gotchas below. The scoreboard is anchored
+to a Fighter with the palette excluded; everything after it is anchored to the
+scoreboard's download URL with all four style aspects copied.
+
+| Prop | Job ID | Size | Seed | Style anchor |
+|---|---|---|---|---|
+| `board_main` | `bcb19c67-e185-41bb-82af-dfba004b263a` | 400×260 | 11 | The Glizzy's `stand`, `style_copy: ["outline","detail","shading"]` — **no `color_palette`** |
+| `tower_light` | `a4bf2e3f-4443-4c41-acbd-26648b9b2a76` | 100×300 | 21 | `board_main`, all four aspects |
+| `crowd_band` | `4f489a61-888a-4251-a1c4-03463e4aea57` | 400×100 | 71 | `board_main`, all four aspects |
+| `walk_a` | `ee8ec0ca-6243-42ce-adb5-d1d329e037d3` | 220×40 | 31 | `board_main`, all four aspects |
+| `walk_b` | `cd524318-5a3b-4c18-9503-4d80cb26ef51` | 220×40 | 32 | `board_main`, all four aspects |
+| `walk_c` | `abddbaa9-f70d-4284-9610-4895723d3023` | 220×40 | 33 | `board_main`, all four aspects |
+
+The Fighter anchor has to be **small**: `style_image_base64` is truncated in
+transit by the MCP client at roughly 1,500 characters, so `glizzy_stand.png`
+goes in resized to 56×56 and quantised to 24 colours (~800 chars of base64).
+The full-size sprite fails with "broken data stream". Everything downstream uses
+`style_image_url` pointed at the scoreboard's own download URL, which has no
+such limit and is the reason the scoreboard goes first.
+
+Rejected rolls, kept so nobody re-runs them: `1e77102b-ef4c-4dc1-b58f-fa847d00f4cf`
+and `e577bfad-2628-47c5-bdbd-6bc578078157` (scoreboard with `no_background:
+true`, both stalled — see below), and `34be4db8-2abd-45e8-8c1c-c81085ba503c`
+(a `walk_a` re-roll aimed at a thicker deck that came back as a truss with gaps
+and no solid surface; the original stands).
+
+### Two gotchas that cost the most time
+
+- **`no_background: true` stalls `create_image_pro` indefinitely.** Two jobs sat
+  at 49% with a *rising* ETA for over twenty minutes. The same prompt at the
+  same size with `no_background: false` completed. Generate on a chroma key
+  instead — the prompt ends with "isolated on a flat pure magenta background".
+- **An edge flood fill cannot de-background a lattice truss.** It is walled in
+  by the bracing, so the scoreboard came back with magenta inside every triangle
+  and the Catwalks with magenta between their girders. Hence `--key`, which
+  removes the colour globally. Pass every shade the model dithered it into:
+  `--key "#bc3b93,#fe00f1,#fe00fe" --tolerance 60`.
+
+### The wall tileset (`create_sidescroller_tileset`)
+
+Shipped: **`f4402871-cddc-4ceb-81a5-16ebf0105bfb`**, base tile
+`a3524e76-6a06-4bfa-8488-f78738b58452`.
+
+```
+lower_description:      charcoal black rubber padded wall panels, matte, unlit,
+                        dark grey seams, no green, no colour
+transition_description: black rubber top rail cap, flat, one thin pale blue-grey
+                        highlight line along the very top
+tile_size: 32   transition_size: 0.25   seed: 61
+outline: selective outline   shading: basic shading   detail: low detail
+```
+
+Two rejected rolls, both too bright and both worth knowing about:
+`7acf0db7-b428-4bcc-aa6c-17ee6d580092` (seed 41, "dark green padded wall" — came
+back lime) and `933c412e-1aa2-4edf-b8db-5125ff23e772` (seed 42, chained to the
+first via `base_tile_id`, which **pinned the palette to it** and came back
+brighter still). The lesson: this tool ignores "very dark" as an adjective, and
+`base_tile_id` inherits the thing you are trying to change. Naming a materially
+dark substance — charcoal rubber, not dark green paint — is what worked.
+
+It returns a 16-tile wang set in a 128×128 sheet. Pick the three the scene uses
+by their `corners` in the metadata, not by eye:
+
+| Asset | Corners | 
+|---|---|
+| `wall_cap` | NW/NE `upper`, SW/SE `lower` |
+| `wall_lower` | all four `lower` |
+| `wall_end` | NW/SW `upper`, NE/SE `lower` (solid to the east; the scene mirrors it for the right end) |
+
+Cut each 32×32 cell out of the sheet at its `bounding_box` and import with
+`--keep-bg` — the sheet already carries alpha, and a tile is taken verbatim.
+
+### Importing
+
+```bash
+node scripts/brawl-import-stage.mjs --list          # sizes and gates per prop
+node scripts/brawl-import-stage.mjs board_main board.png --key "#bc3b93,#fe00f1,#fe00fe" --tolerance 60
+node scripts/brawl-import-stage.mjs wall_cap cap.png --keep-bg
+node scripts/brawl-stage-preview.mjs --fighters --slot
+node scripts/brawl-stage-preview.mjs --baseline     # re-derive the contrast floor
+```
+
+### Thresholds, all derived
+
+| Check | Where | Value | Derived from |
+|---|---|---|---|
+| Silhouette contrast | preview, non-zero exit | ≥ 12 | placeholder Stage: 25.3 mean, 14.1 worst |
+| Scale | import | 1:1 ± 2% | the Fighters are drawn 1:1 |
+| Floor alignment | import | surface on the tile midline ± 1px | the wang convention |
+| Catwalk clearance | import | ≤ 2px above the walk line | a deck's own bevel is not a railing |
+
+The assembled Ballpark measures **29.4 mean**, nothing below the floor.
+
+**Contrast is measured everywhere a Fighter can be, not only at the eight
+spawns.** Taking the spawns for "everywhere" is the mistake this check shipped
+with for an afternoon: every spawn is in the air above y=320 and the crowd band
+sits at 420–520, so the gate never once composited a Fighter against the crowd —
+the asset this plan itself names as the one most likely to fail it. The point
+set is now the spawns, nine positions along the wall, and the centre of each
+Catwalk.
 
 ## Deliberately later
 
