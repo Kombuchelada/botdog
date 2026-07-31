@@ -156,14 +156,14 @@ ${NAV}
           <div>
             <div class="font-semibold text-white mb-1">Controller <span class="text-xs text-slate-500 font-normal">— Xbox / PlayStation, Smash layout</span></div>
             <div class="space-y-1 text-slate-400">
-              <div>Left stick / D-pad run · <span class="kbd">X</span>/<span class="kbd">△</span> jump</div>
-              <div><span class="kbd">A</span>/<span class="kbd">✕</span> light · <span class="kbd">Y</span>/<span class="kbd">□</span> heavy · <span class="kbd">B</span>/<span class="kbd">○</span> special</div>
-              <div>Shoulders / triggers dodge · press anything to wake your Fighter</div>
+              <div>Left stick / D-pad run · <span class="kbd">A</span>/<span class="kbd">✕</span> or <span class="kbd">Y</span>/<span class="kbd">△</span> jump</div>
+              <div><span class="kbd">X</span>/<span class="kbd">□</span> light · <span class="kbd">B</span>/<span class="kbd">○</span> heavy · right bumper/trigger special</div>
+              <div>Left bumper/trigger dodge · press anything to wake your Fighter</div>
             </div>
           </div>
         </div>
         <div class="text-xs text-slate-500 mt-3">
-          Fighter bodies are <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 platformer characters, in costume.
+          Every Fighter has art of its own; the CPU sparring partner wears <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 zombie.
           Percent has no ceiling and never kills on its own — it just means you fly farther. You only lose a stock by crossing the blast zone.
           Idle for a minute and your Fighter fades out; any button brings them back.
         </div>
