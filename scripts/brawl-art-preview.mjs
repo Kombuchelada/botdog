@@ -17,19 +17,6 @@ import { FIGHTERS, SPECIALS } from "../brawl-sim.js";
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = process.argv[2] || path.join(ROOT, "brawl-roster.png");
 
-// Same manifest the server reads in brawl.js. A consumer of the sprite
-// directory that doesn't read it disagrees with the game, which is worse than
-// having no preview at all.
-const bespoke = new Set(
-  (() => {
-    try {
-      return JSON.parse(fs.readFileSync(path.join(ROOT, "assets", "brawl", "manifest.json"), "utf8")).bespoke || [];
-    } catch {
-      return [];
-    }
-  })(),
-);
-
 const chars = ["glizzy", "ketchup", "grill", "corndog"];
 const states = [
   { label: "idle", f: { onGround: true, vx: 0, vy: 0, state: "idle", attack: null } },
@@ -60,7 +47,7 @@ for (let r = 0; r < rows.length; r++) {
       fighter.attack = { move: move.name, kind: move.kind, frame: Math.max(0, move.startup - 1) };
     }
     const pose = poseFor(fighter, 300);
-    const img = await loadImage(`${ROOT}/assets/brawl/${bodyFor(fighter, bespoke)}_${pose}.png`);
+    const img = await loadImage(`${ROOT}/assets/brawl/${bodyFor(fighter)}_${pose}.png`);
     const cx = 20 + c * CELL + CELL / 2;
     const cy = 20 + r * CELL + CELL - 22;
 

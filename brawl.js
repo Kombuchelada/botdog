@@ -44,21 +44,6 @@ import { renderBrawlPage } from "./brawl-page.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Which Fighters have art of their own rather than a costumed stand-in.
- * Written by `scripts/brawl-import-sprites.mjs`; re-read per request so
- * dropping in new art doesn't need a restart.
- */
-function artManifest() {
-  try {
-    const raw = fs.readFileSync(path.join(HERE, "assets", "brawl", "manifest.json"), "utf8");
-    const parsed = JSON.parse(raw);
-    return { bespoke: Array.isArray(parsed.bespoke) ? parsed.bespoke : [] };
-  } catch {
-    return { bespoke: [] };
-  }
-}
-
 export const MAX_FIGHTERS = 8;
 export const MAX_CPUS = 3;
 // ~60s of no button presses and your Fighter leaves the Arena. Anything longer
@@ -724,7 +709,6 @@ function handleConnection(ws, req) {
     maxCpus: MAX_CPUS,
     stage: STAGE,
     roster: FIGHTER_IDS.map((id) => FIGHTERS[id]),
-    art: artManifest(),
     fighters: humanFighterIds().length,
     cosmetics: userId ? computeCosmetics(userId) : null,
     scoreboard: getBrawlScoreboard(10),
@@ -790,8 +774,7 @@ export function registerBrawl(app) {
         cosmetics: userId ? computeCosmetics(userId) : null,
         scoreboard: getBrawlScoreboard(10),
         roster: FIGHTER_IDS.map((id) => FIGHTERS[id]),
-        art: artManifest(),
-        cap: MAX_FIGHTERS,
+            cap: MAX_FIGHTERS,
       }),
     );
   });

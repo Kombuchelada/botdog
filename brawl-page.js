@@ -61,8 +61,8 @@ const STYLES = `
   .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
 </style>`;
 
-export function renderBrawlPage({ userId, displayName, avatarUrl, cosmetics, scoreboard, roster, cap, art }) {
-  const boot = JSON.stringify({ userId, displayName, cosmetics, scoreboard, roster, cap, art }).replace(/</g, "\\u003c");
+export function renderBrawlPage({ userId, displayName, avatarUrl, cosmetics, scoreboard, roster, cap }) {
+  const boot = JSON.stringify({ userId, displayName, cosmetics, scoreboard, roster, cap }).replace(/</g, "\\u003c");
 
   const rosterCards = roster
     .map(
@@ -222,9 +222,6 @@ import {
 } from "/brawl/art.js";
 
 const BOOT = window.BRAWL;
-// Fighters listed here have art of their own and are drawn without a costume.
-// Declared after BOOT for the obvious reason: it reads it.
-const bespoke = new Set((BOOT.art && BOOT.art.bespoke) || []);
 const canvas = document.getElementById("arena");
 const ctx = canvas.getContext("2d");
 const overlay = document.getElementById("overlay");
@@ -625,7 +622,7 @@ const sprites = new Map();
 let spritesReady = false;
 
 (function preloadSprites() {
-  const all = allSprites([...bespoke]);
+  const all = allSprites();
   let left = all.length;
   for (const { body, pose, url } of all) {
     const img = new Image();
@@ -641,7 +638,7 @@ let spritesReady = false;
 })();
 
 function spriteFor(f, now) {
-  const body = bodyFor(f, bespoke);
+  const body = bodyFor(f);
   const pose = poseFor(f, now);
   return sprites.get(spriteKey(body, pose)) || sprites.get(spriteKey(body, "stand"));
 }

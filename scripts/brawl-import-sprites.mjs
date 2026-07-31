@@ -10,8 +10,7 @@
 // inconsistent margins, and whatever size the model felt like. This does the
 // boring part — knock out the background, trim, scale to the Arena's frame,
 // and plant the feet on the floor line — then writes the per-pose PNGs the
-// renderer expects and records the Fighter in the manifest so the game stops
-// drawing a costume over it.
+// renderer expects, and records any frame-width override in the manifest.
 //
 // Options:
 //   --grid CxR       slice a sheet into C columns by R rows, read left-to-right
@@ -97,7 +96,7 @@ const dryRun = has("dry-run");
 // frame width is part of its import and has to survive the *next* one. Without
 // that, re-importing Corn Dog to swap a single pose would silently shrink it
 // back to the roster default.
-let manifest = { bespoke: [], frame: { ...FRAME } };
+let manifest = { frame: { ...FRAME } };
 if (fs.existsSync(MANIFEST)) {
   try {
     manifest = { ...manifest, ...JSON.parse(fs.readFileSync(MANIFEST, "utf8")) };
@@ -339,7 +338,8 @@ for (let i = 0; i < poses.length; i++) {
   written.push(path.relative(ROOT, file));
 }
 
-// The manifest is how the game knows this Fighter draws sprites of its own.
+// The manifest carries frame geometry only. It used to carry a list of which
+// Fighters had art of their own; every Fighter does now, so nothing reads one.
 // `frame` is the roster default; a Fighter imported through a wider frame
 // records that separately and reads it back on the next import, so retuning one
 // Fighter neither resizes the next nor evaporates when the flag is left off.
@@ -349,9 +349,8 @@ if (FRAME.width === DEFAULT_FRAME_WIDTH) {
 } else {
   manifest.frames = { ...(manifest.frames || {}), [fighter]: { ...FRAME } };
 }
-if (!manifest.bespoke.includes(fighter)) manifest.bespoke.push(fighter);
 if (!dryRun) fs.writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + "\n");
 
 console.log(`${dryRun ? "[dry run] would write" : "wrote"} ${written.length} frames for ${fighter}:`);
 for (const f of written) console.log("  " + f);
-console.log(`${fighter} is now bespoke — no costume will be drawn over it.`);
+console.log(`${fighter} now draws these frames in the Arena.`);

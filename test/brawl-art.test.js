@@ -3,8 +3,8 @@
 // This is a third seam in a repo that deliberately has two (the WebSocket
 // boundary and the simulation's public API), and it is a conscious exception:
 // neither existing seam can observe art at all, and the flourish layer has a
-// silent failure mode — convert a Fighter to bespoke art and its signature-move
-// effect quietly disappears. That is the regression these tests exist to catch.
+// silent failure mode — a signature-move effect can disappear without anything
+// erroring. That is the regression these tests exist to catch.
 //
 // They assert only what `brawl-art.js` returns from its pure functions. No
 // canvas is constructed, no image is loaded, and nothing here knows the order
@@ -17,7 +17,8 @@ import {
   allSprites,
   poseFor,
   bodyFor,
-  BODY,
+  CHARACTERS,
+  CPU_BODY,
   flourishFor,
   FLOURISHES,
 } from "../brawl-art.js";
@@ -37,8 +38,6 @@ function attacking(character, move, frame = 0, extra = {}) {
   };
 }
 
-const BESPOKE_ALL = new Set(["glizzy", "ketchup", "grill", "corndog"]);
-
 // ---------------------------------------------------------------- flourishes
 
 test("a Fighter's special shows its flourish whichever sprite set it draws", () => {
@@ -49,9 +48,9 @@ test("a Fighter's special shows its flourish whichever sprite set it draws", () 
   const shown = flourishFor(f);
   assert.ok(shown, "the flare telegraph is showing");
   assert.equal(shown.id, "flare");
-  assert.equal(bodyFor(f, BESPOKE_ALL), "grill");
-  assert.equal(bodyFor(f, new Set()), "soldier");
-  assert.deepEqual(flourishFor({ ...f }), shown);
+  assert.equal(bodyFor(f), "grill");
+  // A CPU draws a borrowed body and must still show the telegraph.
+  assert.deepEqual(flourishFor({ ...f, cpu: true }), shown);
 });
 
 test("flourishes fire on the special only, never on light or heavy attacks", () => {
@@ -120,33 +119,18 @@ test("pose mapping is unchanged by the flourish extraction", () => {
   assert.equal(poseFor({ state: "idle", attack: null, onGround: true, vx: 0 }), "stand");
 });
 
-test("the manifest alone decides which sprite set a Fighter draws", () => {
-  const f = { character: "corndog", cpu: false };
-  assert.equal(bodyFor(f, new Set(["corndog"])), "corndog");
-  // Dropping a Fighter from the manifest reverts it to a borrowed body, which
-  // is what makes a conversion the owner dislikes a one-line undo. Which
-  // borrowed body is art bookkeeping, so assert only that it is one of them.
-  assert.notEqual(bodyFor(f, new Set()), "corndog");
-  assert.ok(Object.values(BODY).includes(bodyFor(f, new Set())));
-});
-
-test("the CPU keeps its borrowed body even when its character has art", () => {
-  const cpu = { character: "corndog", cpu: true };
-  assert.equal(bodyFor(cpu, new Set(["corndog"])), "zombie");
-  assert.equal(bodyFor(cpu, new Set()), "zombie");
+test("every Fighter draws its own sprites; only a CPU borrows a body", () => {
+  for (const character of CHARACTERS) {
+    assert.equal(bodyFor({ character, cpu: false }), character);
+    assert.equal(bodyFor({ character, cpu: true }), CPU_BODY);
+  }
 });
 
 test("only sprites a Fighter can actually draw are preloaded", () => {
-  // Every borrowed body preloaded alongside the bespoke ones is ten images
-  // fetched and never drawn, before the Arena's first frame.
-  const bodies = (list) => new Set(allSprites(list).map((s) => s.body));
-  assert.deepEqual(bodies([...BESPOKE_ALL]), new Set([...BESPOKE_ALL, "zombie"]));
-  assert.deepEqual(
-    bodies(["glizzy"]),
-    new Set(["glizzy", BODY.ketchup, BODY.grill, BODY.corndog, "zombie"]),
-    "a Fighter without art still preloads the body it falls back to",
-  );
-  for (const s of allSprites([...BESPOKE_ALL])) {
+  // Anything preloaded that no Fighter can draw is ten images fetched and
+  // thrown away before the Arena's first frame.
+  assert.deepEqual(new Set(allSprites().map((s) => s.body)), new Set([...CHARACTERS, CPU_BODY]));
+  for (const s of allSprites()) {
     assert.equal(s.url, `/brawl/art/${s.body}_${s.pose}.png`);
   }
 });

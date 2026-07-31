@@ -8,22 +8,18 @@
 // is how the renderer and its preview quietly disagree.
 //
 // The CPU keeps a Kenney body on purpose (`assets/brawl/LICENSE-kenney.txt`),
-// so a practice partner is never mistaken for a person. `BODY` survives as the
-// fallback for a Fighter with no art in the manifest, which is what makes a
-// rejected conversion revertible.
+// so a practice partner is never mistaken for a person. That zombie is the only
+// borrowed art left in the Arena.
 //
 // Same shared-file rule as `brawl-sim.js`: this module imports nothing and
 // touches no browser-only global beyond the 2D context it is handed, so the
 // page and an offline preview script both run it and neither can drift.
 
-/** Fallback Kenney body per Fighter, used only when it has no art of its own. */
-export const BODY = {
-  glizzy: "player",
-  ketchup: "female",
-  grill: "soldier",
-  corndog: "adventurer",
-};
+/** The one borrowed body left: CPUs, so a practice partner reads as a stand-in. */
 export const CPU_BODY = "zombie";
+
+/** Fighters the Arena has art for. Sprite files are named after these. */
+export const CHARACTERS = ["glizzy", "ketchup", "grill", "corndog"];
 
 export const POSES = [
   "stand", "walk1", "walk2", "jump", "fall", "duck", "hurt",
@@ -41,20 +37,9 @@ export function spriteKey(body, pose) {
   return `${body}:${pose}`;
 }
 
-/**
- * Every sprite the renderer will ever need, for preloading.
- *
- * A Fighter draws from exactly one body, so only that one is fetched: with all
- * four Fighters bespoke, preloading every borrowed body as well would put 40
- * unreachable images on the wire before the Arena's first frame, which is a
- * real cost on a phone.
- */
-export function allSprites(bespoke = []) {
-  const has = new Set(bespoke);
-  const bodies = [...new Set([
-    ...Object.keys(BODY).map((character) => (has.has(character) ? character : BODY[character])),
-    CPU_BODY,
-  ])];
+/** Every sprite the renderer will ever need, for preloading. */
+export function allSprites() {
+  const bodies = [...CHARACTERS, CPU_BODY];
   const out = [];
   for (const body of bodies) {
     for (const pose of POSES) out.push({ body, pose, url: spritePath(body, pose) });
@@ -75,19 +60,15 @@ export function moveNameOf(attack) {
 }
 
 /**
- * Which sprite set a Fighter draws from.
+ * Which sprite set a Fighter draws from — its own, unless it is a CPU.
  *
- * A Fighter listed in `assets/brawl/manifest.json` draws sprites named after
- * itself. The manifest is the only place that decides this — every consumer of
- * the sprite directory reads it, including the preview renderer, which once
- * did not and consequently disagreed with the game.
- *
- * CPUs always take the borrowed body, and so does any Fighter dropped from the
- * manifest: pulling a conversion is an edit to one JSON array.
+ * This used to consult a manifest list of which Fighters had art of their own,
+ * because art landed one Fighter at a time and the rest wore costumes over
+ * borrowed bodies. All four have their own art now, so the list, the costumes
+ * and the branch they fed are gone.
  */
-export function bodyFor(fighter, bespoke = null) {
-  if (bespoke && !fighter.cpu && bespoke.has(fighter.character)) return fighter.character;
-  return fighter.cpu ? CPU_BODY : BODY[fighter.character] || BODY.glizzy;
+export function bodyFor(fighter) {
+  return fighter.cpu ? CPU_BODY : fighter.character;
 }
 
 /**

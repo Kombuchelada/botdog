@@ -4,11 +4,12 @@ How a Fighter gets bespoke art, end to end, using the PixelLab MCP server.
 All four Fighters have been through it — The Glizzy first, then Corn Dog,
 Ketchup and The Grill — and everything below is what that cost to learn.
 
-`assets/brawl/manifest.json` lists which Fighters draw sprites of their own, and
-it is the only thing that decides. A Fighter dropped from that list falls back
-to a borrowed Kenney body, which is what makes a conversion the owner dislikes
-a one-line undo, and what made this a one-Fighter-at-a-time process rather than
-a big-bang swap.
+Each Fighter draws `<character>_<pose>.png` from `assets/brawl/`, so replacing
+one is a matter of dropping ten files in. While conversions were in flight the
+manifest carried a list of which Fighters had art of their own and the renderer
+branched on it, which is what made this a one-Fighter-at-a-time process; all
+four are converted now, so that list and the costume system are gone and the
+manifest carries frame geometry only.
 
 ## The four Fighters
 
@@ -247,8 +248,8 @@ the splat leaving Ketchup's nozzle, the coals roaring on The Grill's flare —
 because those were drawn inside the costume layer, which a Fighter with art of
 its own does not get. They now live in `FLOURISHES` in `brawl-art.js` and are
 drawn for **every** Fighter, so a conversion no longer costs a Fighter its
-special. (The costume layer itself is gone — with all four Fighters bespoke it
-had no users left.)
+special. (The costume layer itself is gone — with all four Fighters
+converted it had no users left.)
 
 That means a Fighter's `action2` sprite only has to carry the *pose*. The
 effect is already on screen:

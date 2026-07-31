@@ -19,3 +19,8 @@
 
 	Follow on Twitter for updates:
 	@KenneyNL
+			------------------------------
+
+	Used in GlizzyBrawl for the CPU practice Fighter only (zombie_*.png).
+	Every player Fighter is drawn from bespoke art; the other bodies from
+	this pack were removed when the costume system retired.

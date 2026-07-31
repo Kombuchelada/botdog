@@ -176,12 +176,14 @@ different moves without the sim knowing anything about art.
 All four Fighters now draw sprites of their own, generated through PixelLab and
 imported into `assets/brawl/` — see [the art recipe](glizzybrawl-art-brief.md).
 The costume layer that used to paint a bun, a bottle, a lid or batter over a
-borrowed body is **gone**: once every Fighter was bespoke it had no users, and
-two ways to draw a Fighter is how a renderer and its preview quietly disagree.
+borrowed body is **gone**, and so is the manifest list that named which Fighters
+had escaped it: once the list named everyone, it and the branch it fed were
+dead weight, and two ways to draw a Fighter is how a renderer and its preview
+quietly disagree. `bodyFor` is now `cpu ? zombie : character`.
 
 CPUs keep a Kenney body deliberately, so a practice partner is never mistaken
-for a person, and `BODY` survives as the fallback for a Fighter with no art in
-the manifest — which is what makes a conversion revertible.
+for a person. That zombie is the only borrowed art left in the Arena; the other
+four bodies from the pack were deleted with the costumes.
 
 - **Signature flourishes belong to the special alone** — the ketchup splat, the
   grill's coals. Firing them on every jab made all three attacks look the same.
@@ -219,14 +221,13 @@ node-canvas and have it match the Arena exactly:
 node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
 ```
 
-### Bespoke art, one Fighter at a time
+### Importing art
 
-A Fighter listed in `assets/brawl/manifest.json` under `bespoke` draws sprites
-named after itself (`glizzy_stand.png`). Everyone else falls back to a borrowed
-Kenney body, which is how a conversion gets reverted. The manifest is re-read
-per request, so dropping files in needs no restart, and **every consumer of the
-sprite directory must read it** — the preview renderer once did not, and so
-disagreed with the game it existed to preview.
+Each Fighter draws `<character>_<pose>.png` from `assets/brawl/`, so replacing a
+Fighter's look is dropping ten files in — no restart, no code change. While art
+was landing one Fighter at a time the manifest carried a `bespoke` list and the
+renderer branched on it; with every Fighter converted, that list and the
+costumes it gated are gone. The manifest now carries frame geometry only.
 
 `scripts/brawl-import-sprites.mjs` does the import: background removal, trim,
 one uniform scale across the whole set (so a duck stays shorter than a stand),
