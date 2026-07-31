@@ -165,12 +165,21 @@ subtly different results.
 
 ## The gate
 
-`test/brawl-stage.test.js`. Eyes lie — the Fighter work proved it twice with a
-crouch at 89% of standing height and a punch extending 3px.
+Eyes lie — the Fighter work proved it twice with a crouch at 89% of standing
+height and a punch extending 3px. But the checks split by what they're checking,
+because `test/brawl-art.test.js` is the repo's third and only extra seam and it
+tests **pure functions only — no canvas, no images**. Widening that quietly
+would be the wrong way to get stage coverage.
+
+**At import time** (`scripts/brawl-import-stage.mjs`, which already decodes the
+art and already has `sharp`), failing the import:
 
 1. **Floor alignment.** The wall tileset's opaque top row lands exactly on
    `STAGE.ground.y`.
 2. **Catwalk clearance.** Zero opaque pixels above each Catwalk's walk line.
+
+**In the preview script**, reported and non-zero on failure:
+
 3. **Silhouette contrast.** Composite each Fighter's `stand` over the backdrop
    at all 8 spawn points; require a minimum mean luminance delta along the
    silhouette.
@@ -178,7 +187,16 @@ crouch at 89% of standing height and a punch extending 3px.
 (1) and (2) are bugs, not taste — a floating floor and a phantom railing are
 each one bounding-box read away from being impossible. (3) earns its keep
 because "night game, crowd behind the fight" is precisely the composition where
-sprites get lost, and the crowd is generated blind to the Fighters.
+sprites get lost, and the crowd is generated blind to the Fighters. All three
+are properties of *assets*, and assets change only at import, so that's where
+they fail — at the moment the art is wrong, not on every `npm test`.
+
+**In `test/brawl-stage.test.js`**, pure, no images: every prop the scene
+references resolves to a known asset; every Catwalk in the scene matches a
+`STAGE.platforms` entry; draw order is back-to-front; a missing asset selects
+its primitive rather than drawing nothing. This is the check that guards the
+one failure this feature can suffer silently — the scene drifting from the sim
+when someone moves a platform.
 
 **Derive (3)'s threshold, don't invent it**: measure the current placeholder
 Stage, which is known-readable, and set the floor below what it scores. If the
