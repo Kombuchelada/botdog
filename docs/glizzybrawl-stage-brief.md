@@ -1,5 +1,11 @@
 # GlizzyBrawl — Stage art plan (the Ballpark)
 
+> **Built** in `21153ca`. All nine props are in `assets/brawl/`, the code seam
+> is `brawl-stage.js` + `scripts/brawl-import-stage.mjs` +
+> `scripts/brawl-stage-preview.mjs` + `test/brawl-stage.test.js`, and the
+> "Deliberately later" list at the bottom is still later. What this plan got
+> wrong, and what the build learned, is in [As built](#as-built).
+
 How the Arena's placeholder stage becomes the **Ballpark**, using the PixelLab
 MCP server. Same shape as [the Fighter art recipe](glizzybrawl-art-brief.md),
 for the other half of what's on screen.
@@ -206,6 +212,56 @@ finding.
 A busyness/variance ceiling was considered and dropped: it's a proxy for what
 (3) measures directly, and a threshold we can't justify either never fires or
 fires on art that's fine.
+
+## As built
+
+The plan survived contact. Five things it didn't predict, all now load-bearing:
+
+- **Props are generated on a magenta chroma key, not `no_background`.** Two
+  reasons, both discovered the hard way. An edge flood fill can never reach the
+  background trapped inside a lattice truss's bracing, which is exactly what
+  the scoreboard is made of — so the importer keys the colour out globally
+  instead (`--key`, several shades at once, because the model dithers it). And
+  `create_image_pro` with `no_background: true` stalled at 49% indefinitely on
+  two separate jobs; with it off, the same prompt at the same size completed.
+- **A third gate: scale.** A prop must land 1:1 or fail the import. The
+  scoreboard arrived as 266×173 of content inside a 400×260 canvas, and the
+  first import happily upscaled it 1.5× — losing, quietly, the exact property
+  that composing from props exists to protect. The fix is never to rescale: it
+  is to put the art's own size into `LAYOUT`, which the gate's error prints.
+- **A wang tile's terrain boundary is its midline, not its edge.** The tileset
+  is 16 wang tiles, so its cap tile is air above the midline and wall below it.
+  The scene offsets the whole grid by half a tile in both axes; without that
+  the walking surface sits 16px below the floor the sim collides against.
+  Tiles are also copied verbatim — trimming one and stretching what's left
+  doubles a cap tile's pixels and slides the wall face half a tile sideways.
+- **The floor gate plants the surface, like feet.** The charcoal wall came back
+  with its surface 2px below the midline. That is a floating floor, invisible
+  in a screenshot, and it is the same problem the sprite importer already
+  solves by planting feet on the floor line — so the cap is planted the same
+  way, and the gate still fails anything it can't plant.
+- **The clearance gate as specified would have rejected good art.** "Zero
+  opaque pixels above the walk line" needs the walk line *found* rather than
+  assumed: a grating is made of holes, and a deck's own 1px top bevel is not a
+  railing. It now finds the first row that reads as a deck and fails on
+  anything standing more than 2px clear of it.
+
+Two calls worth revisiting, neither blocking:
+
+- **The wall reads lighter than the rest of the Ballpark.** Three rolls, and
+  `create_sidescroller_tileset` takes no style image — the risk this plan
+  already named. The charcoal roll is the best of them and it is fine; it is
+  not as dark as the ADR's "very dark" would ideally have it. One re-import
+  away.
+- **`walk_a` is thinner than the other two Catwalks.** A re-roll aimed at a
+  thicker deck came back worse (a truss with gaps, no solid surface), so the
+  original stands.
+
+The silhouette-contrast gate lives in the preview script, not in
+`test/brawl-stage.test.js` as [ADR 0003](adr/0003-the-stage-is-a-night-scene.md)
+originally said; that ADR has been corrected. The placeholder Stage measures a
+mean of 19.9 and a worst placement of 14.1, so the floor is 12. The finished
+Ballpark measures 23.7 mean, nothing below the floor.
 
 ## Deliberately later
 
