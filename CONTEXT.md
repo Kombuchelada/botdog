@@ -63,6 +63,25 @@ The single always-on brawl all GlizzyBrawl players share. There is exactly
 one, it never concludes, and joining it is immediate — no queue, no lobby.
 _Avoid_: match, lobby, session, room, win (nothing ever ends, so nothing is won)
 
+**Stage**:
+The place the Arena happens in: the surfaces fighters stand on, the blast
+zone around them, and the backdrop behind them. The Arena is the fight and
+never ends; the Stage is where it is held. There is exactly one.
+_Avoid_: level, map, background (that's one layer of a Stage, not the Stage)
+
+**Ballpark**:
+The one Stage. A night game seen from the outfield wall — fighters brawl on
+the top of the wall and the scoreboard rig behind it, under the light towers,
+with the crowd in the stands behind them.
+_Avoid_: stadium, field, arena (the Arena is the fight, not the venue)
+
+**Catwalk**:
+One of the Ballpark's three soft platforms — maintenance gantries on the
+scoreboard rig. Landed on from above, dropped through with down+jump. Never
+drawn with anything standing above its walking surface, because art above the
+walk line reads as collision that isn't there.
+_Avoid_: ledge, floating platform
+
 **Fighter**:
 One of the four playable characters: The Glizzy, Ketchup, The Grill,
 Corn Dog. A player fights as exactly one Fighter at a time.
