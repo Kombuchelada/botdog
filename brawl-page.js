@@ -218,7 +218,7 @@ import {
   createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
 } from "/brawl/sim.js";
 import {
-  SPRITE, allSprites, bodyFor, wearsCostume, poseFor, spriteKey, spritePath, drawCostume, drawFlourish, drawCrown,
+  SPRITE, allSprites, bodyFor, poseFor, spriteKey, spritePath, drawFlourish, drawCrown,
 } from "/brawl/art.js";
 
 const BOOT = window.BRAWL;
@@ -616,10 +616,10 @@ function drawStage() {
   }
 }
 
-// Kenney's CC0 bodies do the acting; brawl-art.js paints each Fighter's
-// costume over them. Sprites are preloaded once and drawn from a cache — if
-// one is missing the Fighter still renders as a plain block, because an asset
-// 404 must never blank the Arena.
+// Every Fighter draws its own sprite set (the CPU borrows a Kenney body).
+// Sprites are preloaded once and drawn from a cache — if one is missing the
+// Fighter still renders as a plain block, because an asset 404 must never
+// blank the Arena.
 
 const sprites = new Map();
 let spritesReady = false;
@@ -677,10 +677,6 @@ function drawFighter(f, now) {
 
   ctx.translate(pos.x, pos.y);
   ctx.scale(f.facing, 1);
-  const costumed = wearsCostume(f, bespoke);
-  if (costumed) drawCostume(ctx, f, now, "back");
-  // Flourishes are drawn for every Fighter, bespoke or costumed — they are the
-  // telegraph for a special, not decoration on a borrowed body.
   drawFlourish(ctx, f, now, "back");
 
   const img = spriteFor(f, now);
@@ -696,7 +692,6 @@ function drawFighter(f, now) {
     ctx.fillRect(-w / 2, -h, w, h);
   }
 
-  if (costumed) drawCostume(ctx, f, now, "front");
   drawFlourish(ctx, f, now, "front");
   if (cos.crown) drawCrown(ctx, cos.crown);
   ctx.restore();

@@ -16,7 +16,6 @@ import assert from "node:assert/strict";
 import {
   poseFor,
   bodyFor,
-  wearsCostume,
   flourishFor,
   FLOURISHES,
 } from "../brawl-art.js";
@@ -40,16 +39,17 @@ const BESPOKE_ALL = new Set(["glizzy", "ketchup", "grill", "corndog"]);
 
 // ---------------------------------------------------------------- flourishes
 
-test("a Fighter's special shows its flourish whether or not it is bespoke", () => {
-  for (const bespoke of [new Set(), BESPOKE_ALL]) {
-    const f = attacking("grill", "flare", 4);
-    const shown = flourishFor(f);
-    assert.ok(shown, "the flare telegraph is showing");
-    assert.equal(shown.id, "flare");
-    // The decision must not consult the costume gate at all: bespoke art is
-    // exactly the case where the old costume-drawn flourish vanished.
-    assert.equal(wearsCostume(f, bespoke), bespoke.size === 0);
-  }
+test("a Fighter's special shows its flourish whichever sprite set it draws", () => {
+  // The flourish decision must not consult the manifest at all. Art of its own
+  // is exactly the case where the old costume-drawn flourish silently vanished,
+  // and a Fighter reverted to a borrowed body must keep the effect too.
+  const f = attacking("grill", "flare", 4);
+  const shown = flourishFor(f);
+  assert.ok(shown, "the flare telegraph is showing");
+  assert.equal(shown.id, "flare");
+  assert.equal(bodyFor(f, BESPOKE_ALL), "grill");
+  assert.equal(bodyFor(f, new Set()), "soldier");
+  assert.deepEqual(flourishFor({ ...f }), shown);
 });
 
 test("flourishes fire on the special only, never on light or heavy attacks", () => {
@@ -98,7 +98,7 @@ test("a locally predicted attack reads the same as one off the wire", () => {
   assert.deepEqual(flourishFor(predicted), flourishFor(attacking("ketchup", "splat", 3)));
 });
 
-// ------------------------------------------------------- poses and costumes
+// ------------------------------------------------------- poses and bodies
 
 test("pose mapping is unchanged by the flourish extraction", () => {
   assert.equal(poseFor(attacking("glizzy", "light_side", 2)), "action1");
@@ -111,15 +111,16 @@ test("pose mapping is unchanged by the flourish extraction", () => {
   assert.equal(poseFor({ state: "idle", attack: null, onGround: true, vx: 0 }), "stand");
 });
 
-test("a bespoke Fighter draws its own sprites and wears no costume", () => {
+test("the manifest alone decides which sprite set a Fighter draws", () => {
   const f = { character: "corndog", cpu: false };
   assert.equal(bodyFor(f, new Set(["corndog"])), "corndog");
-  assert.equal(wearsCostume(f, new Set(["corndog"])), false);
-  assert.equal(wearsCostume(f, new Set()), true);
+  // Dropping a Fighter from the manifest reverts it to a borrowed body, which
+  // is what makes a conversion the owner dislikes a one-line undo.
+  assert.equal(bodyFor(f, new Set()), "adventurer");
 });
 
-test("the CPU keeps its borrowed body even when its character is bespoke", () => {
+test("the CPU keeps its borrowed body even when its character has art", () => {
   const cpu = { character: "corndog", cpu: true };
   assert.equal(bodyFor(cpu, new Set(["corndog"])), "zombie");
-  assert.equal(wearsCostume(cpu, new Set(["corndog"])), true);
+  assert.equal(bodyFor(cpu, new Set()), "zombie");
 });

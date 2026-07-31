@@ -173,32 +173,30 @@ plus three attack poses — `action1`, `kick`, `action2` — which `poseFor` map
 to light, heavy, and special. That mapping is why the three attacks read as
 different moves without the sim knowing anything about art.
 
-The food identity is a **costume** painted over the borrowed body in
-`brawl-art.js`: bun and frank, bottle and cap, grill lid and grate, batter and
-stick. CPUs wear the zombie body, so a practice partner is never mistaken for a
-person.
+All four Fighters now draw sprites of their own, generated through PixelLab and
+imported into `assets/brawl/` — see [the art recipe](glizzybrawl-art-brief.md).
+The costume layer that used to paint a bun, a bottle, a lid or batter over a
+borrowed body is **gone**: once every Fighter was bespoke it had no users, and
+two ways to draw a Fighter is how a renderer and its preview quietly disagree.
 
-Three rules hold the composite together, each learned by rendering it wrong:
+CPUs keep a Kenney body deliberately, so a practice partner is never mistaken
+for a person, and `BODY` survives as the fallback for a Fighter with no art in
+the manifest — which is what makes a conversion revertible.
 
-- **Costumes have a back and a front layer.** A bun cradling a Fighter has to
-  be behind them, or it reads as a barrel.
-- **Nothing covers the face.** These bodies are worth borrowing *because* they
-  act; a costume over the face throws away the only thing procedural drawing
-  couldn't do. Hats seat on the hair at `HAT_BASE`; everything else sits at the
-  waist.
 - **Signature flourishes belong to the special alone** — the ketchup splat, the
   grill's coals. Firing them on every jab made all three attacks look the same.
 
 ### Flourishes are their own layer
 
 The signature-move effects used to live *inside* the costumes, which meant
-giving a Fighter art of its own silently deleted them — the costume is gated on
-the manifest and the flourish went through the gate with it. The Grill is the
+giving a Fighter art of its own silently deleted them — the costume was gated
+on the manifest and the flourish went through the gate with it. The Grill is the
 case that matters: Flare-Up's 16-frame wind-up is telegraphed entirely by the
 coals, and without them a stock-ending launcher reads as instant.
 
 They now live in `FLOURISHES` in `brawl-art.js`, keyed by the special's name in
-the sim, and `drawFlourish` runs for **every** Fighter, bespoke or costumed.
+the sim, and `drawFlourish` runs for **every** Fighter, whichever sprite set it
+draws.
 Deciding whether one is showing is separate from drawing it: `flourishFor`
 is a pure function of a Fighter snapshot returning `{ id, progress }` or
 `null`, and it is the unit `test/brawl-art.test.js` pins. Two rules it carries:
@@ -224,22 +222,38 @@ node scripts/brawl-art-preview.mjs        # writes brawl-roster.png
 ### Bespoke art, one Fighter at a time
 
 A Fighter listed in `assets/brawl/manifest.json` under `bespoke` draws sprites
-named after itself (`glizzy_stand.png`) and gets **no costume** — art of its
-own already *is* the food. Everyone else keeps the borrowed body. That split is
-what lets new art land one Fighter at a time instead of as a big-bang swap, and
-the manifest is re-read per request, so dropping files in needs no restart.
+named after itself (`glizzy_stand.png`). Everyone else falls back to a borrowed
+Kenney body, which is how a conversion gets reverted. The manifest is re-read
+per request, so dropping files in needs no restart, and **every consumer of the
+sprite directory must read it** — the preview renderer once did not, and so
+disagreed with the game it existed to preview.
 
 `scripts/brawl-import-sprites.mjs` does the import: background removal, trim,
 one uniform scale across the whole set (so a duck stays shorter than a stand),
-feet planted on the floor line, and the manifest entry. See
+feet planted on the floor line, and the manifest entry.
+`scripts/brawl-art-measure.mjs` gates the keyframe picks on measured
+thresholds before any of that. See
 [the art brief](glizzybrawl-art-brief.md) for what to generate and how to feed
 it in.
+
+**`--frame-width` is the apparent-size dial.** The renderer normalises every
+sprite to `SPRITE.drawHeight` and takes the aspect from the image, so a
+Fighter's on-screen size is the fraction of frame height its art fills — and
+the importer's shared scale factor is set by the *widest* pose. Corn Dog's
+stick thrust pinned the whole Fighter small until its frame was widened to 150.
+An override records itself per Fighter in the manifest rather than moving the
+roster default, so retuning one Fighter cannot resize the next. Tuning size is
+always a re-import, never a regeneration.
 
 `scripts/brawl-make-sprites.mjs` builds a pixel-art prototype set from ASCII
 rigs — rough, but a worked example of the bespoke path end to end.
 
 Swapping art wholesale means replacing `assets/brawl/` and the tables at the
 top of `brawl-art.js`; nothing else knows what a Fighter looks like.
+
+Two poses ship below their gates and are known: Corn Dog's crouch at 79% of
+standing height against a 75% gate, and The Grill's attacks at +9px against
++15px. The art brief records why more generations were not the fix.
 
 ## Testing
 

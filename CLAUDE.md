@@ -55,8 +55,9 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
-| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping, the signature-move flourish layer (`flourishFor` / `drawFlourish`), plus Kenney CC0 bodies (`assets/brawl/`) and per-Fighter costumes for Fighters that don't yet have bespoke art. The Glizzy is bespoke (PixelLab, south-east 3/4); the rest are still costumed. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
-| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art (generated or commissioned) — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. A Fighter in that manifest draws its own sprites and gets no costume, so new art lands one Fighter at a time. Recipe: `docs/glizzybrawl-art-brief.md`. |
+| `brawl-art.js` | GlizzyBrawl Fighter art: the pose mapping and the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/`; the costume layer that used to paint food over Kenney CC0 bodies is retired, and `BODY` remains only as the fallback for a Fighter absent from the manifest (plus the CPU's deliberate zombie). Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster to a PNG so art can be judged without a browser. |
+| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art — de-backgrounds, trims, scales the set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
+| `scripts/brawl-art-measure.mjs` | Gates keyframe picks on measured alpha bounding boxes (crouch ≤75% of standing height, attack ≥+15px extension, hurt ≥3px lift) instead of on judgement. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
@@ -182,12 +183,12 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   And queued input frames merge rather than replace — under load the server can
   tick slower than a client sends, and "newest wins" swallows taps outright.
   Both are covered by tests; both were invisible bugs found by them.
-- **GlizzyBrawl's Fighters are borrowed bodies in costume.** Kenney's CC0
-  platformer characters do the acting (they have real attack poses); the bun,
-  bottle, lid and batter are painted over them. Costumes draw in a back and a
-  front layer and never cover the face — the face is the whole reason the
-  sprites are there. Anything committed under `assets/` must permit
-  redistribution: this repo is public, which rules out most itch "free" packs.
+- **Every GlizzyBrawl Fighter now has art of its own**, generated through
+  PixelLab; the costume layer that painted food over Kenney bodies is gone,
+  because with no users left it was just a second way to draw a Fighter for the
+  renderer and its preview to disagree about. The CPU keeps a Kenney body on
+  purpose. Anything committed under `assets/` must permit redistribution: this
+  repo is public, which rules out most itch "free" packs.
 - **In GlizzyBrawl, jump is Space — never the same key as "up".** Sharing them
   makes every ground up-attack jump first and come out as its aerial variant,
   silently deleting half the ground moveset.
@@ -217,11 +218,16 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   from the image, so a Fighter's on-screen size is the fraction of frame height
   its art fills. The importer's shared scale factor is set by the widest pose —
   usually a fully extended attack — so a narrow frame pins the whole Fighter
-  small. Widen the frame to grow a Fighter; no regeneration needed.
+  small. Widen the frame to grow a Fighter (`--frame-width`, which records
+  itself per Fighter so one import can't resize the next); no regeneration
+  needed. Corn Dog needed 150 because its stick thrust is the widest pose in
+  its set.
 - **Anything reading `assets/brawl/` must read `manifest.json` too.**
-  `scripts/brawl-art-preview.mjs` didn't, so it painted costumes over bespoke
-  art and drew it at Kenney's aspect ratio while the game drew it correctly —
-  a preview tool that disagrees with the thing it previews is worse than none.
+  `scripts/brawl-art-preview.mjs` didn't, so it drew bespoke art at Kenney's
+  aspect ratio while the game drew it correctly — a preview tool that disagrees
+  with the thing it previews is worse than none. It also has to throw each
+  Fighter's *own* special: a shared move name showed every row The Glizzy's and
+  hid the flourishes the preview exists to check.
 - **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
   time during practice. CPUs exist only while a lone human is present, so
   "are there CPUs in the Arena?" is the entire check — there is never a
@@ -230,10 +236,10 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   grow crowns/trails/finishes and nothing else; no weight, speed, damage, reach,
   or knockback may ever derive from a hot dog stat. This reversed the original
   pitch on purpose.
-- **A signature-move flourish is not part of the costume.** The splat at
+- **A signature-move flourish is its own layer, not part of a Fighter's art.** The splat at
   Ketchup's nozzle and The Grill's roaring coals live in `FLOURISHES` and are
-  drawn for *every* Fighter. Inside the costume closures they were gated on the
-  manifest, so giving a Fighter bespoke art silently deleted its special's
+  drawn for *every* Fighter. Inside the old costume closures they were gated on
+  the manifest, so giving a Fighter bespoke art silently deleted its special's
   effect — fatal for Flare-Up, whose 16-frame wind-up the coals are the only
   warning of. Progress comes from the attack's own frame counter, never the
   clock. A back-layer flourish must also be *wider* than a Fighter: a single

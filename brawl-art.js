@@ -1,19 +1,22 @@
 // GlizzyBrawl — Fighter art.
 //
-// The bodies are Kenney's CC0 "Platformer Characters 1" (see
-// `assets/brawl/LICENSE-kenney.txt`): hand-drawn stand / walk / jump / fall /
-// duck / hurt frames *plus* three real attack poses, which is the part that
-// was never going to look right drawn procedurally. The costumes — bun, cap,
-// grill lid, batter — are drawn on top in canvas so each Fighter still reads
-// as the food it is. A Fighter with art of its own drops the costume; its
-// signature-move *flourish* is a separate layer and never drops (see
-// `FLOURISHES`).
+// All four Fighters now have art of their own — a hot dog, a bottle, a kettle
+// grill and a corn dog, generated through PixelLab and imported into
+// `assets/brawl/`. They used to be Kenney's CC0 platformer humans with a
+// costume painted over them, and that costume layer is gone: with every
+// Fighter bespoke it had no users left, and keeping two ways to draw a Fighter
+// is how the renderer and its preview quietly disagree.
+//
+// The CPU keeps a Kenney body on purpose (`assets/brawl/LICENSE-kenney.txt`),
+// so a practice partner is never mistaken for a person. `BODY` survives as the
+// fallback for a Fighter with no art in the manifest, which is what makes a
+// rejected conversion revertible.
 //
 // Same shared-file rule as `brawl-sim.js`: this module imports nothing and
 // touches no browser-only global beyond the 2D context it is handed, so the
 // page and an offline preview script both run it and neither can drift.
 
-/** Which Kenney body each Fighter wears. The zombie is reserved for CPUs. */
+/** Fallback Kenney body per Fighter, used only when it has no art of its own. */
 export const BODY = {
   glizzy: "player",
   ketchup: "female",
@@ -63,18 +66,17 @@ export function moveNameOf(attack) {
 /**
  * Which sprite set a Fighter draws from.
  *
- * A Fighter with art of its own ("bespoke", per `assets/brawl/manifest.json`)
- * uses sprites named after the character and gets no costume — the art already
- * *is* the food. Everyone else wears a borrowed Kenney body plus a costume.
- * This is what lets bespoke art land one Fighter at a time.
+ * A Fighter listed in `assets/brawl/manifest.json` draws sprites named after
+ * itself. The manifest is the only place that decides this — every consumer of
+ * the sprite directory reads it, including the preview renderer, which once
+ * did not and consequently disagreed with the game.
+ *
+ * CPUs always take the borrowed body, and so does any Fighter dropped from the
+ * manifest: pulling a conversion is an edit to one JSON array.
  */
 export function bodyFor(fighter, bespoke = null) {
   if (bespoke && !fighter.cpu && bespoke.has(fighter.character)) return fighter.character;
   return fighter.cpu ? CPU_BODY : BODY[fighter.character] || BODY.glizzy;
-}
-
-export function wearsCostume(fighter, bespoke = null) {
-  return !(bespoke && !fighter.cpu && bespoke.has(fighter.character));
 }
 
 /**
@@ -207,149 +209,14 @@ function drawCoals(ctx, { progress, nowMs }) {
   ctx.globalAlpha = 1;
 }
 
-// ---------------------------------------------------------------- costumes
-//
-// Costume paths are drawn in the Fighter's local space: feet at (0, 0), head
-// around y = -70, facing +x. The caller has already flipped the context for
-// facing, so nothing here needs to know which way anyone is looking.
-//
-// Two rules, both learned by drawing it wrong first:
-//   1. Costumes come in a BACK layer (behind the body) and a FRONT layer. A
-//      bun cradling the Fighter has to be behind them, or it's a barrel.
-//   2. Nothing covers the face. These bodies are worth borrowing *because*
-//      they act — a costume that hides the face throws away the only thing
-//      procedural drawing couldn't do. Hats sit above FACE_TOP; everything
-//      else sits below FACE_BOTTOM.
+// ------------------------------------------------------------------ crowns
 
-export const FACE_TOP = -70;
-export const FACE_BOTTOM = -40;
-/** Where a hat's brim sits: on top of the hair, not hovering above it. */
+// Fighter-local space: feet at (0, 0), head around y = -70, facing +x. The
+// caller has already flipped the context for facing, so nothing here needs to
+// know which way anyone is looking.
+
+/** Where a costume's hat used to sit; now only the crown needs the height. */
 const HAT_BASE = -62;
-
-const COSTUMES = {
-  glizzy: { back: bunBack, front: bunFront },
-  ketchup: { back: capBack, front: bottleFront },
-  grill: { back: lidBack, front: grateFront },
-  corndog: { back: stickBack, front: batterFront },
-};
-
-/**
- * @param ctx     a 2D context, browser or node-canvas
- * @param fighter snapshot fields (character, attack, vx, vy, onGround, state)
- * @param nowMs   clock, for idle motion
- * @param layer   "back" (before the body sprite) or "front" (after)
- */
-export function drawCostume(ctx, fighter, nowMs = 0, layer = "front") {
-  const costume = COSTUMES[fighter.character];
-  if (!costume || !costume[layer]) return;
-  const swing = fighter.attack ? Math.min(1, (fighter.attack.frame + 1) / 6) : 0;
-  // Costume geometry may still react to the special (Corn Dog's stick swings
-  // down for its Pogo), but the signature-move *flourishes* have moved out to
-  // `drawFlourish`, which runs for bespoke Fighters too.
-  const move = moveNameOf(fighter.attack);
-  const special = swing > 0 && !move.includes("light") && !move.includes("heavy");
-  costume[layer](ctx, { swing, special, nowMs, fighter });
-}
-
-// ---- The Glizzy: a frank arcing behind the head, bun round the middle ----
-
-function bunBack(ctx, { nowMs }) {
-  const bob = Math.sin(nowMs / 420) * 1.5;
-  ctx.fillStyle = "#c2410c";
-  ctx.beginPath();
-  ctx.ellipse(0, HAT_BASE + bob, 24, 15, 0, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = "#facc15";
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
-  ctx.beginPath();
-  for (let i = 0; i < 4; i++) {
-    ctx.moveTo(-14 + i * 9, HAT_BASE - 7 + bob + (i % 2) * 4);
-    ctx.lineTo(-9 + i * 9, HAT_BASE - 12 + bob - (i % 2) * 4);
-  }
-  ctx.stroke();
-}
-
-function bunFront(ctx) {
-  // A bun band round the waist, well clear of the face.
-  ctx.fillStyle = "#f4b860";
-  roundRect(ctx, -20, -34, 40, 15, 7);
-  ctx.fill();
-  ctx.fillStyle = "rgba(180,120,40,0.3)";
-  roundRect(ctx, -20, -27, 40, 3, 2);
-  ctx.fill();
-}
-
-// ---- Ketchup: cap for a hat, bottle round the middle ----
-
-function capBack(ctx, { nowMs }) {
-  const bob = Math.sin(nowMs / 380) * 1.2;
-  ctx.fillStyle = "#9f1239";
-  roundRect(ctx, -13, HAT_BASE - 10 + bob, 26, 10, 4);
-  ctx.fill();
-  ctx.fillStyle = "#be123c";
-  roundRect(ctx, -6, HAT_BASE - 17 + bob, 12, 8, 3);
-  ctx.fill();
-}
-
-function bottleFront(ctx) {
-  ctx.fillStyle = "#e11d48";
-  roundRect(ctx, -17, -38, 34, 22, 8);
-  ctx.fill();
-  ctx.fillStyle = "#fecdd3";
-  roundRect(ctx, -12, -33, 24, 9, 3);
-  ctx.fill();
-}
-
-// ---- The Grill: lid for a hat, grate round the middle ----
-
-function lidBack(ctx, { nowMs }) {
-  const bob = Math.sin(nowMs / 500) * 1;
-  ctx.fillStyle = "#1e293b";
-  ctx.beginPath();
-  ctx.ellipse(0, HAT_BASE - 5 + bob, 26, 13, 0, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#475569";
-  roundRect(ctx, -26, HAT_BASE - 6 + bob, 52, 4, 2);
-  ctx.fill();
-  ctx.fillStyle = "#94a3b8";
-  roundRect(ctx, -4, HAT_BASE - 17 + bob, 8, 7, 3);
-  ctx.fill();
-}
-
-function grateFront(ctx) {
-  ctx.fillStyle = "#334155";
-  roundRect(ctx, -20, -36, 40, 19, 6);
-  ctx.fill();
-  ctx.fillStyle = "#a855f7";
-  for (let i = 0; i < 4; i++) ctx.fillRect(-15 + i * 9, -33, 4, 13);
-}
-
-// ---- Corn Dog: batter round the middle, stick out the back ----
-
-function stickBack(ctx, { swing, special }) {
-  ctx.fillStyle = "#b45309";
-  ctx.save();
-  ctx.rotate(0.4 - (special ? swing : 0) * 1.0);
-  roundRect(ctx, -8, -14, 7, 32, 3);
-  ctx.fill();
-  ctx.restore();
-}
-
-function batterFront(ctx, { nowMs }) {
-  const bob = Math.sin(nowMs / 400) * 1.2;
-  ctx.fillStyle = "#f59e0b";
-  roundRect(ctx, -19, -40 + bob, 38, 25, 10);
-  ctx.fill();
-  ctx.fillStyle = "#fbbf24";
-  roundRect(ctx, -13, -35 + bob, 26, 9, 4);
-  ctx.fill();
-  // Crumb texture, deterministic so it doesn't crawl between frames.
-  ctx.fillStyle = "rgba(120,53,15,0.35)";
-  for (let i = 0; i < 7; i++) {
-    ctx.fillRect(-15 + ((i * 37) % 30), -37 + bob + ((i * 23) % 18), 2, 2);
-  }
-}
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();

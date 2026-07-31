@@ -1,12 +1,14 @@
 # GlizzyBrawl — Fighter art recipe
 
 How a Fighter gets bespoke art, end to end, using the PixelLab MCP server.
-The Glizzy was built this way; the other three follow the same path.
+All four Fighters have been through it — The Glizzy first, then Corn Dog,
+Ketchup and The Grill — and everything below is what that cost to learn.
 
-The Arena treats art as swappable: `assets/brawl/manifest.json` records which
-Fighters have art of their own, and those stop getting a costume drawn over a
-borrowed Kenney body. So this is a **one-Fighter-at-a-time** process — convert
-Corn Dog, play it, and the rest keep their current look until you're happy.
+`assets/brawl/manifest.json` lists which Fighters draw sprites of their own, and
+it is the only thing that decides. A Fighter dropped from that list falls back
+to a borrowed Kenney body, which is what makes a conversion the owner dislikes
+a one-line undo, and what made this a one-Fighter-at-a-time process rather than
+a big-bang swap.
 
 ## The four Fighters
 
@@ -53,9 +55,10 @@ roster reads as one set:
 
 ```
 create_image_pro(
-  description = "cartoon ketchup bottle character, red glass bottle with a cap
-                 for a head, cartoon arms and legs, friendly face, lean and
-                 top-heavy",
+  description = "cartoon ketchup bottle character, red squeeze bottle body with
+                 a cap for a head, small cartoon arms and legs on the bottle
+                 itself, friendly face, lean and top-heavy, standing,
+                 three-quarter view facing down-right",
   style_image_url = <The Glizzy's south rotation>,
   style_copy = ["color_palette", "outline", "detail", "shading"],
   width = 64, height = 64)
@@ -64,6 +67,15 @@ create_image_pro(
 It returns a grid of candidates in one call (64 of them at ≤42px, 16 at ≤85px),
 so you still pick the one you like — but every candidate is already locked to
 The Glizzy's palette and outline weight. Cost 20–40 generations.
+
+**Style anchoring holds across subjects.** This was the one untested assumption
+in the plan, and Corn Dog settled it: a hot dog anchoring a corn dog, a bottle
+and a kettle grill produced three full grids on palette and outline weight.
+Validate on one Fighter before spending on the rest anyway.
+
+**Whatever the chosen cell is holding, the Fighter holds forever.** Corn Dog's
+reference carries a little pennant flag, and it is in all ten of its poses.
+Props are a choice, not an accident — make it deliberately.
 
 ## Step 2 — the character
 
@@ -74,15 +86,18 @@ create_character(
   reference_image_base64 = <the chosen 64x64 cell>)
 ```
 
-1 generation, ~8 minutes. v3 is the only mode that accepts a reference. It
+1 generation, 3–8 minutes. v3 is the only mode that accepts a reference. It
 always produces 8 rotations; only **south-east** is used, and its rotation PNG
-is `stand` for free.
+is `stand` for free. Pass `reference_image_url` rather than base64 — the
+`create_image_pro` download URL works directly, and inline base64 gets
+truncated by MCP clients.
 
 ## Step 3 — the animations
 
-Fire **both** a template and a v3 custom for every pose in one batch, then keep
-whichever reads better per pose. A round trip is ~5 minutes whether it carries
-one job or twenty, and credits are the cheap resource.
+Fire the whole set in one batch. A round trip is ~5 minutes whether it carries
+one job or twenty, and credits are the cheap resource — but the account runs at
+most **8 jobs at once**, so a batch bigger than that comes back with
+"need 1 job slots but only 0 available" and has to be re-sent.
 
 Always `directions: ["south-east"]` — the game needs one facing, and animating
 all eight costs 8× for art that is never drawn.
@@ -92,22 +107,28 @@ Always `frame_count: 4` on v3 customs. Cost is
 costs **1** generation and 6 frames costs **2** — and only one frame per pose
 is ever kept.
 
-| Pose | Template to try | v3 custom description |
+| Pose | What to send | Prompt |
 |---|---|---|
-| `walk1`/`walk2` | `walking` | walking with big bouncy exaggerated steps, whole body squashing and stretching, arms swinging wide |
-| `jump`/`fall` | `jumping-1` | — (the template gives 9 frames to choose from) |
-| `duck` | `crouching` | hunkering down low, legs bent deep and body squashed short and wide, head held up and facing forward |
-| `hurt` | `taking-punch` | knocked backwards hard, body flung back and tilted, head snapped away, arms flung outward, feet leaving the ground |
-| `action1` | `lead-jab`, `cross-punch` | punching forward hard, arm fully extended at full reach, body leaning into the punch |
-| `kick` | `high-kick` | — |
-| `action2` | none | per-Fighter, from the specials table above |
+| `walk1`/`walk2` | v3 custom | walking with big bouncy exaggerated steps, whole body squashing and stretching, arms swinging wide |
+| `jump`/`fall` | `jumping-1` template | — (9 frames to choose from; the one template worth sending) |
+| `duck` | v3 custom | compressing straight downward like a squashed spring, body staying perfectly upright and vertical without tilting, squashed to half its height and bulging wider, head low and level |
+| `hurt` | v3 custom | blasted off its feet and flying backwards through the air, whole body airborne well above the ground and tilted back, legs kicked up off the ground |
+| `action1` | v3 custom | *name the Fighter's own anatomy* — see below |
+| `kick` | v3 custom | swinging one leg up and far forward in a huge high kick, leg fully extended out in front at maximum reach, body leaning back to counterbalance |
+| `action2` | v3 custom | per-Fighter, from the specials table above |
 
-**Expect the templates to lose.** They are humanoid skeleton animations and
-these characters have stub limbs, so there is no thigh or upper arm to rotate.
-On The Glizzy only `jumping-1` and `high-kick` survived; `walking`,
-`crouching`, `taking-punch`, `lead-jab` and `cross-punch` were all rejected for
-producing almost no visible motion. Generate both anyway — the failure mode
-differs by body shape, and a losing variant costs one generation.
+**Don't send the humanoid templates.** They rotate a skeleton and these
+Fighters have no thigh or upper arm to rotate. The brief used to say "send both
+and keep the better one"; three Fighters in, the templates have won exactly
+once. `jumping-1` is that once. `walking`, `crouching`, `taking-punch`,
+`lead-jab`, `cross-punch` and `high-kick` have all been tried on more than one
+body shape and produced almost no visible motion every time.
+
+**Name the Fighter's own anatomy, not a human's.** Corn Dog's punch reached
++12px and failed the gate; the same pose described as *"thrusting the wooden
+stick forward like a spear at full arm extension, whole body lunging far
+forward"* reached +20px and passed. If a Fighter has a stick, a nozzle or a lid,
+the attack should use it.
 
 **Never write "friendly face" into a v3 description.** It reads as an
 instruction to amplify the smile and comes back unsettling. To keep an
@@ -122,10 +143,35 @@ Glizzy were caught by measurement after passing a visual check:
   does not read as a crouch at all)
 - **attacks** ≥ +15px of extension over the standing bounding box (`lead-jab`
   gave +3px; the v3 custom gave +28px)
-- **hurt** shows lift — feet off the floor line (`taking-punch` gave zero)
+- **hurt** ≥ 3px of lift off the floor line (`taking-punch` gave zero — and a
+  template that visibly does nothing still drifts a pixel, so "any lift" is not
+  a gate)
 
-Measure the alpha bounding box, not `sharp.trim()`, which keys off the
-top-left pixel and returns the full canvas on transparent art.
+```bash
+node scripts/brawl-art-measure.mjs <working-folder>
+```
+
+It reads `stand.png` plus one subfolder of numbered frames per animation, and
+prints height %, extension and lift per frame with a PASS/fail against the
+gates above. It measures the **alpha bounding box**, not `sharp.trim()`, which
+keys off the top-left pixel and returns the full canvas on transparent art.
+
+**Measure *and* look.** The gate catches poses that look fine and measure
+wrong; it cannot catch the inverse. Ketchup's crouch prompt "sink down until
+sitting on the ground" measured a beautiful 65% by tipping the bottle over onto
+its side. A pass is permission to look, not a substitute for looking.
+
+**The crouch is the pose this pipeline cannot do.** Six attempts across three
+Fighters: v3 tilts these bodies rather than compressing them, and only the
+tip-over — which reads as death, not ducking — ever cleared 75%. Corn Dog ships
+at 79% and Ketchup and The Grill in the low 90s. If the duck has to read
+properly, the next thing to try is the renderer squashing the stand frame
+vertically, not another generation.
+
+**A Fighter can be physically incapable of +15px.** The Grill is a round kettle
+with stub arms; its best attack reaches +9px, which is a fifth of its own body
+width. The threshold is a Glizzy-shaped absolute and the roster is not one
+shape. Take the best of three and move on.
 
 ## Step 5 — import and review
 
@@ -158,8 +204,19 @@ Reload `/brawl` — no restart needed, the manifest is re-read per request.
 group server-side. `get_character(character_id)` returns download URLs for all
 of them, so any keyframe can be re-picked for free as long as the IDs survive.
 
-**The Glizzy** — character `3cb0cf71-9e50-465b-b3b7-053149b71f01`,
-account prefix `3a6ffff3-54a7-40b4-a199-91fc10560ec0`.
+Account prefix for all four: `3a6ffff3-54a7-40b4-a199-91fc10560ec0`.
+
+| Fighter | Character id | Reference (`create_image_pro` job, cell) |
+|---|---|---|
+| The Glizzy | `3cb0cf71-9e50-465b-b3b7-053149b71f01` | web interface |
+| Corn Dog | `b7484139-9183-464f-84be-3c4466b6c706` | `2166c513-9d38-43d4-b7c8-96f59910ec88` #13 |
+| Ketchup | `1f4d160e-4f8c-45be-96ef-7682f5238a4c` | `1b269daf-48ec-496c-a806-fb8ad244ba90` #0 |
+| The Grill | `994c950d-c600-4211-9731-1e11742a95ca` | `cd246fb5-2895-4938-8006-6369e10db5b6` #0 |
+
+`get_character(<id>)` lists every animation group with download URLs, so any
+keyframe can be re-picked for free. The frames kept for the three Fighters
+converted here are named after their animation groups (`walk-v3`, `jab-stick`,
+`duck-compress`, `hurt-airborne`, `flare-open`, `pogo-stick-down`, …).
 
 Frames are at
 `https://backblaze.pixellab.ai/file/pixellab-characters/<account>/<character>/animations/<animation>/south-east/<n>.png`.
@@ -184,9 +241,11 @@ Rejected variants are still on the account too, should a pick need revisiting:
 
 Converting a Fighter to bespoke used to **remove its special-move flourish** —
 the splat leaving Ketchup's nozzle, the coals roaring on The Grill's flare —
-because those were drawn inside `COSTUMES` and `wearsCostume` returns false for
-bespoke Fighters. They now live in `FLOURISHES` in `brawl-art.js` and are drawn
-for every Fighter, so converting a Fighter no longer costs it its special.
+because those were drawn inside the costume layer, which a Fighter with art of
+its own does not get. They now live in `FLOURISHES` in `brawl-art.js` and are
+drawn for **every** Fighter, so a conversion no longer costs a Fighter its
+special. (The costume layer itself is gone — with all four Fighters bespoke it
+had no users left.)
 
 That means a Fighter's `action2` sprite only has to carry the *pose*. The
 effect is already on screen:
