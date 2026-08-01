@@ -41,6 +41,17 @@ const STYLES = `
   .accent { color:#ff6b35; }
   #arena-wrap { position: relative; width: 100%; }
   #arena { display: block; width: 100%; height: auto; border-radius: 16px; background:#070d1c; touch-action: none; }
+  /* Fullscreen letterboxes rather than stretches: the canvas keeps its 16:9
+     intrinsic ratio, so max-width/max-height alone fit it to whichever axis
+     runs out first. Stretching it would put the sim's coordinates and the
+     pixels they land on out of proportion. */
+  #arena-wrap:fullscreen {
+    display: flex; align-items: center; justify-content: center;
+    background:#020617; padding: 0; border: 0; border-radius: 0;
+  }
+  #arena-wrap:fullscreen #arena {
+    width: auto; height: auto; max-width: 100vw; max-height: 100vh; border-radius: 0;
+  }
   .overlay {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     background: rgba(2,6,23,0.82); border-radius: 16px; padding: 16px; text-align: center;
@@ -248,6 +259,7 @@ ${NAV}
         <button type="button" id="btn-join" class="px-4 py-2 rounded-lg bg-accent hover:bg-accent-deep text-white font-bold transition">Enter the Arena</button>
         <button type="button" id="btn-leave" class="hidden px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition">Leave</button>
         <button type="button" id="btn-cpu" class="hidden px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition" title="Only while you're alone in the Arena">Spawn a CPU</button>
+        <button type="button" id="btn-fullscreen" class="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition" title="Fullscreen the Arena (F)">Fullscreen</button>
         <span id="arena-note" class="text-slate-500"></span>
       </div>
 
@@ -260,12 +272,12 @@ ${NAV}
               <div><span class="kbd">A</span><span class="kbd">D</span> / <span class="kbd">←</span><span class="kbd">→</span> run · <span class="kbd">Space</span> jump (twice to double jump)</div>
               <div><span class="kbd">W</span><span class="kbd">S</span> / <span class="kbd">↑</span><span class="kbd">↓</span> aim your attacks · <span class="kbd">S</span> fast-falls, <span class="kbd">S</span>+<span class="kbd">Space</span> drops through a soft platform</div>
               <div><span class="kbd">J</span> light · <span class="kbd">K</span> heavy · <span class="kbd">L</span> special · <span class="kbd">Shift</span> dodge</div>
+              <div><span class="kbd">F</span> fullscreen the Arena</div>
             </div>
           </div>
           <div>
             <div class="font-semibold text-white mb-1">Controller <span class="text-xs text-slate-500 font-normal">— plug one in and press a button</span></div>
             <div class="space-y-1 text-slate-400">
-              <div>Smash layout, both families mapped at once — whichever pad you own just works.</div>
               <div>Press anything to wake your Fighter after a fade.</div>
             </div>
           </div>
@@ -279,11 +291,6 @@ ${NAV}
             <figcaption>PlayStation</figcaption>
             ${padDiagram("playstation")}
           </figure>
-        </div>
-        <div class="text-xs text-slate-500 mt-3">
-          The CPU sparring partner wears <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 zombie.
-          Percent has no ceiling and never kills on its own — it just means you fly farther. You only lose a stock by crossing the blast zone.
-          Idle for a minute and your Fighter fades out; any button brings them back.
         </div>
       </div>
     </section>
@@ -340,6 +347,8 @@ const noteEl = document.getElementById("arena-note");
 const btnJoin = document.getElementById("btn-join");
 const btnLeave = document.getElementById("btn-leave");
 const btnCpu = document.getElementById("btn-cpu");
+const btnFullscreen = document.getElementById("btn-fullscreen");
+const arenaWrap = document.getElementById("arena-wrap");
 
 // ------------------------------------------------------------------- state
 
@@ -551,6 +560,7 @@ const keyLatched = new Set();
 window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (isTyping(e.target)) return;
+  if (e.code === "KeyF") { toggleFullscreen(); return; }
   if (usesKey(e.code)) e.preventDefault();
   keyState.add(e.code);
   keyLatched.add(e.code);
@@ -566,6 +576,30 @@ function usesKey(code) {
   for (const codes of Object.values(KEYS)) if (codes.includes(code)) return true;
   return false;
 }
+
+// ------------------------------------------------------------- fullscreen
+// The wrap, not the canvas: the overlay (Fighter picker, KO banner, waiting
+// notice) is a child of the wrap, so fullscreening the canvas alone would put
+// every prompt on the other side of the fullscreen layer where nobody can see
+// or click it.
+
+function fullscreenEl() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
+function toggleFullscreen() {
+  if (fullscreenEl()) {
+    (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    return;
+  }
+  const req = arenaWrap.requestFullscreen || arenaWrap.webkitRequestFullscreen;
+  if (req) Promise.resolve(req.call(arenaWrap)).catch(() => {});
+}
+function syncFullscreenButton() {
+  btnFullscreen.textContent = fullscreenEl() ? "Exit fullscreen" : "Fullscreen";
+}
+btnFullscreen.addEventListener("click", () => { btnFullscreen.blur(); toggleFullscreen(); });
+document.addEventListener("fullscreenchange", syncFullscreenButton);
+document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
 
 // Smash conventions on a fixed layout — no remap UI, by design.
 const PAD = {
