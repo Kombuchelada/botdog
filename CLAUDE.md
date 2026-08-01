@@ -183,6 +183,21 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   `Date.now()` to it breaks either the browser or prediction — usually both.
   This is the `computeRatesFor` lesson applied by construction rather than by
   discipline.
+- **Folding a GlizzyBrawl snapshot into an arena you will keep stepping must go
+  through `applyFighterSnapshot`, never a raw `Object.assign`.** The wire and
+  the sim deliberately disagree about an attack's `move`: `snapshot()` sends the
+  move's *name* (what the art layer wants), `stepAttack` needs the *object* (it
+  reads `startup`/`active`/`endlag` off it). Assign the wire shape onto a
+  Fighter the client predicts and `startup + active` is `undefined + undefined`
+  = NaN, so `frame >= activeEnd + endlag` is false on every future tick and the
+  attack **never ends** — which freezes that Fighter permanently, since
+  `controllable` and `canMove` are both gated on `!f.attack`. This hit *only
+  your own Fighter*, because it is the one `applySnapshot` deliberately skips
+  (it's predicted) and the page reconciled it by hand; the server and every
+  other client kept a healthy copy, so it read as "my Fighter disappeared but
+  everyone else can still see me". `stepAttack` now also drops an attack whose
+  frame data isn't arithmetic — an attack that cannot end is an absorbing state
+  and nothing else recovers from it.
 - **GlizzyBrawl snapshots buffer events, and queued inputs merge.** Snapshots
   go out every other tick, so they must carry *all* events since the last one
   (sending only that tick's events dropped half of every fight's hits and KOs).

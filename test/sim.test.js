@@ -21,6 +21,8 @@ import {
   emptyInput,
   cpuInput,
   RESPAWN_DELAY_TICKS,
+  snapshot,
+  applySnapshot,
 } from "../brawl-sim.js";
 
 // ---------------------------------------------------------------- helpers
@@ -493,4 +495,82 @@ test("the simulation is deterministic for identical inputs", () => {
 
 test("the tick rate is the agreed 30Hz", () => {
   assert.equal(TICK_HZ, 30);
+});
+
+// ------------------------------------------------- snapshots are simulatable
+//
+// The browser folds server snapshots into an arena it keeps stepping, so
+// whatever comes out of `applySnapshot` has to be something `stepArena` can
+// still run. The wire deliberately carries an attack's move as a NAME (art
+// needs the name, not the frame data), while the simulation needs the move
+// OBJECT — `stepAttack` reads `startup`/`active`/`endlag` off it to know when
+// the attack is over.
+//
+// Feed the wire shape back into the stepper and `startup + active` is
+// `undefined + undefined` = NaN, so `frame >= activeEnd + endlag` is false on
+// every future tick and the attack NEVER ENDS. A Fighter with an attack that
+// cannot end is permanently unactionable: `controllable` and `canMove` are both
+// gated on `!f.attack`. That is a frozen Fighter for the rest of the session,
+// and it is invisible to the server, which has its own perfectly healthy copy.
+
+test("a Fighter folded in from a snapshot mid-attack still finishes the attack", () => {
+  const server = arena();
+  spawnFighter(server, { id: "a", character: "glizzy", name: "A" });
+  server.fighters.a.onGround = true;
+  const swing = emptyInput();
+  swing.light = true;
+  stepArena(server, { a: swing });
+  assert.ok(server.fighters.a.attack, "precondition: the server Fighter is mid-attack");
+
+  const client = arena();
+  applySnapshot(client, snapshot(server));
+  const mine = client.fighters.a;
+  assert.ok(mine.attack, "the attack should survive the fold");
+
+  // Every attack in the game is over well inside 60 ticks (two seconds).
+  for (let i = 0; i < 60; i++) stepArena(client, {});
+  assert.equal(mine.attack, null, "the attack never ended — this Fighter is frozen forever");
+});
+
+test("a Fighter folded in mid-attack can act again afterwards", () => {
+  // The symptom the frame data actually causes: an attack that cannot end means
+  // `controllable` is false forever, so no input is ever read again.
+  const server = arena();
+  spawnFighter(server, { id: "a", character: "grill", name: "A" });
+  server.fighters.a.onGround = true;
+  const swing = emptyInput();
+  swing.heavy = true;
+  stepArena(server, { a: swing });
+
+  const client = arena();
+  applySnapshot(client, snapshot(server));
+  const mine = client.fighters.a;
+  mine.onGround = true;
+
+  for (let i = 0; i < 60; i++) stepArena(client, {});
+
+  const startX = mine.x;
+  const run = emptyInput();
+  run.right = true;
+  for (let i = 0; i < 10; i++) stepArena(client, { a: run });
+  assert.ok(mine.x > startX + 20, "the Fighter never regained control after the fold");
+});
+
+test("an unknown move name folded in does not freeze the Fighter", () => {
+  // A client running older code than the server must degrade to "no attack",
+  // never to "an attack that cannot end".
+  const client = arena();
+  spawnFighter(client, { id: "a", character: "glizzy", name: "A" });
+  client.fighters.a.onGround = true;
+  const snap = {
+    tick: 5,
+    fighters: [{
+      ...snapshot(client).fighters[0],
+      attack: { kind: null, frame: 0, move: "a_move_from_the_future", startup: 3, active: 3, endlag: 6 },
+    }],
+    projectiles: [],
+  };
+  applySnapshot(client, snap);
+  for (let i = 0; i < 60; i++) stepArena(client, {});
+  assert.equal(client.fighters.a.attack, null);
 });

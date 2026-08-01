@@ -645,6 +645,17 @@ function stepAttack(state, f, events) {
   const a = f.attack;
   const m = a.move;
 
+  // An attack that cannot end is the worst state a Fighter can be in: both
+  // `controllable` and `canMove` are gated on `!f.attack`, so it is frozen and
+  // unactionable for the rest of the session, and nothing recovers it. If the
+  // move data is not arithmetic, drop the attack rather than loop on it — the
+  // Fighter loses one swing instead of the match.
+  if (!m || !Number.isFinite(m.startup + m.active + m.endlag)) {
+    f.attack = null;
+    f.state = f.onGround ? "idle" : "air";
+    return;
+  }
+
   if (m.kind === "pogo" && a.frame >= m.startup && !a.hasHit) f.vy = Math.max(f.vy, m.dive);
   // The Snap lunge carries the wind-up, then plants for the bite — otherwise
   // the lunge outruns its own hitbox and the bite lands behind the target.
@@ -901,6 +912,51 @@ function round2(n) {
 }
 
 /**
+ * Fold one Fighter's snapshot onto a simulatable Fighter.
+ *
+ * The wire and the simulation deliberately disagree about what an attack's
+ * `move` is. `snapshot()` sends the move's NAME, because that is what the art
+ * layer wants and because the move object is static data the client already
+ * has. `stepAttack` needs the OBJECT: it reads `startup`/`active`/`endlag` off
+ * it to know when the attack is over.
+ *
+ * Assigning the wire shape straight onto a Fighter the client keeps *stepping*
+ * is therefore not a type nit, it is fatal. `startup + active` becomes
+ * `undefined + undefined` = NaN, `frame >= activeEnd + endlag` is false on
+ * every future tick, and the attack never ends — which freezes the Fighter for
+ * good, because `controllable` and `canMove` are both gated on `!f.attack`.
+ * The server is unaffected and other clients keep seeing a healthy Fighter, so
+ * it looks like your own Fighter alone has broken.
+ *
+ * Anything folding a snapshot into an arena that will be stepped must go
+ * through here. That is `applySnapshot` for everyone else, and the page's own
+ * self-reconcile for the local player — the one Fighter `applySnapshot`
+ * deliberately skips.
+ */
+export function applyFighterSnapshot(target, s) {
+  Object.assign(target, s);
+  target.attack = hydrateAttack(s.attack);
+  return target;
+}
+
+/** A wire attack turned back into one the simulation can step. */
+function hydrateAttack(a) {
+  if (!a) return null;
+  // Already sim-shaped: a locally predicted Fighter holds the live move object.
+  if (a.move && typeof a.move === "object") return a;
+  const move = MOVES[a.move] || SPECIALS[a.move] || null;
+  // A name this build doesn't know (an older client against a newer server)
+  // degrades to no attack. Never to an attack that cannot end.
+  if (!move) return null;
+  return {
+    move,
+    kind: a.kind ?? move.kind ?? null,
+    frame: Number.isFinite(a.frame) ? a.frame : 0,
+    hasHit: !!a.hasHit,
+  };
+}
+
+/**
  * Fold a server snapshot into a local arena, keeping `exceptId` (the local
  * player, who is predicted) untouched. Used by the browser client only.
  */
@@ -911,8 +967,8 @@ export function applySnapshot(state, snap, exceptId = null) {
     seen.add(s.id);
     if (s.id === exceptId) continue;
     const existing = state.fighters[s.id];
-    if (existing) Object.assign(existing, s);
-    else state.fighters[s.id] = { ...spawnFighter(state, { id: s.id, character: s.character, name: s.name, cpu: s.cpu, cosmetics: s.cosmetics, x: s.x, y: s.y }), ...s };
+    if (existing) applyFighterSnapshot(existing, s);
+    else applyFighterSnapshot(state.fighters[s.id] = spawnFighter(state, { id: s.id, character: s.character, name: s.name, cpu: s.cpu, cosmetics: s.cosmetics, x: s.x, y: s.y }), s);
   }
   for (const id of Object.keys(state.fighters)) {
     if (!seen.has(id) && id !== exceptId) delete state.fighters[id];

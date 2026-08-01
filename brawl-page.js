@@ -329,7 +329,7 @@ ${CLIENT_SCRIPT}
 const CLIENT_SCRIPT = String.raw`
 import {
   TICK_HZ, TICK_MS, STAGE, BODY, FIGHTERS,
-  createArena, stepArena, emptyInput, applySnapshot, spawnFighter,
+  createArena, stepArena, emptyInput, applySnapshot, applyFighterSnapshot, spawnFighter,
 } from "/brawl/sim.js";
 import {
   SPRITE, allSprites, bodyFor, frameFor, spriteKey, drawFlourish, drawCrown,
@@ -492,10 +492,10 @@ function reconcileSelf(msg) {
   const mine = local.fighters[myId];
   if (!authoritative) return;
   if (!mine) {
-    local.fighters[myId] = { ...spawnFighter(local, {
+    local.fighters[myId] = applyFighterSnapshot(spawnFighter(local, {
       id: myId, character: authoritative.character, name: authoritative.name,
       cosmetics: authoritative.cosmetics, x: authoritative.x, y: authoritative.y, invuln: 0,
-    }), ...authoritative };
+    }), authoritative);
     return;
   }
   // How far ahead of the server our prediction is. A snapshot that predates
@@ -511,8 +511,13 @@ function reconcileSelf(msg) {
   mine.falls = authoritative.falls;
   mine.streak = authoritative.streak;
   mine.cosmetics = authoritative.cosmetics;
+  // Through applyFighterSnapshot, never a raw Object.assign: the wire carries
+  // an attack's move as a name and the stepper needs the object, and this
+  // Fighter is the one that keeps being predicted. Assigning the wire shape
+  // here froze your own Fighter — and only ever your own, since it is the one
+  // applySnapshot skips.
   if (drift > tolerance || authoritative.state === "respawn" || mine.state === "respawn") {
-    Object.assign(mine, authoritative);
+    applyFighterSnapshot(mine, authoritative);
   }
 }
 
