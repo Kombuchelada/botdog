@@ -18,7 +18,8 @@ counter has grown into a multi-surface project:
   ×100 click; 120-day streak → +240% production; etc.)
 - **GlizzyBrawl**: a realtime Smash-style platform fighter at `/brawl` — one
   always-on Arena, server-authoritative 30Hz sim over WebSockets, four
-  Fighters, all-time KO/Fall scoreboard plus a Pacific Day Tally
+  Fighters, all-time KO/Fall scoreboard plus a Pacific Day Tally, and a fully
+  synthesised sound layer (no audio files)
 
 Hosted on Railway. SQLite (`better-sqlite3`) on a Railway volume.
 DO Spaces for object storage (attachments, avatars, DB backups).
@@ -58,6 +59,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `brawl-art.js` | GlizzyBrawl Fighter art. Every action is a **clip** (`CLIPS`), and `frameFor(fighter, nowMs)` returns `{ clip, index }` from a snapshot — attacks driven by their own frame counter against the move's frame data, hitstun/dodge by the sim's timers, the air clips by vertical velocity, only the walk on a clock. Also the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/`; the only borrowed art left is Kenney's CC0 zombie for CPUs, whose clips are one frame each. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster as a filmstrip so the *mapping* can be judged without a browser. |
 | `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art, one `--clip` per action — de-backgrounds, trims, resamples each animation to the length `CLIPS` declares, scales the whole set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. Fails if a peak clip's most extreme frame is its first (a dead animation). `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
 | `scripts/brawl-art-measure.mjs` | Gates keyframe picks on measured alpha bounding boxes (crouch ≤75% of standing height, attack ≥+15px extension, hurt ≥3px lift) instead of on judgement. |
+| `brawl-audio.js` | GlizzyBrawl's sound, and **not one audio file** — every cue is synthesised in the browser from a recipe in `CUES` (oscillator sweeps plus one buffer of white noise). Pure and dependency-free like the sim beside it: it decides *what should be heard and how loud* and never opens an audio device. `cueFor(ev)` voices the three server events (hit/KO/respawn); `transitionCues(prev, cur)` derives swings, jumps, landings and dodges by diffing the local arena against itself a tick ago. Shared with the browser at `/brawl/audio.js`. The engine that turns a cue into sound is the only Web Audio code on the page and lives in `brawl-page.js`. |
 | `brawl-stage.js` | GlizzyBrawl's Stage — **the Ballpark**, a night game seen from the outfield. Composed from props at native scale (scoreboard rig, light towers, crowd band, a 32px wall tileset, three Catwalks), not painted as one image. The scene is *derived* from the sim's `STAGE`, so a platform can't move out from under its Catwalk. `planScene` is the pure fallback decision (art → primitive → sky); placement lives here as readable coordinates. Shared with the browser at `/brawl/stage.js`. See `docs/glizzybrawl-stage-brief.md`. |
 | `scripts/brawl-import-stage.mjs` | Imports Ballpark props — chroma-keys the background out, trims, cuts to the size the scene draws them at, records bounds in the manifest. Three gates fail the import: **scale** (a prop must land 1:1, never resampled — the fix is to put the art's size into `LAYOUT`), **floor** (the wall cap's surface must be on the wang midline, or the wall sits off the floor line) and **clearance** (nothing standing above a Catwalk's walk line — a phantom railing). |
 | `scripts/lib/pixel-art.mjs` | The image ops both importers need: flood-fill de-background, chroma key, alpha bounding box. Shared because two copies had already drifted (`hexToRgb` fell back to white in one and black in the other). |
@@ -305,6 +307,36 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   script against a floor *derived* from the placeholder Stage (`--baseline`),
   which is known-readable. `test/brawl-stage.test.js` stays pure — no canvas, no
   images — like the art seam beside it.
+- **GlizzyBrawl's sound is synthesised, and impacts and movement come from
+  different places on purpose.** The Arena forwards only `hit`, `ko` and
+  `respawn` to clients — exactly the events a client can't work out for itself,
+  because they follow from *other* Fighters' inputs. Everything else (swings,
+  jumps, landings, dodges) is derived from state the local arena already holds.
+  Splitting it this way is what removes the double-fire problem: your own swings
+  are predicted locally and would otherwise sound once on prediction and again
+  on the server's echo. No cue has two sources, so nothing needs deduplicating.
+- **How a GlizzyBrawl move *sounds* is derived from its frame data, not from its
+  name.** There is no table mapping `light_side` to a sound: one `swing` recipe
+  is stretched and pitched by the startup the sim reports, so a jab is short and
+  high and a heavy is long and low, and a balance change to the frame data
+  re-voices the move with nothing edited. Flare-Up's sizzle is bound to
+  `SPECIALS.flare.startup` the same way and for the same reason its coals are —
+  it is now a second telegraph, and a telegraph that outlasts its wind-up is a
+  lie. This is the art layer's "a duration the presentation plays is a duration
+  the sim reports" rule, applied to the ears.
+- **A swing fires on the frame counter restarting, but only on a big restart.**
+  The local arena predicts every tick while snapshots land on every second one,
+  so a remote Fighter's attack routinely runs a frame or two ahead and is pulled
+  back. Sounding off on *any* backwards step means a phantom second swing on
+  every attack anyone else throws; a real repeat (which the input buffer makes
+  routine) both jumps back a long way and lands at frame zero, and a correction
+  does neither. Covered by a test, because it is inaudible in code review.
+- **Cue cooldowns are not a taste knob.** Snapshots carry every event since the
+  last one, so a KO arrives together with most of the combo that caused it. With
+  no floor between two firings of the same cue that lands as one clipped burst
+  of noise instead of a fight — the audio consequence of the buffering rule the
+  renderer already lives with. Sound also *suspends* (not just mutes) on a
+  hidden tab: the Arena is always on and this is a tab people leave open.
 - **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
   time during practice. CPUs exist only while a lone human is present, so
   "are there CPUs in the Arena?" is the entire check — there is never a
@@ -324,10 +356,12 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **`npm test` is Node's built-in `node:test`, zero new dependencies.** The two
   seams are the WebSocket boundary (primary) and the sim's public API. Tests
   assert what a connected client observes and what the ledger records — never
-  internal state shapes or tick bookkeeping. `test/brawl-art.test.js` is a
-  deliberate third seam and the only one: neither other seam can observe art,
-  and the flourish layer has a silent failure mode. It tests pure functions
-  only — no canvas, no images, and never the order layers draw in.
+  internal state shapes or tick bookkeeping. `test/brawl-art.test.js` and
+  `test/brawl-audio.test.js` are deliberate exceptions on the same grounds:
+  neither other seam can observe presentation at all, and both layers fail
+  *silently* — a flourish can vanish and a cue can name a recipe that doesn't
+  exist without anything throwing. Both test pure functions only: no canvas, no
+  images, no audio device, and never the order layers draw or play in.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.
@@ -476,8 +510,10 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyBrawl
-Fighter animation — every action a clip driven by
+and this doc should be updated. Last meaningful update: GlizzyBrawl sound
+(`brawl-audio.js`, `/brawl/audio.js`) — fully synthesised, no audio assets,
+impacts from server events and movement from state transitions; before that,
+GlizzyBrawl Fighter animation — every action a clip driven by
 sim state, with contact pinned to the hitbox
 (`brawl-art.js`, `scripts/brawl-import-sprites.mjs`); before that, GlizzyBrawl
 (`brawl-sim.js` / `brawl.js` / `brawl-page.js`, `/brawl`) + the repo's first

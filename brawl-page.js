@@ -260,6 +260,7 @@ ${NAV}
         <button type="button" id="btn-leave" class="hidden px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition">Leave</button>
         <button type="button" id="btn-cpu" class="hidden px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition" title="Only while you're alone in the Arena">Spawn a CPU</button>
         <button type="button" id="btn-fullscreen" class="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition" title="Fullscreen the Arena (F)">Fullscreen</button>
+        <button type="button" id="btn-sound" class="px-3 py-2 rounded-lg border border-slate-700 text-slate-300 hover:text-white transition" title="Sound (M)">🔊 Sound</button>
         <span id="arena-note" class="text-slate-500"></span>
       </div>
 
@@ -272,7 +273,7 @@ ${NAV}
               <div><span class="kbd">A</span><span class="kbd">D</span> / <span class="kbd">←</span><span class="kbd">→</span> run · <span class="kbd">Space</span> jump (twice to double jump)</div>
               <div><span class="kbd">W</span><span class="kbd">S</span> / <span class="kbd">↑</span><span class="kbd">↓</span> aim your attacks · <span class="kbd">S</span> fast-falls, <span class="kbd">S</span>+<span class="kbd">Space</span> drops through a soft platform</div>
               <div><span class="kbd">J</span> light · <span class="kbd">K</span> heavy · <span class="kbd">L</span> special · <span class="kbd">Shift</span> dodge</div>
-              <div><span class="kbd">F</span> fullscreen the Arena</div>
+              <div><span class="kbd">F</span> fullscreen the Arena · <span class="kbd">M</span> mute</div>
             </div>
           </div>
           <div>
@@ -334,6 +335,9 @@ import {
   SPRITE, allSprites, bodyFor, frameFor, spriteKey, drawFlourish, drawCrown,
 } from "/brawl/art.js";
 import { allStageArt, buildScene, drawStage } from "/brawl/stage.js";
+import {
+  CUES, MASTER_GAIN, cueFor, transitionCues, fighterAudioState,
+} from "/brawl/audio.js";
 
 const BOOT = window.BRAWL;
 const canvas = document.getElementById("arena");
@@ -348,6 +352,7 @@ const btnJoin = document.getElementById("btn-join");
 const btnLeave = document.getElementById("btn-leave");
 const btnCpu = document.getElementById("btn-cpu");
 const btnFullscreen = document.getElementById("btn-fullscreen");
+const btnSound = document.getElementById("btn-sound");
 const arenaWrap = document.getElementById("arena-wrap");
 
 // ------------------------------------------------------------------- state
@@ -512,6 +517,7 @@ function reconcileSelf(msg) {
 }
 
 function onSimEvent(ev) {
+  playCue(cueFor(ev, { stage: STAGE }));
   if (ev.type === "hit") {
     for (let i = 0; i < 8; i++) {
       sparks.push({
@@ -561,6 +567,7 @@ window.addEventListener("keydown", (e) => {
   if (e.repeat) return;
   if (isTyping(e.target)) return;
   if (e.code === "KeyF") { toggleFullscreen(); return; }
+  if (e.code === "KeyM") { toggleSound(); return; }
   if (usesKey(e.code)) e.preventDefault();
   keyState.add(e.code);
   keyLatched.add(e.code);
@@ -600,6 +607,170 @@ function syncFullscreenButton() {
 btnFullscreen.addEventListener("click", () => { btnFullscreen.blur(); toggleFullscreen(); });
 document.addEventListener("fullscreenchange", syncFullscreenButton);
 document.addEventListener("webkitfullscreenchange", syncFullscreenButton);
+
+// ----------------------------------------------------------------- sound
+//
+// The engine half of brawl-audio.js: the only code on the page that knows
+// Web Audio exists. It plays cues; it never decides what a cue should be. Every
+// sound is built here out of oscillators and one buffer of white noise, so the
+// Arena ships no audio files at all.
+
+const SOUND_KEY = "brawl.sound";
+/** Simultaneous layers. Past this a pile-up is mud, and quiet mud at that. */
+const MAX_VOICES = 16;
+
+let soundOn = localStorage.getItem(SOUND_KEY) !== "off";
+let audioCtx = null;
+let masterGain = null;
+let noiseBuf = null;
+let voices = 0;
+/** cue id -> when it last fired, for the per-cue cooldown in CUES. */
+const cueFiredAt = new Map();
+
+function initAudio() {
+  if (audioCtx) return audioCtx;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  audioCtx = new Ctx();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = soundOn ? MASTER_GAIN : 0;
+  masterGain.connect(audioCtx.destination);
+  // Two seconds of white noise, made once and read from a random offset per
+  // layer. One buffer is all any of this needs, and the moving offset is what
+  // stops eight hits in a row being eight bit-identical bursts.
+  const n = Math.floor(audioCtx.sampleRate * 2);
+  noiseBuf = audioCtx.createBuffer(1, n, audioCtx.sampleRate);
+  const data = noiseBuf.getChannelData(0);
+  for (let i = 0; i < n; i++) data[i] = Math.random() * 2 - 1;
+  return audioCtx;
+}
+
+// Nothing may make a sound until the browser has seen a gesture, so every way
+// into the Arena is also an unlock: a key, a tap, a button. A gamepad fires no
+// DOM event at all, which is why the join button counts — a pad-only player
+// would otherwise sit in silence forever with no way out of it.
+function unlockAudio() {
+  const ctx = initAudio();
+  if (ctx && ctx.state === "suspended" && soundOn && !document.hidden) ctx.resume().catch(() => {});
+}
+window.addEventListener("keydown", unlockAudio, { passive: true });
+window.addEventListener("pointerdown", unlockAudio, { passive: true });
+
+const clampHz = (hz) => Math.min(20000, Math.max(20, hz));
+
+function playCue(cue) {
+  if (!cue || !soundOn) return;
+  const recipe = CUES[cue.id];
+  if (!recipe) return;
+
+  // The cooldown is measured on the wall clock, not on ticks: the point is that
+  // two firings are far enough apart for an ear, and a client that stalls and
+  // then runs eight ticks at once has not made them so.
+  const now = performance.now();
+  if (now - (cueFiredAt.get(cue.id) || -Infinity) < recipe.cooldownMs) return;
+
+  const ctx = initAudio();
+  if (!ctx || ctx.state !== "running") return;
+  if (voices + recipe.layers.length > MAX_VOICES) return;
+  cueFiredAt.set(cue.id, now);
+
+  const stretch = cue.stretch || 1;
+  const rate = cue.rate || 1;
+  let dest = masterGain;
+  if (ctx.createStereoPanner) {
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = cue.pan || 0;
+    panner.connect(masterGain);
+    dest = panner;
+  }
+
+  const t0 = ctx.currentTime;
+  for (const layer of recipe.layers) {
+    const start = t0 + (layer.delay || 0) * stretch;
+    const attack = Math.max(0.001, (layer.attack || 0.005) * stretch);
+    const decay = Math.max(0.02, (layer.decay || 0.1) * stretch);
+    const end = start + attack + decay;
+
+    // Attack linear, release exponential — a linear release audibly clicks off,
+    // and an exponential attack on a 2ms transient is no attack at all.
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, start);
+    env.gain.linearRampToValueAtTime(Math.max(0.0002, layer.gain * cue.gain), start + attack);
+    env.gain.exponentialRampToValueAtTime(0.0001, end);
+    env.connect(dest);
+
+    let src;
+    if (layer.kind === "noise") {
+      src = ctx.createBufferSource();
+      src.buffer = noiseBuf;
+      const filter = ctx.createBiquadFilter();
+      filter.type = layer.filter || "bandpass";
+      filter.Q.value = layer.q || 1;
+      filter.frequency.setValueAtTime(clampHz(layer.from * rate), start);
+      filter.frequency.exponentialRampToValueAtTime(clampHz(layer.to * rate), end);
+      src.connect(filter);
+      filter.connect(env);
+      src.start(start, Math.random() * 1.5);
+    } else {
+      src = ctx.createOscillator();
+      src.type = layer.wave || "sine";
+      src.frequency.setValueAtTime(clampHz(layer.from * rate), start);
+      src.frequency.exponentialRampToValueAtTime(clampHz(layer.to * rate), end);
+      src.connect(env);
+      src.start(start);
+    }
+    src.stop(end + 0.02);
+    voices += 1;
+    src.onended = () => { voices -= 1; };
+  }
+}
+
+/**
+ * Sound off the movement half of the cue vocabulary — swings, jumps, landings,
+ * dodges — by diffing the local arena against itself a tick ago. Impacts are
+ * not here: they arrive as server events, which is what keeps your own swings
+ * from sounding twice (see the note in brawl-audio.js).
+ */
+let audioPrev = null;
+function pumpAudio() {
+  // Dropping the baseline while muted is deliberate. Un-muting mid-fight would
+  // otherwise diff against a state from before the mute and fire every
+  // transition that happened in between, all at once.
+  if (!soundOn) { audioPrev = null; return; }
+  const cur = {};
+  for (const f of Object.values(local.fighters)) cur[f.id] = fighterAudioState(f);
+  if (audioPrev) {
+    for (const cue of transitionCues(audioPrev, cur, { stage: STAGE })) playCue(cue);
+  }
+  audioPrev = cur;
+}
+
+function syncSoundButton() {
+  btnSound.textContent = soundOn ? "🔊 Sound" : "🔇 Muted";
+  btnSound.classList.toggle("text-slate-500", !soundOn);
+}
+
+function toggleSound() {
+  soundOn = !soundOn;
+  localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off");
+  syncSoundButton();
+  if (soundOn) unlockAudio();
+  else if (audioCtx) audioCtx.suspend().catch(() => {});
+  if (masterGain) masterGain.gain.value = soundOn ? MASTER_GAIN : 0;
+}
+
+btnSound.addEventListener("click", () => { btnSound.blur(); toggleSound(); });
+syncSoundButton();
+
+// The Arena is always on and this is a tab people leave open. A backgrounded
+// fight goes properly silent — suspended, not just turned down — because the
+// site becoming the tab you have to hunt for and close is a worse outcome than
+// having no sound at all.
+document.addEventListener("visibilitychange", () => {
+  if (!audioCtx) return;
+  if (document.hidden) audioCtx.suspend().catch(() => {});
+  else if (soundOn) audioCtx.resume().catch(() => {});
+});
 
 // Smash conventions on a fixed layout — no remap UI, by design.
 const PAD = {
@@ -684,6 +855,10 @@ function frame(now) {
     const inputs = {};
     if (myId && local.fighters[myId]) inputs[myId] = myFrame;
     stepArena(local, inputs);
+    // Movement cues are diffed at the tick boundary, not per rendered frame: a
+    // Fighter leaves the ground exactly once, and a 144Hz screen must not hear
+    // it any differently from a 60Hz one.
+    pumpAudio();
   }
 
   ease();

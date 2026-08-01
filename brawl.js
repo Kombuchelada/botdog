@@ -805,6 +805,16 @@ export function registerBrawl(app) {
     fs.createReadStream(path.join(HERE, "brawl-art.js")).pipe(res);
   });
 
+  // What the Arena sounds like. Shared for the third time for the third time's
+  // reason: it decides cues from sim state, so it must be the same file the
+  // tests reason about. No audio is served — every sound is synthesised in the
+  // browser from the recipes in here.
+  app.get("/brawl/audio.js", (req, res) => {
+    res.type("application/javascript");
+    res.setHeader("Cache-Control", "no-cache");
+    fs.createReadStream(path.join(HERE, "brawl-audio.js")).pipe(res);
+  });
+
   // The Stage's scene description and draw code, shared for the same reason —
   // `scripts/brawl-stage-preview.mjs` renders the Ballpark from this very file,
   // so a preview can't show a composition the Arena doesn't draw.
