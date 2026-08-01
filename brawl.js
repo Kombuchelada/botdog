@@ -41,6 +41,7 @@ import {
 } from "./database.js";
 import { buildUserDatesMap, getCurrentStreak, toPacificDateKey } from "./stats.js";
 import { renderBrawlPage } from "./brawl-page.js";
+import { announceArenaJoin } from "./brawl-announce.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -609,6 +610,16 @@ function joinArena(conn, character) {
     character: char,
     cosmetics: arena.fighters[conn.fighterId].cosmetics,
     stats: { kos: rec.kos, falls: rec.falls, bestStreak: rec.bestStreak },
+  });
+
+  // Tell the channel — fire and forget. This path also runs on a reconnect and
+  // on an AFK'd Fighter waking up, which is why the announcer, not the Arena,
+  // owns the "is this worth a message?" decision.
+  announceArenaJoin({
+    userId: conn.userId,
+    name: conn.displayName,
+    characterName: FIGHTERS[char].name,
+    fighters: humanFighterIds().length,
   });
 }
 
