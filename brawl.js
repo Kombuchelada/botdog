@@ -53,6 +53,9 @@ export const MAX_CPUS = 3;
 // demoable in local development, following the GLIZZY_TEST_MODE precedent.
 // Never set it in production.
 const AFK_TICKS = (process.env.BRAWL_TEST_MODE === "1" ? 2 : 60) * TICK_HZ;
+// Fading with no warning reads as a bug — you were standing there and the game
+// took your Fighter. Ten seconds is long enough to touch a key on purpose.
+const AFK_WARN_TICKS = Math.min(10 * TICK_HZ, Math.floor(AFK_TICKS / 2));
 // CPUs don't vanish instantly when a human arrives — they fade, so the screen
 // reads as "they left" rather than "the game glitched".
 const CPU_FADE_TICKS = TICK_HZ;
@@ -444,6 +447,13 @@ function enforceAfk() {
   for (const conn of clients.values()) {
     if (!conn.fighterId) continue;
     conn.idleTicks += 1;
+    // The warning is the server's, not the client's: a countdown the page timed
+    // itself would need its own copy of AFK_TICKS, and the two would disagree
+    // the first time either moved. Fires on exactly one tick per idle spell —
+    // any button resets idleTicks and re-arms it.
+    if (conn.idleTicks === AFK_TICKS - AFK_WARN_TICKS) {
+      send(conn.ws, { t: "fading", seconds: Math.round(AFK_WARN_TICKS / TICK_HZ) });
+    }
     if (conn.idleTicks < AFK_TICKS) continue;
     // KOs against them counted right up to this moment — the fade is the line,
     // not the moment they stopped touching the controller.
@@ -771,7 +781,6 @@ export function registerBrawl(app) {
         userId,
         displayName: userId ? displayNameFor(userId) : null,
         avatarUrl: (profile && profile.avatar_url) || null,
-        cosmetics: userId ? computeCosmetics(userId) : null,
         scoreboard: getBrawlScoreboard(10),
         roster: FIGHTER_IDS.map((id) => FIGHTERS[id]),
             cap: MAX_FIGHTERS,

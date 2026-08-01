@@ -175,7 +175,9 @@ Rows are written at KO / despawn / disconnect time, never per tick.
 - **AFK**: ~60s with no button press and your Fighter fades out; any button
   brings them back with no menu. KOs against an idle player count right up to
   the moment the fade completes — tabbing out mid-fight has honest
-  consequences.
+  consequences. Ten seconds out, the server sends a `fading` warning and the
+  page says so; the countdown is the server's because a page timing it itself
+  would need its own copy of `AFK_TICKS` to disagree with.
 - **CPUs** are spawnable only while exactly one human is in the Arena, fade out
   over ~1s when a second human joins, and leave **zero** persistent stats.
   Because CPUs and a second human can never coexist, "are there CPUs in the
@@ -192,7 +194,10 @@ Rows are written at KO / despawn / disconnect time, never per tick.
 `computeCosmetics(userId)` derives crowns (streak tiers), trails, and finishes
 (lifetime tiers) from real hot dog stats at spawn — "finish", not "skin", which
 `CONTEXT.md` reserves. Results are cached for a minute because deriving a
-streak scans every hot dog event and this runs on hello, join, and page render. This reverses the original
+streak scans every hot dog event and this runs on hello and join. They are worn
+in the Arena and nowhere else — the page used to carry a panel explaining what
+you had earned, and it was a paragraph of rules beside a game you could just
+look at. This reverses the original
 pitch on purpose: hot dog stats decorate a Fighter and **never** touch weight,
 speed, damage, reach, or knockback. Nothing gameplay-shaped may be added to
 that function's output.

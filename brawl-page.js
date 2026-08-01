@@ -59,10 +59,119 @@ const STYLES = `
   .board-row:last-child { border-bottom:0; }
   .tabular { font-variant-numeric: tabular-nums; }
   .status-dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+  .pad-card {
+    background:#0a1120; border:1px solid rgba(148,163,184,0.10); border-radius:14px; padding:10px 10px 12px;
+    min-width: 0;
+  }
+  .pad-card figcaption {
+    font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:#64748b; margin-bottom:2px;
+  }
+  /* Same rule as .card: an SVG in a grid cell needs an explicit width or its
+     intrinsic size pins the column open. */
+  .pad { display:block; width:100%; height:auto; }
 </style>`;
 
-export function renderBrawlPage({ userId, displayName, avatarUrl, cosmetics, scoreboard, roster, cap }) {
-  const boot = JSON.stringify({ userId, displayName, cosmetics, scoreboard, roster, cap }).replace(/</g, "\\u003c");
+// ---------------------------------------------------------------------------
+// The pad diagram.
+//
+// One function, two layouts. The two families differ only in where the left
+// stick and D-pad sit and what the face buttons are called, so drawing them
+// from one shape is what keeps the *mapping* identical between the pictures —
+// two hand-drawn SVGs would drift the moment `PAD` changes.
+//
+// Face buttons are labelled in the legend beneath rather than by leader lines:
+// four callouts into a 48px cluster is unreadable at the size this renders.
+// ---------------------------------------------------------------------------
+
+const PAD_STYLES = {
+  xbox: {
+    name: "Xbox",
+    // Xbox puts the stick where PlayStation puts the D-pad, and vice versa.
+    stickPrimary: [132, 100],
+    dpad: [176, 124],
+    stickSecondary: [222, 124],
+    face: { up: "Y", right: "B", down: "A", left: "X" },
+    bumper: "LB",
+    trigger: "LT",
+    rbumper: "RB",
+    rtrigger: "RT",
+    glyphSize: 12,
+  },
+  playstation: {
+    name: "PlayStation",
+    dpad: [132, 100],
+    stickPrimary: [176, 126],
+    stickSecondary: [224, 126],
+    face: { up: "△", right: "○", down: "✕", left: "□" },
+    bumper: "L1",
+    trigger: "L2",
+    rbumper: "R1",
+    rtrigger: "R2",
+    glyphSize: 13,
+  },
+};
+
+function padDiagram(key) {
+  const s = PAD_STYLES[key];
+  const [fx, fy] = [266, 100];
+  const R = 24; // face-cluster radius
+  const face = (dx, dy, label) => `
+      <circle cx="${fx + dx}" cy="${fy + dy}" r="11.5" fill="#141d33" stroke="#ff6b35" stroke-width="1.6"/>
+      <text x="${fx + dx}" y="${fy + dy + s.glyphSize * 0.35}" text-anchor="middle"
+            font-size="${s.glyphSize}" font-weight="700" fill="#ffa07a">${label}</text>`;
+  const stick = ([cx, cy]) => `
+      <circle cx="${cx}" cy="${cy}" r="17" fill="#0d1526" stroke="#334155" stroke-width="1.4"/>
+      <circle cx="${cx}" cy="${cy}" r="10" fill="#141d33" stroke="#ff6b35" stroke-width="1.6"/>`;
+  const dpad = ([cx, cy]) => `
+      <path d="M${cx - 5} ${cy - 16} h10 v11 h11 v10 h-11 v11 h-10 v-11 h-11 v-10 h11 z"
+            fill="#141d33" stroke="#ff6b35" stroke-width="1.6" stroke-linejoin="round"/>`;
+
+  return `
+  <svg viewBox="0 0 400 210" class="pad" role="img" aria-label="${esc(s.name)} controller layout">
+    <!-- triggers sit behind the bumpers, the way they do on the pad itself -->
+    <rect x="112" y="26" width="38" height="18" rx="8" fill="#0d1526" stroke="#ff6b35" stroke-width="1.4"/>
+    <text x="131" y="39" text-anchor="middle" font-size="10" font-weight="700" fill="#ffa07a">${s.trigger}</text>
+    <rect x="250" y="26" width="38" height="18" rx="8" fill="#0d1526" stroke="#ff6b35" stroke-width="1.4"/>
+    <text x="269" y="39" text-anchor="middle" font-size="10" font-weight="700" fill="#ffa07a">${s.rtrigger}</text>
+    <rect x="104" y="42" width="54" height="17" rx="8" fill="#131c30" stroke="#ff6b35" stroke-width="1.4"/>
+    <text x="131" y="55" text-anchor="middle" font-size="10" font-weight="700" fill="#ffa07a">${s.bumper}</text>
+    <rect x="242" y="42" width="54" height="17" rx="8" fill="#131c30" stroke="#ff6b35" stroke-width="1.4"/>
+    <text x="269" y="55" text-anchor="middle" font-size="10" font-weight="700" fill="#ffa07a">${s.rbumper}</text>
+
+    <path d="M130 54 H270 C294 54 308 70 312 92 L328 156 C334 188 308 200 290 186 L258 148 H142
+             L110 186 C92 200 66 188 72 156 L88 92 C92 70 106 54 130 54 Z"
+          fill="#0b1220" stroke="rgba(148,163,184,0.28)" stroke-width="1.6"/>
+
+    ${stick(s.stickPrimary)}
+    ${stick(s.stickSecondary)}
+    ${dpad(s.dpad)}
+    ${face(0, -R, s.face.up)}
+    ${face(R, 0, s.face.right)}
+    ${face(0, R, s.face.down)}
+    ${face(-R, 0, s.face.left)}
+
+    <g stroke="rgba(148,163,184,0.45)" stroke-width="1" fill="none">
+      <path d="M62 22 L104 34"/>
+      <path d="M338 22 L296 34"/>
+      <path d="M64 132 L${s.dpad[1] < 120 ? s.dpad[0] - 20 : s.stickPrimary[0] - 18} ${s.dpad[1] < 120 ? s.dpad[1] + 12 : s.stickPrimary[1] - 4}"/>
+    </g>
+    <text x="8" y="22" font-size="12" font-weight="600" fill="#cbd5e1">Dodge</text>
+    <text x="8" y="36" font-size="10" fill="#64748b">${s.bumper} or ${s.trigger}</text>
+    <text x="392" y="22" text-anchor="end" font-size="12" font-weight="600" fill="#cbd5e1">Special</text>
+    <text x="392" y="36" text-anchor="end" font-size="10" fill="#64748b">${s.rbumper} or ${s.rtrigger}</text>
+    <text x="8" y="132" font-size="12" font-weight="600" fill="#cbd5e1">Run · aim</text>
+    <text x="8" y="146" font-size="10" fill="#64748b">stick or D-pad</text>
+    <text x="8" y="158" font-size="10" fill="#64748b">down fast-falls</text>
+  </svg>
+  <div class="flex items-center gap-x-3 gap-y-1 flex-wrap justify-center text-xs text-slate-400 mt-1">
+    <span><span class="kbd">${s.face.down}</span><span class="kbd">${s.face.up}</span> jump</span>
+    <span><span class="kbd">${s.face.left}</span> light</span>
+    <span><span class="kbd">${s.face.right}</span> heavy</span>
+  </div>`;
+}
+
+export function renderBrawlPage({ userId, displayName, avatarUrl, scoreboard, roster, cap }) {
+  const boot = JSON.stringify({ userId, displayName, scoreboard, roster, cap }).replace(/</g, "\\u003c");
 
   const rosterCards = roster
     .map(
@@ -154,16 +263,25 @@ ${NAV}
             </div>
           </div>
           <div>
-            <div class="font-semibold text-white mb-1">Controller <span class="text-xs text-slate-500 font-normal">— Xbox / PlayStation, Smash layout</span></div>
+            <div class="font-semibold text-white mb-1">Controller <span class="text-xs text-slate-500 font-normal">— plug one in and press a button</span></div>
             <div class="space-y-1 text-slate-400">
-              <div>Left stick / D-pad run · <span class="kbd">A</span>/<span class="kbd">✕</span> or <span class="kbd">Y</span>/<span class="kbd">△</span> jump</div>
-              <div><span class="kbd">X</span>/<span class="kbd">□</span> light · <span class="kbd">B</span>/<span class="kbd">○</span> heavy · right bumper/trigger special</div>
-              <div>Left bumper/trigger dodge · press anything to wake your Fighter</div>
+              <div>Smash layout, both families mapped at once — whichever pad you own just works.</div>
+              <div>Press anything to wake your Fighter after a fade.</div>
             </div>
           </div>
         </div>
+        <div class="grid sm:grid-cols-2 gap-4 mt-4">
+          <figure class="pad-card">
+            <figcaption>Xbox</figcaption>
+            ${padDiagram("xbox")}
+          </figure>
+          <figure class="pad-card">
+            <figcaption>PlayStation</figcaption>
+            ${padDiagram("playstation")}
+          </figure>
+        </div>
         <div class="text-xs text-slate-500 mt-3">
-          Every Fighter has art of its own; the CPU sparring partner wears <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 zombie.
+          The CPU sparring partner wears <a href="https://kenney.nl" class="underline hover:text-slate-300">Kenney</a>'s CC0 zombie.
           Percent has no ceiling and never kills on its own — it just means you fly farther. You only lose a stock by crossing the blast zone.
           Idle for a minute and your Fighter fades out; any button brings them back.
         </div>
@@ -185,18 +303,6 @@ ${NAV}
         </div>
         <div id="board-today">${boardRows(scoreboard.today, "KOs today")}</div>
       </div>
-      ${
-        cosmetics && (cosmetics.crown || cosmetics.trail || cosmetics.finish !== "plain")
-          ? `<div class="card p-4">
-               <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">Your cosmetics</div>
-               <div class="text-sm text-slate-300">${esc([cosmetics.crown ? `${cosmetics.crown} crown` : "", cosmetics.trail ? `${cosmetics.trail} trail` : "", cosmetics.finish !== "plain" ? `${cosmetics.finish} finish` : ""].filter(Boolean).join(" · "))}</div>
-               <div class="text-xs text-slate-500 mt-1">Earned from ${esc(cosmetics.notes.join(" and ") || "your hot dog record")}. Decoration only — it never touches a fight.</div>
-             </div>`
-          : `<div class="card p-4">
-               <div class="text-xs uppercase tracking-widest text-slate-400 mb-2">Cosmetics</div>
-               <div class="text-sm text-slate-400">Streaks and lifetime glizzies unlock crowns, trails, and finishes for your Fighter. They are pure decoration — no hot dog stat ever changes a fight.</div>
-             </div>`
-      }
     </aside>
   </div>
 </main>
@@ -280,6 +386,11 @@ function connect() {
   ws.addEventListener("close", () => {
     connected = false;
     myId = null;
+    // The stale-snapshot guard is only meaningful within one connection: a
+    // restarted Arena counts from tick 0 again, and holding on to the old high
+    // water mark would silently drop every snapshot from here on — a page that
+    // looks alive and never updates.
+    lastServerTick = -1;
     setConn("reconnecting…", "#64748b");
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 2, 8000);
@@ -318,6 +429,11 @@ function handle(msg) {
     case "waiting":
       queuePlace = msg;
       showWaiting(msg);
+      break;
+
+    case "fading":
+      // The server counts the idle time; the page only says so out loud.
+      flash("Still there? Fading in " + msg.seconds + "s — press anything.", msg.seconds * 1000);
       break;
 
     case "despawned":
@@ -808,10 +924,10 @@ function showWaiting({ place, waiting, cap }) {
 }
 
 let flashTimer = null;
-function flash(text) {
+function flash(text, ms) {
   noteEl.textContent = text;
   clearTimeout(flashTimer);
-  flashTimer = setTimeout(() => { noteEl.textContent = ""; }, 4000);
+  flashTimer = setTimeout(() => { noteEl.textContent = ""; }, ms || 4000);
 }
 
 function refreshUi() {
