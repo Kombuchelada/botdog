@@ -368,7 +368,7 @@ const BONUS_DEF_BY_ID = new Map(ALL_BONUSES.map((b) => [b.id, b]));
 // earnings) and instant grants are credited directly. The client never decides
 // the reward — it only renders what the server returns.
 //
-// `weight` is out of GOLDEN_TOTAL_WEIGHT (1000). The mega reward is 1/1000.
+// `weight` is out of GOLDEN_TOTAL_WEIGHT (1000). Each mega reward is 1/100.
 
 // Local-only fast mode for demoing the feature (set GLIZZY_TEST_MODE=1). Spawns
 // golden glizzies every few seconds and drops the server claim floor so every
@@ -424,17 +424,32 @@ function goldenClaimFloorMs(state) {
   return sec * 1000;
 }
 
-// Rarest → commonest. Weights sum to 1000 (mega = exactly 1/1000). Magnitudes
-// are tuned against real player data: every reward scales with PRODUCTION (not
-// hoarded bank — most active players keep tiny banks), rarer rewards pay more,
-// and no single common reward dominates expected value. The trailing comment on
-// each line is roughly what it's worth in "minutes of production".
+// Ordered by value tier, biggest first. Weights sum to 1000, and a `mega` sits at weight 10 —
+// exactly 1/100. (It used to be 1/1000, which nobody ever reached: the spawn
+// timer only advances while the game page is open, so 1/1000 was a ~92-hour
+// career event. Rare is a feeling, not an arithmetic dare.)
+//
+// Magnitudes are tuned against real player data: every PRODUCTION reward scales
+// with production (not hoarded bank — most active players keep tiny banks),
+// rarer rewards pay more, and no single common reward dominates expected value.
+// The trailing comment on each line is roughly what it's worth in "minutes of
+// production".
+//
+// The two `click_mult` rewards are deliberately exempt from that yardstick:
+// they multiply perClick and nothing else, so their value is denominated in
+// clicks the player chooses to make and is zero for a player who catches one
+// and walks away. See docs/golden-glizzy.md.
 export const GOLDEN_BONUSES = [
   {
-    id: "golden_rush", emoji: "🌠", name: "GOLDEN RUSH", weight: 1, mega: true,
+    id: "golden_rush", emoji: "🌠", name: "GOLDEN RUSH", weight: 10, mega: true,
     kind: "prod_mult", mult: 500, durationSec: 10,
     blurb: "×500 production for 10 seconds",
   }, // ≈ 83 min
+  {
+    id: "demon_dog", emoji: "😈", name: "DEMON DOG", weight: 10, mega: true,
+    kind: "click_mult", mult: 666, durationSec: 15,
+    blurb: "×666 click power for 15 seconds — MASH",
+  }, // worth whatever you can mash out of it
   {
     id: "super_frenzy", emoji: "⚡", name: "Super Frenzy", weight: 90,
     kind: "prod_mult", mult: 13, durationSec: 120,
@@ -446,20 +461,25 @@ export const GOLDEN_BONUSES = [
     blurb: "Your best building ×7 for 3 minutes",
   }, // ≈ 14 min
   {
-    id: "frenzy", emoji: "🔥", name: "Frenzy", weight: 280,
+    id: "frenzy", emoji: "🔥", name: "Frenzy", weight: 240,
     kind: "prod_mult", mult: 4, durationSec: 180,
     blurb: "×4 production for 3 minutes",
   }, // ≈ 9 min
   {
-    id: "cash_splash", emoji: "💰", name: "Cash Splash", weight: 200,
+    id: "cash_splash", emoji: "💰", name: "Cash Splash", weight: 190,
     kind: "prod_seconds", seconds: 360,
     blurb: "Instant glizzies — 6 minutes of production",
   }, // ≈ 6 min
   {
-    id: "lucky", emoji: "🍀", name: "Lucky!", weight: 249,
+    id: "lucky", emoji: "🍀", name: "Lucky!", weight: 210,
     kind: "bank_pct", pct: 0.20, capSec: 600, floorSec: 120,
     blurb: "Free glizzies — 20% of your bank",
   }, // 2–10 min (floored/capped to production)
+  {
+    id: "tap_frenzy", emoji: "👆", name: "Tap Frenzy", weight: 70,
+    kind: "click_mult", mult: 6, durationSec: 60,
+    blurb: "×6 click power for 1 minute",
+  }, // worth whatever you can mash out of it
 ];
 
 const GOLDEN_TOTAL_WEIGHT = GOLDEN_BONUSES.reduce((s, b) => s + b.weight, 0);
@@ -755,7 +775,16 @@ export function computeBonuses(userId, ctx) {
 // Effective rates with bonuses + upgrades applied
 // ============================================================================
 
-export function computeEffectiveRates(state, bonuses) {
+/**
+ * Rates as of an instant. `at` defaults to now and only affects which
+ * golden-glizzy buffs count as running — everything else is timeless.
+ *
+ * The parameter exists because "what is this player earning?" and "what was
+ * this player earning during the window I am about to validate?" are different
+ * questions, and validateAndClampSave needs the second one. See the budget
+ * comment there.
+ */
+export function computeEffectiveRates(state, bonuses, at = Date.now()) {
   // Click power
   let clickPower = 1;
   let clickAdditive = 0;
@@ -799,7 +828,7 @@ export function computeEffectiveRates(state, bonuses) {
   // Per group only the strongest currently-running buff applies — same-group
   // buffs eclipse rather than compound — and queued buffs (starts_at still in
   // the future) contribute nothing yet. Mirrored by computeRatesFor in game.js.
-  const goldNow = Date.now();
+  const goldNow = at;
   const goldWinners = new Map();
   for (const g of state.golden_effects || []) {
     if (!g || goldenStartMs(g) > goldNow || goldenExpireMs(g) <= goldNow) continue;
@@ -986,11 +1015,34 @@ export function validateAndClampSave(userId, incoming) {
   // the cap on earnings is what the player could have made before the buys.
   // (This is also what blocks cheaters from claiming a giant building count
   // and reaping its production in the same tick.)
+  //
+  // The budget also has to cover the WHOLE window, not just its final instant.
+  // Golden buffs expire on a wall clock, so a save landing a second after one
+  // ends covers seconds that were genuinely buffed; asking only "what are they
+  // earning now?" would clamp those earnings away. That is barely visible on a
+  // 3-minute Frenzy against a 5-second save interval, and eats a third of a
+  // 15-second DEMON DOG or a 10-second GOLDEN RUSH — the two rewards a player
+  // sees once in a hundred glizzies and is guaranteed to notice losing.
+  // So take the better of the window's two endpoints, per component. The
+  // concession to a cheater is one save window at the higher rate after a buff
+  // ends, which they must have legitimately earned the buff to get at all.
   const bonuses = computeBonuses(userId);
-  const ratesPrev = computeEffectiveRates(previous, bonuses);
+  const ratesAtStart = computeEffectiveRates(previous, bonuses, prevSeen);
+  const ratesAtEnd = computeEffectiveRates(previous, bonuses);
+  // Ceiling takes the window's better endpoint; the passive floor further down
+  // takes its worse one. Both stay conservative in their own direction — a
+  // buff that expired mid-window must not shrink the ceiling, and must not
+  // inflate the floor either.
+  const ratesCeil = {
+    perSecond: Math.max(ratesAtStart.perSecond, ratesAtEnd.perSecond),
+    perClick: Math.max(ratesAtStart.perClick, ratesAtEnd.perClick),
+  };
+  const ratesFloor = {
+    perSecond: Math.min(ratesAtStart.perSecond, ratesAtEnd.perSecond),
+  };
   const maxEarnedSincePrev = Math.ceil(
-    ratesPrev.perSecond * Math.min(elapsedSec, OFFLINE_CAP_SECONDS) +
-      clickDelta * ratesPrev.perClick * 1.5,
+    ratesCeil.perSecond * Math.min(elapsedSec, OFFLINE_CAP_SECONDS) +
+      clickDelta * ratesCeil.perClick * 1.5,
   );
   const budget = prevGlizzies + maxEarnedSincePrev * CLAMP_OVERAGE_FACTOR;
 
@@ -1031,7 +1083,7 @@ export function validateAndClampSave(userId, incoming) {
   //             report a lower bank than the buildings already generated.
   let incomingGlizzies = isNonNegFinite(incoming?.glizzies) ? incoming.glizzies : previous.glizzies;
   const glizzyCeiling = Math.max(0, budget - finalSpending);
-  const passiveEarned = ratesPrev.perSecond * Math.min(trueElapsedSec, OFFLINE_CAP_SECONDS);
+  const passiveEarned = ratesFloor.perSecond * Math.min(trueElapsedSec, OFFLINE_CAP_SECONDS);
   const glizzyFloor = Math.max(0, Math.min(glizzyCeiling, prevGlizzies + passiveEarned - finalSpending));
   if (incomingGlizzies > glizzyCeiling) {
     console.warn(`[glizzy] clamping glizzies for ${userId}: claimed ${incomingGlizzies}, ceiling ${Math.floor(glizzyCeiling)}`);

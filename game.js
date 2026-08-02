@@ -1450,7 +1450,12 @@ const GAME_CLIENT_JS = `
       const mega = g.mult >= 100;
       return { mega, html: (mega ? '🌠' : '🔥') + ' ×' + fmt(g.mult) + ' prod · ' + t };
     }
-    if (g.kind === 'click_mult') return { mega: false, html: '👆 ×' + fmt(g.mult) + ' click · ' + t };
+    if (g.kind === 'click_mult') {
+      // Same >=100 test as prod_mult: DEMON DOG's chip has to look like the
+      // mega it is, or the rarest reward in the table renders as a plain one.
+      const mega = g.mult >= 100;
+      return { mega, html: (mega ? '😈' : '👆') + ' ×' + fmt(g.mult) + ' click · ' + t };
+    }
     if (g.kind === 'building_mult') {
       const b = BUILDINGS.find(x => x.id === g.building);
       return { mega: false, html: '⚙️ ' + (b ? b.name : 'Building') + ' ×' + fmt(g.mult) + ' · ' + t };

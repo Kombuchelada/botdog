@@ -52,7 +52,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` returns the public CDN URL. `deletePrefix(prefix)` for bulk cleanup. |
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
-| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 so the mega is exactly 1/1000). |
+| `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
 | `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
@@ -142,6 +142,32 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   Client `adoptServerState` also drops out-of-order responses (older
   `save_seq`) — an autosave echo landing after a claim used to wipe the fresh
   buff. See `docs/golden-glizzy.md`.
+- **The anti-cheat budget covers the save *window*, not the save *instant*.**
+  Golden buffs expire on a wall clock and saves fire every 5 s, so a save
+  routinely covers seconds that were buffed and lands after the buff has gone.
+  `computeEffectiveRates` therefore takes an optional `at` timestamp and
+  `validateAndClampSave` evaluates both endpoints — the earning **ceiling**
+  takes the higher, the passive **floor** takes the lower. They want opposite
+  endpoints and swapping them is the easy mistake: a max on the floor credits
+  production that never happened. Harmless-looking while every buff ran for
+  minutes; it ate up to a third of the 15 s DEMON DOG and the 10 s GOLDEN RUSH,
+  which are the rewards a player sees once in a hundred glizzies and is
+  guaranteed to notice losing.
+- **A golden-glizzy click buff is player-interaction only, and that is a
+  deliberate exemption.** Tap Frenzy (×6/60 s) and DEMON DOG (×666/15 s)
+  multiply `perClick` and nothing else — no production, no offline earnings,
+  nothing whatsoever for a player who catches one and walks away. They are the
+  only rewards not denominated in "minutes of production", the only ones worth
+  *more* to a new player than a rich one, and they cost the late game ~9% of the
+  table's expected value to add. All of that is intended; see
+  `docs/golden-glizzy.md` before retuning either. What is *not* optional is that
+  they go through `computeEffectiveRates` like every other buff — a click buff
+  the server doesn't know about gets clamped straight back off.
+- **`GOLDEN_BONUSES` weights sum to 1000 and a `mega` is weight 10.** Golden
+  Rush spent its life at weight 1 and literally no player ever saw it: the spawn
+  timer only advances while the page is open, making 1/1000 a ~92-hour career
+  event. A 1/1000 mega suits a game left running on a background tab for months;
+  this is not that game.
 - **The sticky header and game balance bar are opaque, not `backdrop-blur`.**
   A `backdrop-filter` layer re-rasterises whenever anything animates beneath
   it, and the game scales the glizzy on every click; on Safari that makes the
@@ -527,7 +553,12 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyBrawl sound
+and this doc should be updated. Last meaningful update: golden-glizzy click
+buffs (Tap Frenzy ×6/60 s, DEMON DOG ×666/15 s) — the table's first
+player-interaction-only rewards — plus the mega rate moving from 1/1000 to
+1/100, the clamp-window fix in `validateAndClampSave`, GlizzyClicker's first
+tests (`test/glizzy-golden.test.js`) and a `### GlizzyClicker` section in
+`CONTEXT.md`; before that, GlizzyBrawl sound
 (`brawl-audio.js`, `/brawl/audio.js`) — fully synthesised, no audio assets,
 impacts from server events and movement from state transitions; before that,
 GlizzyBrawl Fighter animation — every action a clip driven by

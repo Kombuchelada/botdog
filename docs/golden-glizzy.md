@@ -10,24 +10,75 @@ Defined in `glizzy.js` (catalogue + `claimGoldenGlizzy`) and `game.js`
 
 ## Reward catalogue
 
-Weights are out of **1000**, so the mega is exactly **1 in 1000**. Magnitudes
-were tuned against real player data (see "How it was balanced"). The "worth"
-column is roughly how many minutes of the player's current production each
-reward is worth — the unit that stays meaningful whether you make 25/s or 25M/s.
+Weights are out of **1000**, and a **mega** is weight 10 — exactly **1 in 100**.
+Magnitudes were tuned against real player data (see "How it was balanced"). The
+"worth" column is roughly how many minutes of the player's current production
+each reward is worth — the unit that stays meaningful whether you make 25/s or
+25M/s.
 
-| Reward | Odds | Effect | ≈ Worth |
-|---|---|---|---|
-| 🌠 **Golden Rush** (mega) | 1 / 1000 | ×500 production for 10s | ~83 min |
-| ⚡ Super Frenzy | 9.0% | ×13 production for 2 min | ~24 min |
-| ⚙️ Overdrive | 18.0% | your **best building** ×7 for 3 min | ~14 min |
-| 🔥 Frenzy | 28.0% | ×4 production for 3 min | ~9 min |
-| 💰 Cash Splash | 20.0% | instant +6 min of current production | ~6 min |
-| 🍀 Lucky! | 24.9% | 20% of bank, floored to 2 min / capped to 10 min of production | 2–10 min |
+| Reward | Weight | Odds | Effect | ≈ Worth |
+|---|---|---|---|---|
+| 🌠 **GOLDEN RUSH** (mega) | 10 | 1.0% | ×500 production for 10s | ~83 min |
+| 😈 **DEMON DOG** (mega) | 10 | 1.0% | ×666 **click power** for 15s | see below |
+| ⚡ Super Frenzy | 90 | 9.0% | ×13 production for 2 min | ~24 min |
+| ⚙️ Overdrive | 180 | 18.0% | your **best building** ×7 for 3 min | ~14 min |
+| 🔥 Frenzy | 240 | 24.0% | ×4 production for 3 min | ~9 min |
+| 🍀 Lucky! | 210 | 21.0% | 20% of bank, floored to 2 min / capped to 10 min of production | 2–10 min |
+| 💰 Cash Splash | 190 | 19.0% | instant +6 min of current production | ~6 min |
+| 👆 Tap Frenzy | 70 | 7.0% | ×6 **click power** for 1 min | see below |
 
-Result: a clean rarity→value curve (83 → 24 → 14 → 9 → 6 → 2–10), no single
-common reward dominating expected value (each ~20–30%), and a median **EV of
-~9 minutes of production per golden glizzy** ≈ +110% effective production *while
-actively catching them*.
+The production rewards keep a clean rarity→value curve (83 → 24 → 14 → 9 → 6 →
+2–10) with no single common reward dominating expected value.
+
+### Click buffs are exempt from the minutes-of-production yardstick
+
+**Tap Frenzy** and **DEMON DOG** are the only rewards not denominated in
+production, and that is deliberate. They multiply `perClick` and nothing else:
+no effect on `perSecond`, none on offline production, and **nothing at all for a
+player who catches one and walks away**. Their value is denominated in clicks
+the player chooses to make — they are the active-play line in an otherwise idle
+table.
+
+That has three consequences worth stating, because each one looks like a bug
+from a distance:
+
+- **They are worth relatively little to an established player** whose
+  `perSecond` dwarfs their `perClick`, and are among the *best* things in the
+  table for a new player who has not bought a building yet. Value inverted
+  against progression is normally a design smell; here it is the point, and it
+  is why the pair together only take 8% of the weight.
+- **Adding them diluted the table.** The 89 weight they and Golden Rush's
+  bump needed came out of Frenzy (−40), Lucky! (−39) and Cash Splash (−10), so
+  a late-game player's expected value per glizzy dropped ~9%. That is a
+  deliberate redistribution from late game to early game, not an oversight.
+- **They still have to be server-recorded and fed into
+  `computeEffectiveRates`.** A click buff the server does not know about gets
+  clamped straight back off by `validateAndClampSave` — see the anti-cheat
+  section. "It's only a client-side visual" is not available as a shortcut for
+  anything that changes what a click is worth.
+
+Durations are shaped for how people actually mash: DEMON DOG is 15 seconds
+because it should be a panic, Tap Frenzy is 60 seconds because nobody sustains
+mashing for three minutes and a longer buff would be worth more on paper while
+feeling like less. Both are stretched by the `golden_duration` upgrades like
+every other timed buff (fully upgraded: ~34s and ~2¼ min).
+
+### Why the mega is 1/100 and not 1/1000
+
+Golden Rush spent its whole life at weight 1 and **no player ever saw it once**.
+The spawn timer only advances while the game page is open, so at 1/1000 with a
+4–12 minute cadence, the median time to a first sighting was ~92 hours of
+active play — assuming you caught every single spawn — and ~52 hours with both
+frequency upgrades. That is not rare, it is unreachable.
+
+A 1/1000 mega is reasonable in a game that runs for months on a background tab.
+This one does not. Weight 10 puts a mega at roughly **9 hours** of caught
+spawns: a "I've hit it twice this year" event a friend group can actually talk
+about, which is the entire job of a mega here.
+
+Golden Rush's **duration** stayed at 10 seconds. Its ~83-minute payout is
+already the table's outlier and lengthening it multiplies the wrong number; if
+it should feel more special, that is a presentation problem.
 
 ## How it was balanced (data-driven)
 
@@ -58,11 +109,15 @@ which is exactly how the flat claim floor was experienced.
 
 Guiding rules for future tuning:
 
-- Weights must keep summing to 1000 so the mega stays exactly 1/1000.
+- Weights must keep summing to 1000, and every `mega` stays at weight 10.
 - Express every magnitude as "minutes of production" and keep the rarity→value
-  curve monotonic.
+  curve monotonic — **except** the `click_mult` rewards, which are exempt for
+  the reasons above and must stay a small share of the table.
 - Keep each common reward's share of expected value under ~⅓ so no single drop
   dominates.
+- Check any new reward against the length of a save interval. A buff shorter
+  than ~30 seconds interacts with the clamp window (below) in a way a
+  three-minute one does not.
 
 ## Server-authoritative design (anti-cheat)
 
@@ -76,8 +131,9 @@ clamped right back off. Golden glizzies are therefore rolled and recorded on the
 - `claimGoldenGlizzy(userId)` rolls the table, then:
   - **instant rewards** (Lucky, Cash Splash) are credited to `glizzies` +
     `lifetime` directly;
-  - **timed buffs** (Frenzy, Super Frenzy, Overdrive, Golden Rush) are written
-    into `state.golden_effects` as `{ kind, mult, [building], expires_at }`.
+  - **timed buffs** (Frenzy, Super Frenzy, Overdrive, Golden Rush, Tap Frenzy,
+    DEMON DOG) are written into `state.golden_effects` as
+    `{ kind, mult, [building], starts_at, expires_at }`.
 - `computeEffectiveRates` reads active (non-expired) `golden_effects`, so the
   anti-cheat budget automatically allows the buffed earnings. Expired buffs are
   filtered at compute time and pruned on save/load.
@@ -95,10 +151,37 @@ clamped right back off. Golden glizzies are therefore rolled and recorded on the
   appear *more* often. If you add another `golden_frequency` upgrade, this stays
   correct automatically; a hardcoded number would not.
 
+**The earning budget covers the save window, not the save instant.** Buffs
+expire on a wall clock and saves fire every 5 s, so a save routinely covers
+seconds that were buffed and lands after the buff is gone. Computing the budget
+from `computeEffectiveRates(previous, bonuses)` alone asked "what are they
+earning *now?*" and clamped those seconds' earnings away. `computeEffectiveRates`
+therefore takes an optional `at` timestamp, and `validateAndClampSave` evaluates
+both endpoints of the window:
+
+- the **ceiling** takes the *higher* of the two, so an expired buff still pays;
+- the **passive floor** takes the *lower* of the two, so an expired buff never
+  credits production that did not happen. Getting this backwards is the easy
+  mistake — the floor and the ceiling want opposite endpoints.
+
+This was survivable while every timed buff ran for minutes: at most ~3% of a
+3-minute Frenzy fell in the expiry window and `CLAMP_OVERAGE_FACTOR` absorbed
+some of it. It is not survivable for a 15-second DEMON DOG or a 10-second
+GOLDEN RUSH, where up to a third of the reward lands there — and those are
+precisely the rewards a player sees once in a hundred glizzies and will
+absolutely notice losing. The concession to a cheater is one save window at the
+higher rate after a buff ends, which requires legitimately earning the buff
+first. Covered by `test/glizzy-golden.test.js`, because a clamp that silently
+eats a reward throws nothing, logs nothing a player sees, and surfaces weeks
+later as one person saying "my mega didn't do anything".
+
 **Same-group buffs eclipse; different groups stack.** All global production
-multipliers — Frenzy, Super Frenzy, Golden Rush — share the `prod` group; a
-building boost (Overdrive) is its own group per building, so it genuinely
-stacks with a global Frenzy (both applied multiplicatively). Within a group,
+multipliers — Frenzy, Super Frenzy, Golden Rush — share the `prod` group; the
+click buffs (Tap Frenzy, DEMON DOG) share the `click` group; a building boost
+(Overdrive) is its own group per building. Different groups genuinely stack and
+are applied multiplicatively, so a DEMON DOG running under a Super Frenzy and
+an Overdrive is ×666 click × ×13 global × ×7 on your best building. Within a
+group,
 buffs never compound — two ×4 Frenzies are never ×16 — because at any instant
 only the strongest *running* buff applies. And a claim can never downgrade or
 void a buff (`addGoldenBuff`):
