@@ -504,9 +504,20 @@ of the production database the owner downloaded for testing. There's also a
   don't push without confirmation.
 - `npm run register` runs as `postinstall`, which re-publishes the slash
   command list to Discord on every deploy.
-- Railway grace-shutdown was a problem (crash alerts on each deploy) — fixed
-  in `app.js` with a SIGTERM handler that drains the HTTP server, closes the
-  SQLite handle, and exits 0.
+- **Deploys must launch `node app.js` directly, never `npm start`** —
+  `railway.json` pins `startCommand`. Nixpacks' default (`npm run start`) put
+  npm at PID 1, and npm dies on SIGTERM (status 143 = crash alert) *without
+  forwarding it*, so the `app.js` SIGTERM handler never ran in prod and the
+  orphaned app served until SIGKILL. This is why adding the handler alone
+  didn't stop the per-deploy crash alerts. Verifiable locally: SIGTERM the
+  top-level PID only — a terminal masks the bug by signalling the whole group.
+- `railway.json` also sets `drainingSeconds: 30` — Railway's default grace
+  between SIGTERM and SIGKILL is **0 seconds**. The 20s force-exit failsafe in
+  `app.js` must stay below it.
+- `stopBrawl()` must `terminate()` sockets, not `close()` them — a close
+  handshake waits up to 30s for a peer that may never reply (backgrounded
+  tab), holding `server.close()` and the deploy open. Pinned by
+  `test/brawl-shutdown.test.js`.
 - **better-sqlite3 is pinned to ^12.x** because ^8.x has no Node 22 prebuilds.
   v12 returns integer columns as JS `Number` (not `BigInt`), so existing code
   still works.
@@ -553,7 +564,11 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: golden-glizzy click
+and this doc should be updated. Last meaningful update: the per-deploy crash
+alert diagnosed and fixed — `railway.json` (startCommand `node app.js` +
+`drainingSeconds: 30`) so SIGTERM actually reaches node, `stopBrawl()`
+terminating sockets instead of close-handshaking, and
+`test/brawl-shutdown.test.js`; before that, golden-glizzy click
 buffs (Tap Frenzy ×6/60 s, DEMON DOG ×666/15 s) — the table's first
 player-interaction-only rewards — plus the mega rate moving from 1/1000 to
 1/100, the clamp-window fix in `validateAndClampSave`, GlizzyClicker's first

@@ -770,7 +770,10 @@ export function stopBrawl() {
   if (wss) {
     for (const conn of clients.values()) {
       try {
-        conn.ws.close();
+        // terminate(), not close(): a close handshake waits up to 30s for a
+        // peer that may never reply (backgrounded tab), and that wait holds
+        // server.close() — and the whole deploy — open.
+        conn.ws.terminate();
       } catch {
         // already gone
       }
