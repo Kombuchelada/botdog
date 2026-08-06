@@ -53,7 +53,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
-| `game.js` | GlizzyClicker UI. Self-contained game page with hand-drawn SVG mascot + building SVGs, vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
+| `game.js` | GlizzyClicker UI. Self-contained game page with PixelLab pixel art (hero mascot, golden glizzy, building icons, emoji icon set — `assets/clicker/` via `manifest.json`, served at `/game/art/*`; the hand-drawn SVGs and raw emoji remain as per-surface fallbacks), vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
 | `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
 | `brawl-art.js` | GlizzyBrawl Fighter art. Every action is a **clip** (`CLIPS`), and `frameFor(fighter, nowMs)` returns `{ clip, index }` from a snapshot — attacks driven by their own frame counter against the move's frame data, hitstun/dodge by the sim's timers, the air clips by vertical velocity, only the walk on a clock. Also the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/`; the only borrowed art left is Kenney's CC0 zombie for CPUs, whose clips are one frame each. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster as a filmstrip so the *mapping* can be judged without a browser. |
@@ -63,6 +63,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `brawl-audio.js` | GlizzyBrawl's sound, and **not one audio file** — every cue is synthesised in the browser from a recipe in `CUES` (oscillator sweeps plus one buffer of white noise). Pure and dependency-free like the sim beside it: it decides *what should be heard and how loud* and never opens an audio device. `cueFor(ev)` voices the three server events (hit/KO/respawn); `transitionCues(prev, cur)` derives swings, jumps, landings and dodges by diffing the local arena against itself a tick ago. Shared with the browser at `/brawl/audio.js`. The engine that turns a cue into sound is the only Web Audio code on the page and lives in `brawl-page.js`. |
 | `brawl-stage.js` | GlizzyBrawl's Stage — **the Ballpark**, a night game seen from the outfield. Composed from props at native scale (scoreboard rig, light towers, crowd band, a 32px wall tileset, three Catwalks), not painted as one image. The scene is *derived* from the sim's `STAGE`, so a platform can't move out from under its Catwalk. `planScene` is the pure fallback decision (art → primitive → sky); placement lives here as readable coordinates. Shared with the browser at `/brawl/stage.js`. See `docs/glizzybrawl-stage-brief.md`. |
 | `scripts/brawl-import-stage.mjs` | Imports Ballpark props — chroma-keys the background out, trims, cuts to the size the scene draws them at, records bounds in the manifest. Three gates fail the import: **scale** (a prop must land 1:1, never resampled — the fix is to put the art's size into `LAYOUT`), **floor** (the wall cap's surface must be on the wang midline, or the wall sits off the floor line) and **clearance** (nothing standing above a Catwalk's walk line — a phantom railing). |
+| `scripts/clicker-import-art.mjs` | Imports GlizzyClicker's pixel art from a staging dir into `assets/clicker/` + `manifest.json`. Gates: exact size per kind (hero/golden 120×90, buildings 40×40, emoji 32×32 — never resamples), transparent corners, content ≥20% of canvas. Owns `EMOJI_NAMES`, the emoji-character → icon-name table. Recipe: `docs/clicker-art.md`. |
 | `scripts/lib/pixel-art.mjs` | The image ops both importers need: flood-fill de-background, chroma key, alpha bounding box. Shared because two copies had already drifted (`hexToRgb` fell back to white in one and black in the other). |
 | `scripts/brawl-stage-preview.mjs` | Renders the Ballpark to a PNG from `brawl-stage.js` itself, and gates silhouette contrast — each Fighter's `stand` over the backdrop at all eight spawn points. `--baseline` measures the placeholder Stage, which is where the threshold comes from. |
 | `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
@@ -168,6 +169,14 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   timer only advances while the page is open, making 1/1000 a ~92-hour career
   event. A 1/1000 mega suits a game left running on a background tab for months;
   this is not that game.
+- **GlizzyClicker art is manifest-driven with per-surface fallback.** `game.js`
+  reads `assets/clicker/manifest.json` at boot; a missing PNG (or the whole
+  directory) reverts exactly one surface to its hand-drawn SVG or raw emoji,
+  never the page. Pixel art draws only at integer multiples of its native size
+  (hero ×3, golden ×2, icons ×1 or ÷2) with `.px-art` (`image-rendering:
+  pixelated`) — a 24px icon or a 150px golden shears the pixel grid unevenly.
+  The golden glizzy is a programmatic gold hue-remap of the hero, not a
+  generation, so the silhouette always matches. See `docs/clicker-art.md`.
 - **The sticky header and game balance bar are opaque, not `backdrop-blur`.**
   A `backdrop-filter` layer re-rasterises whenever anything animates beneath
   it, and the game scales the glizzy on every click; on Safari that makes the
@@ -564,7 +573,12 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: the per-deploy crash
+and this doc should be updated. Last meaningful update: GlizzyClicker's art
+replaced with PixelLab pixel art — hero mascot, golden glizzy (gold remap of
+the hero), 12 building icons, and a ~64-icon emoji replacement set
+(`assets/clicker/` + `scripts/clicker-import-art.mjs` + `/game/art/*` route,
+per-surface fallback to the old SVGs/emoji, `docs/clicker-art.md`); before
+that, the per-deploy crash
 alert diagnosed and fixed — `railway.json` (startCommand `node app.js` +
 `drainingSeconds: 30`) so SIGTERM actually reaches node, `stopBrawl()`
 terminating sockets instead of close-handshaking, and

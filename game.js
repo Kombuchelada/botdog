@@ -1,4 +1,7 @@
 import express from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { getSessionUserId, requireGameSession } from "./oauth.js";
 import {
   loadGameForUser,
@@ -15,6 +18,45 @@ import { getUserProfileStmt } from "./database.js";
 import { renderNav } from "./nav.js";
 
 const NAV = renderNav("game");
+
+// ============================================================================
+// PixelLab art (assets/clicker) — loaded from the importer's manifest at boot.
+// Every surface falls back on its own: hero/golden to the hand-drawn SVGs,
+// a building to its BUILDING_SVGS entry, an emoji to the raw character. So a
+// missing PNG (or the whole directory) degrades one surface, never the page.
+// Regeneration recipe: docs/clicker-art.md; import: scripts/clicker-import-art.mjs.
+// ============================================================================
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const CLICKER_ART_DIR = path.join(HERE, "assets", "clicker");
+
+function loadClickerArt() {
+  try {
+    const m = JSON.parse(fs.readFileSync(path.join(CLICKER_ART_DIR, "manifest.json"), "utf8"));
+    const present = (f) => (f && fs.existsSync(path.join(CLICKER_ART_DIR, f)) ? f : null);
+    return {
+      hero: present(m.hero),
+      golden: present(m.golden),
+      buildings: Object.fromEntries(Object.entries(m.buildings || {}).filter(([, f]) => present(f))),
+      emoji: Object.fromEntries(Object.entries(m.emoji || {}).filter(([, f]) => present(f))),
+    };
+  } catch {
+    return { hero: null, golden: null, buildings: {}, emoji: {} };
+  }
+}
+const ART = loadClickerArt();
+const artUrl = (f) => `/game/art/${f}`;
+
+/**
+ * An emoji as its pixel icon when we have one, the raw character otherwise.
+ * Sizes must keep the 32px art on an integer pixel grid: use 32 (1:1) or
+ * 16 (2:1) — anything else shears the pixels unevenly.
+ */
+function emojiIcon(emoji, sizePx = 32) {
+  const f = ART.emoji[emoji];
+  if (!f) return esc(emoji);
+  return `<img src="${artUrl(f)}" alt="${esc(emoji)}" class="px-art e-icon" style="width:${sizePx}px;height:${sizePx}px">`;
+}
 
 function esc(value) {
   if (value === null || value === undefined) return "";
@@ -48,10 +90,14 @@ export function fmtRate(n) {
   return (n / Math.pow(1000, tier)).toFixed(2) + RATE_SCALES[tier] + "/s";
 }
 
+const FAVICON = ART.emoji["🌭"]
+  ? `<link rel="icon" type="image/png" href="${artUrl(ART.emoji["🌭"])}">`
+  : `<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E">`;
+
 const HEAD = `
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E">
+${FAVICON}
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = { theme: { extend: { colors: {
@@ -380,6 +426,11 @@ const STYLES = `
   .card { background:#0b1220; border:1px solid rgba(148,163,184,0.08); border-radius:16px; }
   .accent { color:#ff6b35; }
   .hero-svg { width: 360px; max-width: 90vw; height: auto; display: block; }
+  /* Pixel art draws at integer multiples of its native size (hero 120x90 x3,
+     icons 32 x1 or /2) — pixelated keeps the grid crisp instead of smearing. */
+  .px-art { image-rendering: pixelated; -webkit-user-drag: none; user-select: none; }
+  .hero-img { width: 360px; max-width: 90vw; height: auto; display: block; }
+  img.e-icon { display: inline-block; vertical-align: -0.25em; }
   .click-target {
     cursor: pointer;
     transition: transform 0.05s ease-out;
@@ -516,7 +567,9 @@ function renderLoginGate() {
 <body class="font-sans antialiased">
 ${NAV}
 <main class="max-w-3xl mx-auto px-6 py-16 text-center">
-  <div class="text-8xl mb-4">🌭</div>
+  ${ART.hero
+    ? `<img src="${artUrl(ART.hero)}" alt="" class="px-art mx-auto mb-4" style="width:240px;max-width:80vw;height:auto">`
+    : `<div class="text-8xl mb-4">🌭</div>`}
   <h1 class="text-5xl md:text-6xl font-bold text-white tracking-tight mb-3">GlizzyClicker</h1>
   <p class="text-xl text-slate-300 mb-2">An idle game powered by your real hot dog stats.</p>
   <p class="text-slate-400 mb-10">Eat dogs in the channel, get bonuses in the game. Streaks scale uncapped.</p>
@@ -524,9 +577,9 @@ ${NAV}
     Log in with Discord →
   </a>
   <div class="mt-10 grid sm:grid-cols-3 gap-4 text-left">
-    <div class="card p-4"><div class="text-2xl mb-1">🍽️</div><div class="font-bold text-white">Big Eater</div><div class="text-sm text-slate-400">Eat &gt;4 dogs yesterday → +0.25× click power for 24h.</div></div>
-    <div class="card p-4"><div class="text-2xl mb-1">🌅</div><div class="font-bold text-white">Breakfast Boon</div><div class="text-sm text-slate-400">A dog before 8 AM → Mustard Stand +50%.</div></div>
-    <div class="card p-4"><div class="text-2xl mb-1">🔥</div><div class="font-bold text-white">Streak (uncapped)</div><div class="text-sm text-slate-400">Each consecutive day adds +2% production. Day 100 = +200%.</div></div>
+    <div class="card p-4"><div class="mb-1">${emojiIcon("🍽️")}</div><div class="font-bold text-white">Big Eater</div><div class="text-sm text-slate-400">Eat &gt;4 dogs yesterday → +0.25× click power for 24h.</div></div>
+    <div class="card p-4"><div class="mb-1">${emojiIcon("🌅")}</div><div class="font-bold text-white">Breakfast Boon</div><div class="text-sm text-slate-400">A dog before 8 AM → Mustard Stand +50%.</div></div>
+    <div class="card p-4"><div class="mb-1">${emojiIcon("🔥")}</div><div class="font-bold text-white">Streak (uncapped)</div><div class="text-sm text-slate-400">Each consecutive day adds +2% production. Day 100 = +200%.</div></div>
   </div>
   <p class="text-xs text-slate-500 mt-8">We only request the <code class="bg-slate-900 px-1 rounded">identify</code> scope. Your Discord ID is matched to your hotdog stats automatically.</p>
 </main>
@@ -545,6 +598,10 @@ function renderGamePage({ state, bonuses, rates, offlineEarned, profile, userId 
     buildings: BUILDINGS, upgrades: UPGRADES,
     buildingSvgs: BUILDING_SVGS,
     goldenSpawn: goldenSpawnFor(state),
+    art: {
+      buildings: Object.fromEntries(Object.entries(ART.buildings).map(([id, f]) => [id, artUrl(f)])),
+      emoji: Object.fromEntries(Object.entries(ART.emoji).map(([e, f]) => [e, artUrl(f)])),
+    },
   }).replace(/</g, "\\u003c");
 
   return `<!doctype html>
@@ -562,8 +619,8 @@ ${NAV}
       <div id="buffs-bar" class="flex items-center gap-1.5"></div>
     </div>
     <div class="flex items-center gap-3">
-      <button type="button" id="oracle-toggle" class="hidden text-xs px-2.5 py-1 rounded-lg border border-purple-500/60 text-purple-300 hover:text-white hover:border-purple-400 transition" title="The Oracle — optimal next purchase (O)">🔮 <span class="hidden sm:inline">Oracle</span></button>
-      <button type="button" id="lb-open" class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-accent transition" title="Peek at the leaderboard (L)">🏆 <span class="hidden sm:inline">Leaderboard</span></button>
+      <button type="button" id="oracle-toggle" class="hidden text-xs px-2.5 py-1 rounded-lg border border-purple-500/60 text-purple-300 hover:text-white hover:border-purple-400 transition" title="The Oracle — optimal next purchase (O)">${emojiIcon("🔮", 16)} <span class="hidden sm:inline">Oracle</span></button>
+      <button type="button" id="lb-open" class="text-xs px-2.5 py-1 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-accent transition" title="Peek at the leaderboard (L)">${emojiIcon("🏆", 16)} <span class="hidden sm:inline">Leaderboard</span></button>
       <span class="hidden sm:inline text-sm text-slate-300">${esc(displayName)}</span>
       ${avatarHtml}
       <form method="post" action="/oauth/logout" class="inline">
@@ -597,7 +654,7 @@ ${NAV}
             return `
               <div class="${cls}">
                 <div class="flex items-center gap-2 text-white font-semibold">
-                  <span class="text-lg">${esc(def.emoji)}</span> ${esc(displayName)}
+                  <span class="text-lg">${emojiIcon(def.emoji)}</span> ${esc(displayName)}
                   ${active ? `<span class="ml-auto text-[10px] uppercase tracking-widest text-accent">Active</span>` : ""}
                 </div>
                 ${explanationLine}
@@ -625,7 +682,9 @@ ${NAV}
 
     <!-- CENTER: hero (sticky, vertically centered) -->
     <section class="md:col-span-1 md:sticky md:top-28 md:h-[calc(100vh-8rem)] flex flex-col items-center justify-center min-h-[500px]">
-      <div id="click-area" class="click-target relative">${HERO_SVG}</div>
+      <div id="click-area" class="click-target relative">${ART.hero
+        ? `<img src="${artUrl(ART.hero)}" alt="" class="hero-img px-art" draggable="false">`
+        : HERO_SVG}</div>
       <div class="mt-6 text-slate-400 text-sm">Click the glizzy!</div>
     </section>
 
@@ -633,7 +692,7 @@ ${NAV}
     <section class="md:col-span-1 md:sticky md:top-28 md:max-h-[calc(100vh-8rem)] md:overflow-y-auto md:pr-2 game-scrollcol">
       <div class="card p-4 mb-4 hidden" id="oracle-card" style="border-color:rgba(192,132,252,0.35)">
         <div class="flex items-center justify-between gap-2 mb-2">
-          <span class="text-xs uppercase tracking-widest text-purple-300">🔮 The Oracle</span>
+          <span class="text-xs uppercase tracking-widest text-purple-300">${emojiIcon("🔮", 16)} The Oracle</span>
           <span class="text-[10px] text-slate-500">fastest payback</span>
         </div>
         <div id="oracle-list" class="space-y-2"></div>
@@ -670,12 +729,14 @@ ${NAV}
   </div>
 </main>
 
-<div id="golden-glizzy" title="A golden glizzy! Click it!">${GOLDEN_SVG}</div>
+<div id="golden-glizzy" title="A golden glizzy! Click it!"${ART.golden ? ' style="width:240px"' : ""}>${ART.golden
+  ? `<img src="${artUrl(ART.golden)}" alt="" class="px-art" style="width:100%;height:auto" draggable="false">`
+  : GOLDEN_SVG}</div>
 <div id="golden-toast"></div>
 
 <div id="offline-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center z-50 hidden">
   <div class="card p-8 max-w-md text-center mx-4">
-    <div class="text-5xl mb-3">🌭</div>
+    <div class="mb-3">${emojiIcon("🌭", 64)}</div>
     <div class="text-xl text-white font-bold mb-2">Welcome back!</div>
     <div class="text-slate-300 mb-4">While you were away, you earned</div>
     <div class="text-4xl font-bold accent mb-6" id="offline-amount">0</div>
@@ -715,7 +776,21 @@ const GAME_CLIENT_JS = `
   const BUILDINGS = G.buildings;
   const UPGRADES = G.upgrades;
   const BUILDING_SVGS = G.buildingSvgs;
+  const ART = G.art || { buildings: {}, emoji: {} };
   const COST_SCALE = 1.15;
+
+  // Pixel icon for an emoji when one shipped, the raw character otherwise.
+  // 32 (1:1) and 16 (2:1) keep the art on an integer pixel grid.
+  function eIcon(e, px) {
+    const u = ART.emoji[e];
+    if (!u) return e;
+    return '<img src="' + u + '" alt="" class="px-art e-icon" style="width:' + (px || 32) + 'px;height:' + (px || 32) + 'px">';
+  }
+  function bIcon(id) {
+    const u = ART.buildings[id];
+    if (!u) return BUILDING_SVGS[id];
+    return '<img src="' + u + '" alt="" class="px-art" style="width:40px;height:40px">';
+  }
   const UPGRADE_MAP = new Map(UPGRADES.map(u => [u.id, u]));
 
   let dirty = false;
@@ -942,7 +1017,7 @@ const GAME_CLIENT_JS = `
         '<button type="button" class="oracle-row" data-oracle="' + c.kind + ':' + c.id + '">' +
           '<span class="o-rank">' + (i + 1) + '</span>' +
           '<span class="flex-1 min-w-0">' +
-            '<span class="o-name">' + c.emoji + ' ' + c.name + '</span>' +
+            '<span class="o-name">' + eIcon(c.emoji, 16) + ' ' + c.name + '</span>' +
             '<div class="o-meta">' + fmt(c.cost) + ' · +' + fmtRate(c.delta) + ' · <span class="o-pay">' + fmtDur(c.payback) + ' payback</span></div>' +
             '<div class="o-meta o-when"></div>' +
           '</span>' +
@@ -1043,7 +1118,7 @@ const GAME_CLIENT_JS = `
     root.innerHTML = BUILDINGS.map(b => \`
         <div class="building-card card p-2.5" data-buy="\${b.id}">
           <div class="flex items-center gap-2.5">
-            <div style="width:40px;height:40px;flex-shrink:0">\${BUILDING_SVGS[b.id]}</div>
+            <div style="width:40px;height:40px;flex-shrink:0">\${bIcon(b.id)}</div>
             <div class="flex-1 min-w-0">
               <div class="flex items-center justify-between gap-2">
                 <div class="font-semibold text-white truncate text-sm">\${b.name}</div>
@@ -1119,7 +1194,7 @@ const GAME_CLIENT_JS = `
     const desc = u.description || '';
     return \`<button class="\${cls}" data-upgrade="\${u.id}">
         <div class="flex items-start gap-2">
-          <span class="u-emoji">\${u.emoji}</span>
+          <span class="u-emoji">\${eIcon(u.emoji)}</span>
           <div class="flex-1 min-w-0">
             <div class="u-name">\${u.name}</div>
             <div class="u-desc">\${desc}</div>
@@ -1407,7 +1482,7 @@ const GAME_CLIENT_JS = `
   // Purely informational: the server already credited these when it built the
   // page state, so the client must NOT add them again.
   if (G.offlineEarned && G.offlineEarned > 5) {
-    document.getElementById('offline-amount').textContent = fmt(G.offlineEarned) + ' 🌭';
+    document.getElementById('offline-amount').innerHTML = fmt(G.offlineEarned) + ' ' + eIcon('🌭');
     document.getElementById('offline-modal').classList.remove('hidden');
     document.getElementById('offline-close').addEventListener('click', () => {
       document.getElementById('offline-modal').classList.add('hidden');
@@ -1448,19 +1523,19 @@ const GAME_CLIENT_JS = `
     const t = (secs >= 60 ? Math.ceil(secs / 60) + 'm' : secs + 's') + (mode === 'queued' ? ' next' : '');
     if (g.kind === 'prod_mult') {
       const mega = g.mult >= 100;
-      return { mega, html: (mega ? '🌠' : '🔥') + ' ×' + fmt(g.mult) + ' prod · ' + t };
+      return { mega, html: eIcon(mega ? '🌠' : '🔥', 16) + ' ×' + fmt(g.mult) + ' prod · ' + t };
     }
     if (g.kind === 'click_mult') {
       // Same >=100 test as prod_mult: DEMON DOG's chip has to look like the
       // mega it is, or the rarest reward in the table renders as a plain one.
       const mega = g.mult >= 100;
-      return { mega, html: (mega ? '😈' : '👆') + ' ×' + fmt(g.mult) + ' click · ' + t };
+      return { mega, html: eIcon(mega ? '😈' : '👆', 16) + ' ×' + fmt(g.mult) + ' click · ' + t };
     }
     if (g.kind === 'building_mult') {
       const b = BUILDINGS.find(x => x.id === g.building);
-      return { mega: false, html: '⚙️ ' + (b ? b.name : 'Building') + ' ×' + fmt(g.mult) + ' · ' + t };
+      return { mega: false, html: eIcon('⚙️', 16) + ' ' + (b ? b.name : 'Building') + ' ×' + fmt(g.mult) + ' · ' + t };
     }
-    return { mega: false, html: '✨ buff · ' + t };
+    return { mega: false, html: eIcon('✨', 16) + ' buff · ' + t };
   }
   let lastBuffSig = '';
   function renderBuffs() {
@@ -1499,7 +1574,7 @@ const GAME_CLIENT_JS = `
     toast.innerHTML =
       '<div style="font-size:13px;letter-spacing:.15em;text-transform:uppercase;color:' + (mega ? '#ffd24a' : '#ffe89a') + '">' +
         (mega ? '✨ MEGA GOLDEN GLIZZY ✨' : 'Golden Glizzy') + '</div>' +
-      '<div style="font-size:22px;font-weight:800;color:#fff;margin-top:2px">' + data.emoji + ' ' + data.name + '</div>' +
+      '<div style="font-size:22px;font-weight:800;color:#fff;margin-top:2px">' + eIcon(data.emoji) + ' ' + data.name + '</div>' +
       '<div style="font-size:14px;color:#fde68a;margin-top:2px">' + (data.message || '') + '</div>';
     toast.classList.add('show');
     clearTimeout(toastTimer);
@@ -1718,7 +1793,7 @@ function withProfiles(rows) {
 
 function renderLeaderboardPage(rows) {
   const cards = rows.length === 0
-    ? `<div class="card p-12 text-center"><div class="text-5xl mb-3">🌭</div><div class="text-xl text-slate-200 font-semibold">No players yet</div><div class="text-slate-400 mt-2">Be the first — log in and start clicking.</div></div>`
+    ? `<div class="card p-12 text-center"><div class="mb-3">${emojiIcon("🌭", 64)}</div><div class="text-xl text-slate-200 font-semibold">No players yet</div><div class="text-slate-400 mt-2">Be the first — log in and start clicking.</div></div>`
     : `<div class="card p-2">${rows.map((r, i) => {
         const profile = getUserProfileStmt.get(r.user_id);
         const name = (profile && (profile.global_name || profile.username)) || `User ${String(r.user_id).slice(-4)}`;
@@ -1737,7 +1812,7 @@ function renderLeaderboardPage(rows) {
               </div>
               <div class="flex items-baseline justify-between gap-2 min-w-0">
                 <div class="text-xs text-slate-400 min-w-0">${esc(r.total_buildings)} buildings · ${esc(fmtCompact(r.total_clicks))} clicks · <span class="accent font-semibold" data-prod="${esc(r.user_id)}">${esc(fmtRate(r.per_second))}</span></div>
-                <div class="hidden sm:block text-[10px] text-slate-500 uppercase tracking-widest flex-shrink-0">lifetime 🌭</div>
+                <div class="hidden sm:block text-[10px] text-slate-500 uppercase tracking-widest flex-shrink-0">lifetime ${emojiIcon("🌭", 16)}</div>
               </div>
             </div>
           </div>`;
@@ -1793,6 +1868,17 @@ ${NAV}
 }
 
 export function registerGame(app) {
+  // GlizzyClicker's pixel art. Whitelisted by name shape (same rule as
+  // /brawl/art) so the route can never serve anything else out of the repo.
+  app.get("/game/art/:file", (req, res) => {
+    if (!/^[a-z0-9_]+\.png$/.test(req.params.file)) return res.status(404).end();
+    res.type("image/png");
+    res.setHeader("Cache-Control", "public, max-age=86400");
+    fs.createReadStream(path.join(CLICKER_ART_DIR, req.params.file))
+      .on("error", () => res.status(404).end())
+      .pipe(res);
+  });
+
   app.get("/game", (req, res) => {
     const userId = getSessionUserId(req);
     if (!userId) return res.send(renderLoginGate());
