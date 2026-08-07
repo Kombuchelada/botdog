@@ -840,7 +840,7 @@ const GAME_CLIENT_JS = `
   // Pure in \`st\` ({buildings, upgrades_owned, golden_effects}) so the Oracle can
   // price a hypothetical purchase by running this over a cloned state.
   function computeRatesFor(st) {
-    let clickPower = 1, clickAdd = 0, globalMult = 1;
+    let clickPower = 1, clickAdd = 0, clickPpsShare = 0, goldenClickMult = 1, globalMult = 1;
     const buildingMult = {};
     for (const b of BUILDINGS) buildingMult[b.id] = 1;
 
@@ -854,6 +854,7 @@ const GAME_CLIENT_JS = `
         let total = 0; for (const b of BUILDINGS) total += st.buildings[b.id] || 0;
         clickAdd += total * e.value;
       }
+      else if (e.type === 'click_from_pps') clickPpsShare += e.value;
       else if (e.type === 'global_per_building') {
         let total = 0; for (const b of BUILDINGS) total += st.buildings[b.id] || 0;
         globalMult *= 1 + total * e.value;
@@ -884,10 +885,9 @@ const GAME_CLIENT_JS = `
     for (const grp in gBest) {
       const g = gBest[grp];
       if (g.kind === 'prod_mult') globalMult *= g.mult;
-      else if (g.kind === 'click_mult') clickPower *= g.mult;
+      else if (g.kind === 'click_mult') goldenClickMult *= g.mult;
       else if (g.kind === 'building_mult' && buildingMult[g.building] !== undefined) buildingMult[g.building] *= g.mult;
     }
-    const perClick = (clickPower + clickAdd) * globalMult;
     let perSecond = 0;
     const bp = {};
     const perUnit = {};
@@ -899,6 +899,10 @@ const GAME_CLIENT_JS = `
       bp[b.id] = r;
       perSecond += r;
     }
+    // click_from_pps pays a share of production, so /s is computed first and
+    // the share added outside the click multipliers. Only a golden click buff
+    // multiplies it. Mirrors computeEffectiveRates in glizzy.js.
+    const perClick = ((clickPower + clickAdd) * globalMult + perSecond * clickPpsShare) * goldenClickMult;
     return { perClick, perSecond, buildingProduction: bp, perUnitRate: perUnit };
   }
 
@@ -931,7 +935,7 @@ const GAME_CLIENT_JS = `
   // that's supposed to be about idle production. Golden buffs are also stripped
   // from the simulated state so a Frenzy doesn't churn the recommendation.
   const ORACLE_SKIP_EFFECTS = new Set([
-    'click_mult', 'click_per_building',
+    'click_mult', 'click_per_building', 'click_from_pps',
     'golden_frequency', 'golden_duration', 'golden_payout',
   ]);
   let oracleOn = false;

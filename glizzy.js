@@ -183,6 +183,35 @@ const CLICK_UPGRADES = [
   { id: "divine_digit",    emoji: "☝️", name: "Divine Digit",     cost: 5e14,  description: "Click power ×20 (stacks with other click upgrades).", effect: { type: "click_mult", value: 20 } },
 ];
 
+// Click power that scales with production (`click_from_pps`).
+//
+// Every upgrade above multiplies a base of 1, so a click is a fixed number
+// while production is an exponential one: by the time a player owns a Dyson
+// Grill their whole click ladder is a rounding error against their /s and
+// clicking stops being the game the game is named after. These add a share of
+// the player's *own* per-second production to every click, so a tap is worth
+// the same fraction of a run at every tier, forever.
+//
+// The line totals 10% of /s per click on purpose: a human mashing ~10 clicks/s
+// then roughly doubles their income while they're actually playing, and does
+// nothing at all when they aren't. Clicking supplements idle production; it
+// must never replace it (25 clicks/s is the anti-cheat ceiling, so the most an
+// autoclicker can wring out is ~2.5× production).
+const CLICK_SCALE_UPGRADES = [
+  { id: "hands_on", emoji: "🖐️", name: "Hands-On Management", cost: 1e9,
+    description: "Each click also earns +1% of your per-second production.",
+    effect: { type: "click_from_pps", value: 0.01 } },
+  { id: "line_cook_soul", emoji: "🧑‍🍳", name: "Line Cook Soul", cost: 1e11,
+    description: "Each click earns another +2% of your per-second production.",
+    effect: { type: "click_from_pps", value: 0.02 } },
+  { id: "thousand_fingers", emoji: "🤲", name: "Thousand Fingers", cost: 1e13,
+    description: "Each click earns another +3% of your per-second production.",
+    effect: { type: "click_from_pps", value: 0.03 } },
+  { id: "the_glizzy_touch", emoji: "✨", name: "The Glizzy Touch", cost: 1e15,
+    description: "Each click earns another +4% of your per-second production.",
+    effect: { type: "click_from_pps", value: 0.04 } },
+];
+
 // Building synergies (Cookie-Clicker grandma-style): a building gains +0.1%
 // production per unit of the tier below it that you own. New effect type
 // `building_synergy`, applied in computeEffectiveRates. Chains the whole tree.
@@ -237,6 +266,7 @@ export const UPGRADES = [
   ...PROD_LADDER_UPGRADES,
   ...GLOBAL_UPGRADES,
   ...CLICK_UPGRADES,
+  ...CLICK_SCALE_UPGRADES,
   ...SYNERGY_UPGRADES,
   ...GOLDEN_UPGRADES,
 ];
@@ -788,6 +818,8 @@ export function computeEffectiveRates(state, bonuses, at = Date.now()) {
   // Click power
   let clickPower = 1;
   let clickAdditive = 0;
+  let clickPpsShare = 0; // fraction of per-second production added to each click
+  let goldenClickMult = 1;
   let globalMult = 1;
   const buildingMult = Object.fromEntries(BUILDING_IDS.map((id) => [id, 1]));
 
@@ -803,6 +835,7 @@ export function computeEffectiveRates(state, bonuses, at = Date.now()) {
       const totalBuildings = BUILDING_IDS.reduce((s, b) => s + (state.buildings?.[b] || 0), 0);
       clickAdditive += totalBuildings * e.value;
     }
+    else if (e.type === "click_from_pps") clickPpsShare += e.value;
     else if (e.type === "global_per_building") {
       const totalBuildings = BUILDING_IDS.reduce((s, b) => s + (state.buildings?.[b] || 0), 0);
       globalMult *= 1 + totalBuildings * e.value;
@@ -838,13 +871,11 @@ export function computeEffectiveRates(state, bonuses, at = Date.now()) {
   }
   for (const g of goldWinners.values()) {
     if (g.kind === "prod_mult") globalMult *= g.mult;
-    else if (g.kind === "click_mult") clickPower *= g.mult;
+    else if (g.kind === "click_mult") goldenClickMult *= g.mult;
     else if (g.kind === "building_mult" && buildingMult[g.building] !== undefined) {
       buildingMult[g.building] *= g.mult;
     }
   }
-
-  const effectivePerClick = (clickPower + clickAdditive) * globalMult;
 
   let perSecond = 0;
   const buildingProduction = {};
@@ -854,6 +885,18 @@ export function computeEffectiveRates(state, bonuses, at = Date.now()) {
     buildingProduction[b.id] = rate;
     perSecond += rate;
   }
+
+  // Production has to be known before click power, because `click_from_pps`
+  // pays a share of it. That share is added *outside* the click multipliers —
+  // stacking a ×1.3M click ladder on top of "10% of your /s" would make one tap
+  // worth days of production. The one multiplier that does apply to it is a
+  // golden click buff, which is the game's only mash-right-now reward and the
+  // reason DEMON DOG exists; without this it would be the one buff that gets
+  // *weaker* the further a player gets. (It now also multiplies the
+  // click_per_building term, which is the same rule stated once instead of
+  // twice.) Mirrored by computeRatesFor in game.js.
+  const effectivePerClick =
+    ((clickPower + clickAdditive) * globalMult + perSecond * clickPpsShare) * goldenClickMult;
 
   return { perClick: effectivePerClick, perSecond, buildingProduction };
 }

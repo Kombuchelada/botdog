@@ -42,11 +42,22 @@ table.
 That has three consequences worth stating, because each one looks like a bug
 from a distance:
 
-- **They are worth relatively little to an established player** whose
+- **They used to be worth relatively little to an established player** whose
   `perSecond` dwarfs their `perClick`, and are among the *best* things in the
   table for a new player who has not bought a building yet. Value inverted
-  against progression is normally a design smell; here it is the point, and it
+  against progression is normally a design smell; here it was the point, and it
   is why the pair together only take 8% of the weight.
+
+  The `click_from_pps` upgrade line changed the top half of that. Those
+  upgrades add a share of the player's own `perSecond` to every click (10% of /s
+  across the whole line), and a golden click buff multiplies that share along
+  with everything else — so for a player who owns the line, DEMON DOG is ×666 on
+  a click that is itself worth 10% of a second of production, which is a real
+  mega again instead of a decoration. The new-player end is unchanged: a player
+  with no buildings has no share to multiply, so the buff is still the fixed
+  click ladder and still the best thing they can catch. What the line removed is
+  the *dead middle* — the stretch where a player's production had outgrown their
+  clicks but they had nothing to buy about it.
 - **Adding them diluted the table.** The 89 weight they and Golden Rush's
   bump needed came out of Frenzy (−40), Lucky! (−39) and Cash Splash (−10), so
   a late-game player's expected value per glizzy dropped ~9%. That is a

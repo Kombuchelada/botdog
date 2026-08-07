@@ -154,6 +154,19 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   minutes; it ate up to a third of the 15 s DEMON DOG and the 10 s GOLDEN RUSH,
   which are the rewards a player sees once in a hundred glizzies and is
   guaranteed to notice losing.
+- **Click power has to scale with production, or clicking stops being the
+  game.** Every `click_mult` / `click_per_building` upgrade multiplies a base of
+  1 — a fixed number racing an exponential one — so past the mid-game a tap was
+  a rounding error against /s in a game called GlizzyClicker. The
+  `click_from_pps` line (Hands-On Management → The Glizzy Touch) adds a share of
+  the player's *own* per-second production to every click, totalling 10% of /s,
+  which is tuned so a human mashing ~10 clicks/s roughly doubles their income
+  while playing and gains nothing while idle. The share is added **outside** the
+  click multipliers — stacking the ×1.3M click ladder on it would make one tap
+  worth days of production — but **inside** golden click buffs, which are the
+  only mash-right-now reward and would otherwise be the one buff that gets
+  weaker the richer you are. Pinned by `test/glizzy-click.test.js`; the client's
+  `computeRatesFor` mirrors it (see the rule below).
 - **A golden-glizzy click buff is player-interaction only, and that is a
   deliberate exemption.** Tap Frenzy (×6/60 s) and DEMON DOG (×666/15 s)
   multiply `perClick` and nothing else — no production, no offline earnings,
@@ -573,9 +586,14 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyClicker's art
+and this doc should be updated. Last meaningful update: GlizzyClicker's
+`click_from_pps` upgrade line — four upgrades that pay a share of your own
+production per click so clicking still matters at the top of the tree
+(`glizzy.js`, the `computeRatesFor` mirror in `game.js`,
+`test/glizzy-click.test.js`, plus three new emoji icons 🖐️ 🧑‍🍳 🤲); before
+that, GlizzyClicker's art
 replaced with PixelLab pixel art — hero mascot, golden glizzy (gold remap of
-the hero), 12 building icons, and a ~64-icon emoji replacement set
+the hero), 12 building icons, and a ~67-icon emoji replacement set
 (`assets/clicker/` + `scripts/clicker-import-art.mjs` + `/game/art/*` route,
 per-surface fallback to the old SVGs/emoji, `docs/clicker-art.md`); before
 that, the per-deploy crash

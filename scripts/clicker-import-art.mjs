@@ -55,6 +55,7 @@ export const EMOJI_NAMES = {
   cheese: "🧀", chili: "🌶️", salad: "🥗", book: "📖", star: "⭐",
   globe: "🌍", crown: "👑", infinity: "♾️", flag: "🏁",
   tongs: "🥢", fencer: "🤺", droplet: "💧", fist: "✊", point: "☝️",
+  hand: "🖐️", palms: "🤲", chef: "🧑‍🍳",
   clover: "🍀", slots: "🎰", rainbow: "🌈", shamrock: "☘️",
   plate: "🍽️", sunrise: "🌅", owl: "🦉", flame: "🔥", hundred: "💯",
   trophy: "🏆", comet: "🌠", demon: "😈", moneybag: "💰", tap: "👆",
