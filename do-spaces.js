@@ -92,6 +92,56 @@ export async function deletePrefix(prefix) {
   return totalDeleted;
 }
 
+/**
+ * List every object under a key prefix as `{ key, size, lastModified }`.
+ * Paginates like deletePrefix does; a prefix with no matches returns [].
+ */
+export async function listObjects(prefix) {
+  const c = client();
+  const b = bucket();
+  let token = undefined;
+  const out = [];
+  do {
+    const list = await c.send(
+      new ListObjectsV2Command({
+        Bucket: b,
+        Prefix: prefix,
+        ContinuationToken: token,
+        MaxKeys: 1000,
+      }),
+    );
+    for (const o of list.Contents || []) {
+      out.push({ key: o.Key, size: o.Size, lastModified: o.LastModified });
+    }
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token);
+  return out;
+}
+
+/**
+ * Delete an explicit list of keys. Unlike deletePrefix this deletes only what
+ * it is handed, which is what any retention policy needs — a prefix delete
+ * cannot express "keep some of these". Returns the number deleted.
+ */
+export async function deleteObjects(keys) {
+  if (!keys.length) return 0;
+  const c = client();
+  const b = bucket();
+  let totalDeleted = 0;
+  // DeleteObjects caps at 1000 keys per call.
+  for (let i = 0; i < keys.length; i += 1000) {
+    const batch = keys.slice(i, i + 1000).map((Key) => ({ Key }));
+    await c.send(
+      new DeleteObjectsCommand({
+        Bucket: b,
+        Delete: { Objects: batch, Quiet: true },
+      }),
+    );
+    totalDeleted += batch.length;
+  }
+  return totalDeleted;
+}
+
 export function isSpacesConfigured() {
   return !!(
     process.env.DO_SPACES_ENDPOINT &&

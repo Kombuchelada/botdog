@@ -50,7 +50,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `digest.js` | Daily digest job. Fires once per Pacific day at/after 9 AM PT, posts an embed with yesterday's totals, top eaters, and active streaks. |
 | `profiles.js` | Discord avatar mirror. Daily worker refreshes everyone in `hotdog_events`; OAuth login mirrors the logging-in user. Resizes to 256×256 PNG, uploads to `avatars/{user_id}-{hash}.png` in Spaces. |
 | `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` returns the public CDN URL. `deletePrefix(prefix)` for bulk cleanup. |
-| `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Daily on `setInterval`, plus manual button in admin. |
+| `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Every 30 min on `setInterval`, plus manual button in admin. `selectExpired` is the pure retention decision; `pruneBackups` applies it after each successful upload. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
 | `game.js` | GlizzyClicker UI. Self-contained game page with PixelLab pixel art (hero mascot, golden glizzy, building icons, emoji icon set — `assets/clicker/` via `manifest.json`, served at `/game/art/*`; the hand-drawn SVGs and raw emoji remain as per-surface fallbacks), vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
@@ -426,6 +426,27 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   *silently* — a flourish can vanish and a cue can name a recipe that doesn't
   exist without anything throwing. Both test pure functions only: no canvas, no
   images, no audio device, and never the order layers draw or play in.
+  `test/backup-retention.test.js` is a third exception on the same grounds: it
+  covers the only code in the repo that deletes durable data, and an over-eager
+  policy throws nothing — it shows up the day a snapshot someone needs is gone.
+  It calls `selectExpired` and nothing else: no S3, and the clock is an
+  argument, so the suite cannot behave differently depending on when it runs.
+- **Backups are the whole durability story, so their retention deletes on
+  positive evidence only.** Railway's volume backups and PITR are Pro-plan
+  features and this project is on Hobby, so `backups/` in Spaces is the only
+  copy of anything — which is why the cadence is 30 minutes, not daily. The
+  policy keeps every snapshot for 7 days and then the *first of each UTC day*
+  forever, rather than the obvious "delete anything older than N days": the
+  daily trail predates the half-hourly cadence, so a plain age cutoff destroys
+  months of history on its first run. `selectExpired` is pure and takes the
+  clock as an argument, so it can be dry-run against the live bucket and tested
+  without S3 (`test/backup-retention.test.js`). It also never sees
+  `backups/latest.db.gz` — that key doesn't match the `backups/db-` prefix, so
+  the one the restore recipe names is structurally out of reach of a policy
+  bug. Reading and gzipping are async on purpose: the sync versions were a
+  shrug once a day and drop GlizzyBrawl's 30Hz ticks at 48 times a day.
+  See `docs/adr/0004-backups-live-in-object-storage.md` — including why
+  Railway's own volume backups are not the answer, so it isn't re-litigated.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.
@@ -586,7 +607,15 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyClicker's
+and this doc should be updated. Last meaningful update: backups moved to a
+30-minute cadence with a retention policy — `selectExpired`/`pruneBackups` in
+`backup.js`, `listObjects`/`deleteObjects` in `do-spaces.js`, and
+`test/backup-retention.test.js`; reading and gzipping went async so 48
+backups a day don't drop GlizzyBrawl ticks. Prompted by a Railway volume that
+hung in uninterruptible `D` state on 2026-08-10 and took the app down with
+`SQLITE_BUSY` (a symptom of the unkillable process holding the file lock, not
+a code bug), and by Railway's own volume backups being Pro-only; before
+that, GlizzyClicker's
 `click_from_pps` upgrade line — four upgrades that pay a share of your own
 production per click so clicking still matters at the top of the tree
 (`glizzy.js`, the `computeRatesFor` mirror in `game.js`,
