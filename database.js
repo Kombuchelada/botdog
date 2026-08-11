@@ -39,12 +39,9 @@ export const getTotalHotdogsStmt = db.prepare(
 export const getAllEventsStmt = db.prepare(
   "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
 );
-export const getLargestSingleSubmissionStmt = db.prepare(
-  "SELECT * FROM hotdog_events ORDER BY amount DESC, timestamp DESC LIMIT 1",
-);
-export const getMaxSinglePerUserStmt = db.prepare(
-  "SELECT user_id, MAX(amount) as max_single FROM hotdog_events GROUP BY user_id",
-);
+// No MAX(amount) statement lives here on purpose: a raw row maximum is the
+// single-sitting record *before* protests, and it can't see the day net that
+// decides whether the meal happened. stats.js owns that rule (cappedSittings).
 export const getAverageAmountPerEventStmt = db.prepare(
   "SELECT AVG(amount) as average_amount FROM hotdog_events",
 );

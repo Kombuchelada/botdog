@@ -734,14 +734,22 @@ function yesterdayPacificKey(now = new Date()) {
 
 export function computeBonuses(userId, ctx) {
   const allEvents = ctx?.allEvents || getAllEventsStmt.all();
-  const userEvents = allEvents.filter((e) => e.user_id === userId && e.amount > 0);
+  const userEvents = allEvents.filter((e) => e.user_id === userId);
   const yesterday = yesterdayPacificKey();
   const yesterdayEvents = userEvents.filter(
     (e) => toPacificDateKey(parseUtcTimestamp(e.timestamp)) === yesterday,
   );
+  // Net, not gross. Protests are negative rows, and dropping them here paid out
+  // Big Eater and the time-of-day boons for a day that was argued back to zero.
+  // Same rule as buildUserDatesMap's streak days: a day is worth what it nets.
   const yesterdayTotal = yesterdayEvents.reduce((s, e) => s + e.amount, 0);
-  const hadEarlyDog = yesterdayEvents.some((e) => pacificHour(parseUtcTimestamp(e.timestamp)) < 8);
-  const hadLateDog = yesterdayEvents.some((e) => pacificHour(parseUtcTimestamp(e.timestamp)) >= 22);
+  // A time-of-day boon is a *claim about a dog* — so it needs the day to have
+  // survived, not just a positive row sitting at that hour. Partial protests
+  // keep it: some of what was eaten stands, and nothing says which dog went.
+  const ateYesterday = yesterdayTotal > 0;
+  const atHour = (e, pred) => e.amount > 0 && pred(pacificHour(parseUtcTimestamp(e.timestamp)));
+  const hadEarlyDog = ateYesterday && yesterdayEvents.some((e) => atHour(e, (h) => h < 8));
+  const hadLateDog = ateYesterday && yesterdayEvents.some((e) => atHour(e, (h) => h >= 22));
 
   const datesMap = ctx?.datesMap || buildUserDatesMap(allEvents);
   const streak = getCurrentStreak(datesMap.get(userId) || new Set());

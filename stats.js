@@ -2,9 +2,7 @@ import {
   getLeaderboardStmt,
   getTotalHotdogsStmt,
   getAllEventsStmt,
-  getLargestSingleSubmissionStmt,
   getAverageAmountPerEventStmt,
-  getMaxSinglePerUserStmt,
 } from "./database.js";
 
 export function getLeaderboard() {
@@ -76,9 +74,7 @@ export function getMostInADayLeaderboard() {
 export function getMostInASittingLeaderboard() {
   const rows = getLeaderboardStmt.all();
   if (rows.length === 0) return "No hot dog counts yet!";
-  const maxByUser = new Map(
-    getMaxSinglePerUserStmt.all().map((r) => [r.user_id, r.max_single]),
-  );
+  const maxByUser = buildUserMaxSittingMap(getAllEventsStmt.all());
   const entries = rows
     .map((row) => ({ userId: row.user_id, value: maxByUser.get(row.user_id) ?? 0 }))
     .sort((a, b) => b.value - a.value);
@@ -161,6 +157,50 @@ export function buildUserMaxDailyMap(allEvents) {
     userMaxDaily.set(userId, Math.max(...dailyMap.values()));
   }
   return userMaxDaily;
+}
+
+/**
+ * Every logged sitting, with its amount capped by its own Pacific day's *net*
+ * total. Non-positive rows (protests) are not sittings and are skipped.
+ *
+ * A protest doesn't retract the row it disputes — it's a free-floating negative
+ * row of its own — so the inflated submission stays in the table forever, and
+ * reading the record straight off `MAX(amount)` credits a meal that was argued
+ * away. Capping by the day net is the rule buildUserDatesMap already applies to
+ * streak days: a day is worth what it nets, and a sitting can't be worth more
+ * than the day that contains it.
+ *
+ * The cap is per day, not per event, because nothing links a protest to the
+ * submission it cancels. A protest filed on a *later* day therefore lands on
+ * that day and can't retroactively shrink the record — the same limitation the
+ * streak rule has lived with.
+ */
+function cappedSittings(allEvents) {
+  const netByUserDay = new Map();
+  const dayKeyOf = (event) =>
+    `${event.user_id}|${toPacificDateKey(parseUtcTimestamp(event.timestamp))}`;
+  for (const event of allEvents) {
+    const key = dayKeyOf(event);
+    netByUserDay.set(key, (netByUserDay.get(key) ?? 0) + event.amount);
+  }
+  const sittings = [];
+  for (const event of allEvents) {
+    if (event.amount <= 0) continue;
+    const dayNet = netByUserDay.get(dayKeyOf(event)) ?? 0;
+    sittings.push({ event, amount: Math.max(0, Math.min(event.amount, dayNet)) });
+  }
+  return sittings;
+}
+
+/** Map of user_id -> largest single sitting that survived its day's protests. */
+export function buildUserMaxSittingMap(allEvents) {
+  const maxByUser = new Map();
+  for (const { event, amount } of cappedSittings(allEvents)) {
+    if (amount > (maxByUser.get(event.user_id) ?? 0)) {
+      maxByUser.set(event.user_id, amount);
+    }
+  }
+  return maxByUser;
 }
 
 /**
@@ -289,16 +329,29 @@ export function parseUtcTimestamp(timestamp) {
 }
 
 function getLargestSingleSessionSubmission() {
-  const largest = getLargestSingleSubmissionStmt.get();
-  if (!largest) {
+  // Capped by the day net like the per-user record above, and for the same
+  // reason: a meal protested back to zero never happened, so it can't hold the
+  // all-time record. Ties break on the later timestamp, as the SQL did.
+  let best = null;
+  for (const sitting of cappedSittings(getAllEventsStmt.all())) {
+    if (sitting.amount <= 0) continue;
+    if (
+      !best ||
+      sitting.amount > best.amount ||
+      (sitting.amount === best.amount && sitting.event.timestamp > best.event.timestamp)
+    ) {
+      best = sitting;
+    }
+  }
+  if (!best) {
     return { userId: null, username: null, amount: 0, timestamp: null };
   }
 
   return {
-    userId: largest.user_id,
-    username: largest.username,
-    amount: largest.amount,
-    timestamp: largest.timestamp,
+    userId: best.event.user_id,
+    username: best.event.username,
+    amount: best.amount,
+    timestamp: best.event.timestamp,
   };
 }
 

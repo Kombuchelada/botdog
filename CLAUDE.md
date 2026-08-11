@@ -126,6 +126,22 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **Streaks only count days with a positive net total** (`buildUserDatesMap`).
   Protests are negative `hotdog_events` rows and must not sustain a streak.
   This also narrows "active days" — a day that nets to zero isn't an eating day.
+- **A day is worth what it *nets*, and that rule is not just for streaks.** A
+  protest is a free-floating negative row filed at protest time — it never
+  retracts the submission it disputes and nothing links the two — so anything
+  reading raw positive rows credits a meal that was argued away. Two places got
+  this wrong and both failed silently, because a phantom bonus and a phantom
+  record look exactly like real ones: `computeBonuses` filtered to `amount > 0`
+  and paid Big Eater ×100 plus the time-of-day boons on a day protested back to
+  zero, and the single-sitting record came off a raw `MAX(amount)`.
+  `cappedSittings` in `stats.js` now caps every sitting by its day's net (there
+  is deliberately no `MAX(amount)` statement in `database.js` any more), and the
+  boons are gated on the day netting positive. Partial protests keep the boon —
+  nothing says *which* dog was disputed. `test/protest-accounting.test.js`.
+  What the day-net rule still can't fix: a protest filed the *next* day lands on
+  that day, so yesterday's inflated total stands for one more bonus cycle. The
+  fix for that is attributing protests to the events they cancel, which is a
+  schema question (`/protest` takes an amount, not an event) — not done.
 - **The golden-glizzy claim floor is per player, never a flat constant.**
   `goldenClaimFloorMs` derives it from that player's own `goldenSpawnFor`
   cadence. A flat 200 s floor silently rejected ~24% of claims for anyone
@@ -607,7 +623,11 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: backups moved to a
+and this doc should be updated. Last meaningful update: protests now actually
+take the dogs back — `computeBonuses` nets the day instead of summing positive
+rows, and the single-sitting record is capped by its day's net
+(`cappedSittings` in `stats.js`, `test/protest-accounting.test.js`); before
+that, backups moved to a
 30-minute cadence with a retention policy — `selectExpired`/`pruneBackups` in
 `backup.js`, `listObjects`/`deleteObjects` in `do-spaces.js`, and
 `test/backup-retention.test.js`; reading and gzipping went async so 48
