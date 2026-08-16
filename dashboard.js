@@ -17,6 +17,7 @@ import {
   getCurrentStreak,
   getLongestStreakEver,
   buildUserMaxDailyMap,
+  cappedSittings,
   toPacificDateKey,
   parseUtcTimestamp,
 } from "./stats.js";
@@ -257,23 +258,33 @@ function buildOverview() {
   const totalDogs = getTotalHotdogsStmt.get().total_hotdogs || 0;
   const activeDays = dailyMap.size;
   const dogsPerDay = activeDays > 0 ? totalDogs / activeDays : 0;
-  const biggest = events.reduce(
-    (acc, e) => (e.amount > acc.amount ? e : acc),
-    { amount: -Infinity },
-  );
+  // The single-sitting record must be capped by its Pacific day's net, like the
+  // /stats command's — a raw MAX(amount) credits a meal protested back to zero.
+  // Ties break on the later timestamp, as getLargestSingleSessionSubmission does.
+  let biggest = null;
+  for (const { event, amount } of cappedSittings(events)) {
+    if (amount <= 0) continue;
+    if (
+      !biggest ||
+      amount > biggest.amount ||
+      (amount === biggest.amount && event.timestamp > biggest.timestamp)
+    ) {
+      biggest = { user_id: event.user_id, amount, timestamp: event.timestamp };
+    }
+  }
   return {
     totalDogs,
     totalUsers: leaderboard.length,
     activeDays,
     dogsPerDay,
-    biggest: biggest.amount === -Infinity
-      ? null
-      : {
+    biggest: biggest
+      ? {
           user_id: biggest.user_id,
           username: getDisplayName(biggest.user_id),
           amount: biggest.amount,
           timestamp: biggest.timestamp,
-        },
+        }
+      : null,
     leaderboard: leaderboard.slice(0, 10),
     timeline: timeline.points,
     heatmap,

@@ -100,8 +100,10 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   `dashboard.js` — kept in sync manually.
 - **Discord bot is HTTP-only** (interactions endpoint), no gateway/WS
   connection. Archive ingest polls via REST.
-- **No new commits without the owner running `git commit` manually.** The
-  Railway deploy pipeline auto-deploys from `main`, so committing == shipping.
+- **Commits are fine; pushing to `main` is not, without explicit confirmation.**
+  The Railway deploy pipeline auto-deploys from `main`, so a push to `main` ==
+  shipping. Committing and pushing *other* branches is fine any time — only the
+  push to `main` is gated on the owner asking for it.
 - **`postinstall` runs `npm run register`**, which pushes the slash command
   list to Discord. Locally this fails with 401 if Discord credentials aren't
   in `.env`; use `npm install --ignore-scripts` to skip.
@@ -129,14 +131,18 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **A day is worth what it *nets*, and that rule is not just for streaks.** A
   protest is a free-floating negative row filed at protest time — it never
   retracts the submission it disputes and nothing links the two — so anything
-  reading raw positive rows credits a meal that was argued away. Two places got
-  this wrong and both failed silently, because a phantom bonus and a phantom
+  reading raw positive rows credits a meal that was argued away. Three places got
+  this wrong and all failed silently, because a phantom bonus and a phantom
   record look exactly like real ones: `computeBonuses` filtered to `amount > 0`
   and paid Big Eater ×100 plus the time-of-day boons on a day protested back to
-  zero, and the single-sitting record came off a raw `MAX(amount)`.
-  `cappedSittings` in `stats.js` now caps every sitting by its day's net (there
-  is deliberately no `MAX(amount)` statement in `database.js` any more), and the
-  boons are gated on the day netting positive. Partial protests keep the boon —
+  zero, the `/stats` single-sitting record came off a raw `MAX(amount)`, and the
+  public dashboard's front-page "Biggest single" (`buildOverview` in
+  `dashboard.js`) reduced raw rows the same way — so Tilor's protested-away 75
+  headlined the site after `/stats` was already fixed.
+  `cappedSittings` in `stats.js` (now exported) caps every sitting by its day's
+  net; both records run through it, and there is deliberately no `MAX(amount)`
+  statement in `database.js` any more. The boons are gated on the day netting
+  positive. Partial protests keep the boon —
   nothing says *which* dog was disputed. `test/protest-accounting.test.js`.
   What the day-net rule still can't fix: a protest filed the *next* day lands on
   that day, so yesterday's inflated total stands for one more bonus cycle. The
@@ -559,8 +565,9 @@ of the production database the owner downloaded for testing. There's also a
 
 ## Deployment (Railway)
 
-- **Auto-deploys from `main`.** The owner explicitly wants commits gated —
-  don't push without confirmation.
+- **Auto-deploys from `main`.** So don't push to `main` without the owner
+  asking — that push is the deploy. Commits and pushes to other branches are
+  fine any time.
 - `npm run register` runs as `postinstall`, which re-publishes the slash
   command list to Discord on every deploy.
 - **Deploys must launch `node app.js` directly, never `npm start`** —
@@ -615,7 +622,8 @@ of the production database the owner downloaded for testing. There's also a
 
 - **Terse responses.** No fluff, no recap-of-what-I-just-did at the end of
   every message.
-- **Don't commit or push.** The owner deploys manually. Always.
+- **Commit freely; never push to `main` unasked.** A push to `main` deploys,
+  so that one is gated on the owner asking. Other branches are unrestricted.
 - **Confirm before destructive actions.** Even with admin auth, wraps
   destructive admin buttons in JS `confirm()` prompts.
 - **Plasma palette, never red/green.** Owner is colorblind.

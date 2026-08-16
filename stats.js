@@ -175,7 +175,7 @@ export function buildUserMaxDailyMap(allEvents) {
  * that day and can't retroactively shrink the record — the same limitation the
  * streak rule has lived with.
  */
-function cappedSittings(allEvents) {
+export function cappedSittings(allEvents) {
   const netByUserDay = new Map();
   const dayKeyOf = (event) =>
     `${event.user_id}|${toPacificDateKey(parseUtcTimestamp(event.timestamp))}`;
