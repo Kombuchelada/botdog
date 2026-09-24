@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 // Preview the finale against a real database without posting anything.
 //
 //   DB_PATH=./hotdog-data.db node scripts/finale-preview.mjs           # embed + briefing

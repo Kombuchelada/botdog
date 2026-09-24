@@ -1,5 +1,6 @@
 import express from "express";
-import { seasonNow } from "./season.js";
+import { seasonNow, isSeasonOver } from "./season.js";
+import { buildResults, STATE_REVIEW_STORY_ID } from "./finale.js";
 import {
   db,
   getAllEventsStmt,
@@ -10,6 +11,7 @@ import {
   getArchiveAttachmentByIdStmt,
   getArchiveAttachmentsForMessageStmt,
   getUserProfileStmt,
+  getArchiveState,
 } from "./database.js";
 import { getLeaderboardRows as getGlizzyLeaderboardRows, fmtCompact } from "./game.js";
 import { renderNav } from "./nav.js";
@@ -629,10 +631,105 @@ function renderGlizzyLeadersSection(leaders) {
     </section>`;
 }
 
+// ----------------------------------------------------------------------------
+// The memorial: once the season is over, the top of the front page stops being
+// a live counter and becomes the result. Everything below it — timelines,
+// heatmaps, the clicker leaders — stays, frozen on 2026 (season.js).
+// ----------------------------------------------------------------------------
+
+const fmtInt = (n) => Number(n).toLocaleString("en-US");
+const unitLabel = (n, unit) => `${fmtInt(n)} ${n === 1 ? unit.replace(/s$/, "") : unit}`;
+
+function winnerLinks(userIds, size) {
+  return userIds
+    .map((id) => `
+      <a href="/user/${esc(id)}" class="inline-flex items-center gap-2 min-w-0 hover:text-accent-soft transition">
+        ${renderAvatar(id, size)}
+        <span class="truncate">${esc(getDisplayName(id))}</span>
+      </a>`)
+    .join("");
+}
+
+function renderMemorialSection({ results, reviewStoryId }) {
+  const byId = new Map(results.awards.map((a) => [a.id, a]));
+  const champion = byId.get("champion");
+  const podium = ["second", "third"].map((id) => byId.get(id)).filter(Boolean);
+  const others = results.awards.filter((a) => !["champion", "second", "third"].includes(a.id));
+  const { group } = results;
+  const bestDay = group.bestDay
+    ? new Date(`${group.bestDay.dateKeys[0]}T12:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", month: "short", day: "numeric" })
+    : "—";
+
+  const championCard = champion
+    ? `
+      <div class="card glow p-6 md:p-8 mb-6">
+        <div class="stat-label mb-4">👑 Glizzy Champion</div>
+        <div class="flex flex-wrap items-center gap-x-10 gap-y-4">
+          <div class="flex flex-col gap-3 text-3xl md:text-5xl font-bold text-white tracking-tight min-w-0">
+            ${winnerLinks(champion.userIds, 72)}
+          </div>
+          <div>
+            <div class="text-5xl md:text-6xl font-bold accent leading-none">${esc(fmtInt(champion.value))}</div>
+            <div class="text-slate-400 mt-1">hot dogs in 2026</div>
+          </div>
+        </div>
+      </div>`
+    : "";
+
+  const podiumCards = podium
+    .map((a) => `
+      <div class="card p-5">
+        <div class="stat-label mb-3">${esc(a.emoji)} ${esc(a.name)}</div>
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex flex-col gap-2 text-lg font-semibold text-white min-w-0">${winnerLinks(a.userIds, 40)}</div>
+          <div class="text-2xl font-bold text-white whitespace-nowrap">${esc(fmtInt(a.value))}</div>
+        </div>
+      </div>`)
+    .join("");
+
+  const awardCards = others
+    .map((a) => `
+      <div class="card-tight p-4">
+        <div class="flex items-baseline justify-between gap-3">
+          <div class="text-white font-semibold">${esc(a.emoji)} ${esc(a.name)}</div>
+          <div class="text-accent-soft text-sm whitespace-nowrap">${esc(unitLabel(a.value, a.unit))}</div>
+        </div>
+        <div class="text-slate-500 text-xs mt-0.5 mb-3">${esc(a.blurb)}</div>
+        <div class="flex flex-col gap-2 text-slate-200 text-sm min-w-0">${winnerLinks(a.userIds, 24)}</div>
+      </div>`)
+    .join("");
+
+  const stat = (label, value) =>
+    `<div class="card-tight p-4"><div class="stat-label">${esc(label)}</div><div class="text-2xl font-bold mt-1">${esc(value)}</div></div>`;
+
+  return `
+    <section class="mb-10">
+      <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Year of the Glizzy · 2026 · Final</div>
+      <h1 class="text-4xl md:text-6xl font-bold tracking-tight text-white leading-tight mb-6">That's the year.</h1>
+      ${championCard}
+      ${podiumCards ? `<div class="grid md:grid-cols-2 gap-6 mb-6">${podiumCards}</div>` : ""}
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        ${stat("Hot dogs", fmtInt(group.total))}
+        ${stat("People", fmtInt(group.participants))}
+        ${stat("Days with a dog", fmtInt(group.activeDays))}
+        ${stat("Biggest day", group.bestDay ? `${bestDay} · ${group.bestDay.value}` : "—")}
+      </div>
+      ${awardCards ? `
+        <div class="stat-label mb-3">Awards</div>
+        <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">${awardCards}</div>` : ""}
+      <div class="flex flex-wrap gap-3">
+        ${reviewStoryId ? `<a href="/archive/${esc(reviewStoryId)}" class="px-4 py-2 bg-accent hover:bg-accent-deep text-white rounded-lg font-semibold transition">📖 Read the Year in Review →</a>` : ""}
+        <a href="/numbers" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold transition">By the Numbers →</a>
+        <a href="/archive" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold transition">The archive →</a>
+        <a href="/game" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold transition">🌭 GlizzyClicker is still open →</a>
+      </div>
+    </section>`;
+}
+
 function renderOverviewPage(data) {
   const usersForPicker = JSON.stringify(data.userList);
   const body = `
-    <section class="mb-10">
+    ${data.final ? renderMemorialSection(data.final) : `<section class="mb-10">
       <div class="grid md:grid-cols-3 gap-6 items-center">
         <div class="md:col-span-2">
           <div class="text-slate-400 text-sm uppercase tracking-widest mb-2">Server overview</div>
@@ -649,7 +746,7 @@ function renderOverviewPage(data) {
           </div>
         </div>
       </div>
-    </section>
+    </section>`}
 
     <section class="grid lg:grid-cols-3 gap-6 mb-8">
       <div class="card p-6 lg:col-span-2">
@@ -874,7 +971,7 @@ function renderUserPage(data) {
     </section>
 
     <section class="grid md:grid-cols-3 gap-6 mb-8">
-      ${statTile("Current streak", data.currentStreak, data.currentStreak === 1 ? "day" : "days")}
+      ${statTile(isSeasonOver() ? "Final streak" : "Current streak", data.currentStreak, data.currentStreak === 1 ? "day" : "days")}
       ${statTile("Longest streak", data.longestStreak, data.longestStreak === 1 ? "day" : "days")}
       ${statTile("Most in a day", data.maxInADay, data.maxInADay === 1 ? "dog" : "dogs")}
     </section>
@@ -1034,7 +1131,7 @@ function renderComparePage({ users, dates, byUser, allUsers, selected }) {
             <div class="mt-3 text-3xl font-bold accent">${esc(u.total)}</div>
             <div class="text-xs text-slate-400">total hot dogs</div>
             <div class="mt-4 grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-              <div class="text-slate-400">Current streak</div><div class="text-right text-slate-100">${esc(u.currentStreak)}</div>
+              <div class="text-slate-400">${isSeasonOver() ? "Final streak" : "Current streak"}</div><div class="text-right text-slate-100">${esc(u.currentStreak)}</div>
               <div class="text-slate-400">Longest</div><div class="text-right text-slate-100">${esc(u.longestStreak)}</div>
               <div class="text-slate-400">Most/day</div><div class="text-right text-slate-100">${esc(u.maxInADay)}</div>
               <div class="text-slate-400">Active days</div><div class="text-right text-slate-100">${esc(u.activeDays)}</div>
@@ -1413,6 +1510,12 @@ export function registerDashboard(app) {
   router.get("/", (req, res) => {
     const data = buildOverview();
     data.userList = buildUserList();
+    if (isSeasonOver()) {
+      data.final = {
+        results: buildResults(),
+        reviewStoryId: getArchiveState(STATE_REVIEW_STORY_ID),
+      };
+    }
     res.send(renderOverviewPage(data));
   });
 
