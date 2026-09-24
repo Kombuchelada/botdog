@@ -1,17 +1,9 @@
-// The image operations both GlizzyBrawl importers need.
+// Image operations for art importers (`clicker-import-art.mjs`).
 //
 // Art from a generator never arrives game-ready: it has a background, whatever
 // margins the model felt like, and no relationship to the size the game draws
-// it at. Knocking out the background and measuring what's left is the same job
-// whether the subject is a Fighter or a floodlight tower — so it lives here,
-// once. `brawl-import-sprites.mjs` and `brawl-import-stage.mjs` differ in what
-// they do *after* this (plant feet on a floor line vs. cut to a scene rect),
-// which is why they are still two scripts.
-//
-// They were briefly two copies of these functions, and had already drifted:
-// `hexToRgb` fell back to white in one and black in the other, so the same
-// `--bg` typo de-backgrounded differently depending on which importer you ran.
-// That is the same failure mode as a client replica of the sim.
+// it at. Knocking out the background and measuring what's left lives here so
+// every importer does it the same way.
 
 import { createCanvas } from "@napi-rs/canvas";
 

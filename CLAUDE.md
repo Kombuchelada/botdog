@@ -16,10 +16,6 @@ counter has grown into a multi-surface project:
 - **GlizzyClicker**: a Cookie-Clicker-style idle game where bonuses are
   driven by your real hot dog stats (eat 4+ dogs yesterday → Big Eater
   ×100 click; 120-day streak → +240% production; etc.)
-- **GlizzyBrawl**: a realtime Smash-style platform fighter at `/brawl` — one
-  always-on Arena, server-authoritative 30Hz sim over WebSockets, four
-  Fighters, all-time KO/Fall scoreboard plus a Pacific Day Tally, and a fully
-  synthesised sound layer (no audio files)
 
 Hosted on Railway. SQLite (`better-sqlite3`) on a Railway volume.
 DO Spaces for object storage (attachments, avatars, DB backups).
@@ -54,19 +50,8 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
 | `game.js` | GlizzyClicker UI. Self-contained game page with PixelLab pixel art (hero mascot, golden glizzy, building icons, emoji icon set — `assets/clicker/` via `manifest.json`, served at `/game/art/*`; the hand-drawn SVGs and raw emoji remain as per-surface fallbacks), vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
-| `brawl-sim.js` | GlizzyBrawl's simulation. Pure, dependency-free, deterministic (no `Math.random`/`Date.now`). **Served verbatim to the browser at `/brawl/sim.js`** — server and client run the same file, so there is no replica to drift. See `docs/glizzybrawl.md`. |
-| `brawl.js` | GlizzyBrawl server: 30Hz accumulator loop, `ws` protocol, the `brawl_stats` ledger, routes. `registerBrawl(app)` / `attachBrawl(server)` / `stopBrawl()` are the whole seam — the Arena could move to its own service by re-pointing those three. |
-| `brawl-art.js` | GlizzyBrawl Fighter art. Every action is a **clip** (`CLIPS`), and `frameFor(fighter, nowMs)` returns `{ clip, index }` from a snapshot — attacks driven by their own frame counter against the move's frame data, hitstun/dodge by the sim's timers, the air clips by vertical velocity, only the walk on a clock. Also the signature-move flourish layer (`flourishFor` / `drawFlourish`). All four Fighters have bespoke PixelLab art (south-east 3/4) in `assets/brawl/`; the only borrowed art left is Kenney's CC0 zombie for CPUs, whose clips are one frame each. Shared with the browser at `/brawl/art.js` and with `scripts/brawl-art-preview.mjs`, which renders the roster as a filmstrip so the *mapping* can be judged without a browser. |
-| `scripts/brawl-import-sprites.mjs` | Imports bespoke Fighter art, one `--clip` per action — de-backgrounds, trims, resamples each animation to the length `CLIPS` declares, scales the whole set uniformly, plants feet on the floor line, updates `assets/brawl/manifest.json`. Fails if a peak clip's most extreme frame is its first (a dead animation). `--frame-width` is the per-Fighter apparent-size dial and records itself per Fighter so one import can't resize another. Recipe: `docs/glizzybrawl-art-brief.md`. |
-| `scripts/brawl-art-measure.mjs` | Gates keyframe picks on measured alpha bounding boxes (crouch ≤75% of standing height, attack ≥+15px extension, hurt ≥3px lift) instead of on judgement. |
-| `brawl-announce.js` | Posts "someone's in the Arena" to Discord when a player joins GlizzyBrawl. Its own module because `brawl.js` reaches the outside world only through named seams — this one is a single fire-and-forget call that can fail or be unconfigured without the game noticing. Owns the *whether*, not just the *how*: the join path also runs on reconnects, queue promotions and AFK wake-ups, so it enforces one announcement per player per 30-minute quiet period. |
-| `brawl-audio.js` | GlizzyBrawl's sound, and **not one audio file** — every cue is synthesised in the browser from a recipe in `CUES` (oscillator sweeps plus one buffer of white noise). Pure and dependency-free like the sim beside it: it decides *what should be heard and how loud* and never opens an audio device. `cueFor(ev)` voices the three server events (hit/KO/respawn); `transitionCues(prev, cur)` derives swings, jumps, landings and dodges by diffing the local arena against itself a tick ago. Shared with the browser at `/brawl/audio.js`. The engine that turns a cue into sound is the only Web Audio code on the page and lives in `brawl-page.js`. |
-| `brawl-stage.js` | GlizzyBrawl's Stage — **the Ballpark**, a night game seen from the outfield. Composed from props at native scale (scoreboard rig, light towers, crowd band, a 32px wall tileset, three Catwalks), not painted as one image. The scene is *derived* from the sim's `STAGE`, so a platform can't move out from under its Catwalk. `planScene` is the pure fallback decision (art → primitive → sky); placement lives here as readable coordinates. Shared with the browser at `/brawl/stage.js`. See `docs/glizzybrawl-stage-brief.md`. |
-| `scripts/brawl-import-stage.mjs` | Imports Ballpark props — chroma-keys the background out, trims, cuts to the size the scene draws them at, records bounds in the manifest. Three gates fail the import: **scale** (a prop must land 1:1, never resampled — the fix is to put the art's size into `LAYOUT`), **floor** (the wall cap's surface must be on the wang midline, or the wall sits off the floor line) and **clearance** (nothing standing above a Catwalk's walk line — a phantom railing). |
 | `scripts/clicker-import-art.mjs` | Imports GlizzyClicker's pixel art from a staging dir into `assets/clicker/` + `manifest.json`. Gates: exact size per kind (hero/golden 120×90, buildings 40×40, emoji 32×32 — never resamples), transparent corners, content ≥20% of canvas. Owns `EMOJI_NAMES`, the emoji-character → icon-name table. Recipe: `docs/clicker-art.md`. |
-| `scripts/lib/pixel-art.mjs` | The image ops both importers need: flood-fill de-background, chroma key, alpha bounding box. Shared because two copies had already drifted (`hexToRgb` fell back to white in one and black in the other). |
-| `scripts/brawl-stage-preview.mjs` | Renders the Ballpark to a PNG from `brawl-stage.js` itself, and gates silhouette contrast — each Fighter's `stand` over the backdrop at all eight spawn points. `--baseline` measures the placeholder Stage, which is where the threshold comes from. |
-| `brawl-page.js` | GlizzyBrawl UI: SSR'd page plus a hand-rolled canvas renderer, client prediction, gamepad + dual-keyboard input, scoreboards. Fighter art is one function per character in `ART` (deliberately swappable for sprite sheets). |
+| `scripts/lib/pixel-art.mjs` | Image ops for art importers: flood-fill de-background, chroma key, alpha bounding box. |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -76,9 +61,6 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 - `archive_messages`, `archive_attachments`, `archive_stories`, `archive_state` — archive feature.
 - `user_profiles` — Discord identity + avatar URL cache.
 - `glizzy_game` — game state JSON + `lifetime_glizzies` extracted for leaderboard index.
-- `brawl_stats` — GlizzyBrawl ledger: one row per player ever (KOs, Falls, best
-  KO Streak, arena seconds, per-character KOs, Pacific Day Tally). Deliberately
-  has no match/bout/win concept to hang a row on — see `docs/adr/0001-continuous-arena.md`.
 
 `archive_stories` has a `tags TEXT DEFAULT '[]'` column added by a one-shot
 ALTER migration (idempotent — checks `PRAGMA table_info`).
@@ -248,208 +230,9 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   has `overflow-x: clip`, so it always reads clean. Measure each element's
   `getBoundingClientRect().width` against `clientWidth` instead, and test
   resizing *down* from a wide viewport, not just loading narrow.
-- **GlizzyBrawl's sim is one file both sides run.** `brawl-sim.js` imports
-  nothing and is deterministic so the browser can predict with the server's own
-  physics. Adding a `node:` import, an npm dependency, `Math.random()`, or
-  `Date.now()` to it breaks either the browser or prediction — usually both.
-  This is the `computeRatesFor` lesson applied by construction rather than by
-  discipline.
-- **Folding a GlizzyBrawl snapshot into an arena you will keep stepping must go
-  through `applyFighterSnapshot`, never a raw `Object.assign`.** The wire and
-  the sim deliberately disagree about an attack's `move`: `snapshot()` sends the
-  move's *name* (what the art layer wants), `stepAttack` needs the *object* (it
-  reads `startup`/`active`/`endlag` off it). Assign the wire shape onto a
-  Fighter the client predicts and `startup + active` is `undefined + undefined`
-  = NaN, so `frame >= activeEnd + endlag` is false on every future tick and the
-  attack **never ends** — which freezes that Fighter permanently, since
-  `controllable` and `canMove` are both gated on `!f.attack`. This hit *only
-  your own Fighter*, because it is the one `applySnapshot` deliberately skips
-  (it's predicted) and the page reconciled it by hand; the server and every
-  other client kept a healthy copy, so it read as "my Fighter disappeared but
-  everyone else can still see me". `stepAttack` now also drops an attack whose
-  frame data isn't arithmetic — an attack that cannot end is an absorbing state
-  and nothing else recovers from it.
-- **GlizzyBrawl snapshots buffer events, and queued inputs merge.** Snapshots
-  go out every other tick, so they must carry *all* events since the last one
-  (sending only that tick's events dropped half of every fight's hits and KOs).
-  And queued input frames merge rather than replace — under load the server can
-  tick slower than a client sends, and "newest wins" swallows taps outright.
-  Both are covered by tests; both were invisible bugs found by them.
-- **A GlizzyBrawl action is a clip, and its `contact` frame is pinned to the
-  move's first *active* frame.** Wind-up plays over the startup, contact holds
-  for exactly the hitbox's lifetime, recovery plays over the endlag — so one
-  4-frame clip per attack reads correctly on a 2-frame jab and a 12-frame
-  launcher alike, and the moment a Fighter looks most committed is the moment it
-  can actually hit you. Clip lengths live in `CLIPS` in `brawl-art.js` (not the
-  manifest — the browser reads them without a fetch), are the same for every
-  Fighter so timing belongs to the move, and are *gated* at import rather than
-  generated. Same call as the Stage's `LAYOUT`.
-- **A duration GlizzyBrawl's art animates is reported by the sim.** The snapshot
-  carries each attack's `startup`/`active`/`endlag` and each timed state's
-  remaining ticks *and* its total (`hitstun`/`hitstunTotal`,
-  `dodgeTicks`/`dodgeTotal`). The alternative is `brawl-art.js` holding its own
-  copy of `DODGE_TICKS` and the hitstun formula — a second source of truth for
-  numbers the sim owns. Almost nothing in the art is on a clock as a result:
-  only the walk cycle, which has no state of its own to track.
-- **Every GlizzyBrawl Fighter now has art of its own**, generated through
-  PixelLab, so `bodyFor` is `cpu ? zombie : character` and nothing branches on
-  a manifest list any more. The costume layer, the bespoke list and the four
-  borrowed Kenney bodies are all deleted — with no users left they were just a
-  second way to draw a Fighter for the renderer and its preview to disagree
-  about. The CPU keeps a Kenney zombie on purpose. Anything committed under
-  `assets/` must permit redistribution: this repo is public, which rules out
-  most itch "free" packs.
-- **GlizzyBrawl's pace is a mashing game, and three things make it one.** The
-  frame data is fast (jab out on frame 2, done on frame 9) — but *only startup
-  and endlag were ever cut*, never `active`, so speeding the Arena up made
-  nothing harder to land. On top of that, attack presses **buffer**
-  (`INPUT_BUFFER_TICKS`): attacks are edge-triggered, so a press during a move's
-  recovery used to be swallowed outright and the only way to attack quickly was
-  to time each press after a recovery you can't see. And the client **latches**
-  key presses between polls (`keyLatched` in `brawl-page.js`) — input is sampled
-  once per 33ms tick, so a tap that went down and up between two samples never
-  happened, which lost the fastest punches specifically. Cutting the frame data
-  alone would not have fixed the feel. No art change was needed for any of it:
-  animation is derived from what the sim reports, so a faster move animates
-  faster on its own. Flare-Up's startup and `FLOURISHES.flare.windup` must move
-  together — the coals are its only telegraph.
-- **In GlizzyBrawl, jump is Space — never the same key as "up".** Sharing them
-  makes every ground up-attack jump first and come out as its aerial variant,
-  silently deleting half the ground moveset.
-- **A grounded attack plants your feet** (`vx *= 0.2` on startup). Without it,
-  an attack begun mid-run keeps all of that run: you slide past your own hitbox
-  and off the ledge, and the attack reads as broken. Found by the WebSocket
-  tests, not by playing.
-- **GlizzyBrawl's food Fighters face south-east (3/4), not in profile.** A
-  person in profile still reads as a person; a hot dog in profile is a
-  featureless lump with no face, no arms and one leg. The face is why these
-  sprites work at 64px. See `docs/adr/0002-food-characters-face-three-quarter.md`
-  — this reversed an explicit rule in the art brief, so don't re-derive it per
-  character. The renderer still mirrors for left-facing.
-- **Humanoid animation templates don't work on stub-limbed characters.**
-  PixelLab's templates rotate a skeleton, and these Fighters have no thigh or
-  upper arm to rotate — `walking`, `crouching`, `taking-punch` and both punch
-  templates all came back with almost no visible motion (a "crouch" at 89% of
-  standing height, a "punch" extending 3px). v3 custom descriptions that deform
-  the whole body are the tool; only `jumping-1` and `high-kick` survived.
-- **Judge poses by measurement, not by eye.** Both art defects found in the
-  bespoke-art session passed a visual check and failed a bounding box: a crouch
-  must land ≤75% of standing height, an attack must extend ≥+15px, a hurt pose
-  must show lift. Measure the alpha bounding box directly — `sharp.trim()` keys
-  off the top-left pixel and returns the full canvas on transparent art.
-- **`FRAME.width` in the sprite importer is the apparent-size dial.** The
-  renderer normalises every sprite to `SPRITE.drawHeight` and takes the aspect
-  from the image, so a Fighter's on-screen size is the fraction of frame height
-  its art fills. The importer's shared scale factor is set by the widest pose —
-  usually a fully extended attack — so a narrow frame pins the whole Fighter
-  small. `--frame-width` is the dial in both directions — widen to grow, narrow
-  to shrink — and it records itself per Fighter in the manifest *and reads it
-  back*, so one import can neither resize the next nor silently undo a tuning
-  when the flag is left off. That is how the roster gets its ~15% size spread
-  (Grill 84.5% of frame height, everyone else 97.3%) with no regeneration.
-- **The roster preview must agree with the Arena.**
-  `scripts/brawl-art-preview.mjs` once drew bespoke art at Kenney's aspect ratio
-  while the game drew it correctly — a preview tool that disagrees with the
-  thing it previews is worse than none. It also has to throw each Fighter's
-  *own* special: a shared move name showed every row The Glizzy's and hid the
-  flourishes the preview exists to check. It is a **filmstrip** now, walking
-  each action forward in real sim time and shading the frames on which the move
-  can hit: a grid of stills cannot show whether the animation lands contact
-  inside the hitbox, which is the thing most likely to be wrong.
-- **The Stage is derived from the sim, never described alongside it.**
-  `buildScene(STAGE)` takes the sim's geometry as an argument (it can't import
-  it — the browser's specifier for `brawl-sim.js` isn't the server's) and places
-  every Catwalk from `STAGE.platforms`. A scene with its own copy of the
-  coordinates is the one way this feature can break *silently*: move a platform
-  and the art keeps drawing at the old width over a surface that's no longer
-  under it. What the test pins is the part deriving can't fix — that each
-  Catwalk's art was *generated* at its platform's width.
-- **Every Stage surface falls back to its placeholder shape, per surface.** A
-  missing prop costs one piece: the wall can be bespoke while the Catwalks are
-  still orange bars. Backdrop props (board, towers, crowd) fall through to sky
-  instead, because they hide nothing — inventing a grey box for them would ship
-  a placeholder that looks like a bug. Nothing may make a *surface* invisible;
-  Fighters standing on an invisible floor is the failure this rule exists for.
-- **Stage props are drawn 1:1 and generated on a chroma key.** The Ballpark is
-  composed from props precisely because no upscale of a 400×400 backdrop to
-  1280×720 gives pixels the same size as the Fighters' — so resampling a prop on
-  the way in loses that by the back door. The importer refuses it: the fix is to
-  put the art's own size into `LAYOUT`, where placement lives and is meant to be
-  iterated. And props are generated on magenta rather than "transparent",
-  because an edge flood fill can never reach the background trapped inside a
-  lattice truss's bracing, and `no_background` is also what made PixelLab's
-  `create_image_pro` stall at 49% indefinitely.
-- **A wang tile's terrain boundary is its midline, not its edge.** The wall
-  tileset's cap tile is air above the midline and wall below it, so the scene
-  offsets the whole tile grid by half a tile in both axes. Line the grid up with
-  `STAGE.ground` instead and the walking surface lands 16px below the floor the
-  sim collides against — Fighters standing in the wall. Tiles are also copied
-  verbatim at import: trimming one and stretching what's left doubles a cap
-  tile's pixels and slides the wall face half a tile sideways, both silently.
-- **The Stage's art gates live at import and in the preview, not in `npm test`.**
-  A floating floor and a phantom railing are properties of an asset, and assets
-  change only when art is imported — so they fail `scripts/brawl-import-stage.mjs`,
-  at the moment the art is wrong. Silhouette contrast is measured in the preview
-  script against a floor *derived* from the placeholder Stage (`--baseline`),
-  which is known-readable. `test/brawl-stage.test.js` stays pure — no canvas, no
-  images — like the art seam beside it.
-- **GlizzyBrawl's sound is synthesised, and impacts and movement come from
-  different places on purpose.** The Arena forwards only `hit`, `ko` and
-  `respawn` to clients — exactly the events a client can't work out for itself,
-  because they follow from *other* Fighters' inputs. Everything else (swings,
-  jumps, landings, dodges) is derived from state the local arena already holds.
-  Splitting it this way is what removes the double-fire problem: your own swings
-  are predicted locally and would otherwise sound once on prediction and again
-  on the server's echo. No cue has two sources, so nothing needs deduplicating.
-- **How a GlizzyBrawl move *sounds* is derived from its frame data, not from its
-  name.** There is no table mapping `light_side` to a sound: one `swing` recipe
-  is stretched and pitched by the startup the sim reports, so a jab is short and
-  high and a heavy is long and low, and a balance change to the frame data
-  re-voices the move with nothing edited. Flare-Up's sizzle is bound to
-  `SPECIALS.flare.startup` the same way and for the same reason its coals are —
-  it is now a second telegraph, and a telegraph that outlasts its wind-up is a
-  lie. This is the art layer's "a duration the presentation plays is a duration
-  the sim reports" rule, applied to the ears.
-- **A swing fires on the frame counter restarting, but only on a big restart.**
-  The local arena predicts every tick while snapshots land on every second one,
-  so a remote Fighter's attack routinely runs a frame or two ahead and is pulled
-  back. Sounding off on *any* backwards step means a phantom second swing on
-  every attack anyone else throws; a real repeat (which the input buffer makes
-  routine) both jumps back a long way and lands at frame zero, and a correction
-  does neither. Covered by a test, because it is inaudible in code review.
-- **Cue cooldowns are not a taste knob.** Snapshots carry every event since the
-  last one, so a KO arrives together with most of the combo that caused it. With
-  no floor between two firings of the same cue that lands as one clipped burst
-  of noise instead of a fight — the audio consequence of the buffering rule the
-  renderer already lives with. Sound also *suspends* (not just mutes) on a
-  hidden tab: the Arena is always on and this is a tab people leave open.
-- **No GlizzyBrawl KO involving a CPU is ever persisted**, and neither is Arena
-  time during practice. CPUs exist only while a lone human is present, so
-  "are there CPUs in the Arena?" is the entire check — there is never a
-  human-vs-CPU KO to disambiguate.
-- **Hot dog stats are cosmetic-only in GlizzyBrawl.** `computeCosmetics` may
-  grow crowns/trails/finishes and nothing else; no weight, speed, damage, reach,
-  or knockback may ever derive from a hot dog stat. This reversed the original
-  pitch on purpose.
-- **A signature-move flourish is its own layer, not part of a Fighter's art.** The splat at
-  Ketchup's nozzle and The Grill's roaring coals live in `FLOURISHES` and are
-  drawn for *every* Fighter. Inside the old costume closures they were gated on
-  the manifest, so giving a Fighter bespoke art silently deleted its special's
-  effect — fatal for Flare-Up, whose 12-frame wind-up the coals are the only
-  warning of. Progress comes from the attack's own frame counter, never the
-  clock. A back-layer flourish must also be *wider* than a Fighter: a single
-  flame up the centre line is completely hidden by the body.
-- **`npm test` is Node's built-in `node:test`, zero new dependencies.** The two
-  seams are the WebSocket boundary (primary) and the sim's public API. Tests
-  assert what a connected client observes and what the ledger records — never
-  internal state shapes or tick bookkeeping. `test/brawl-art.test.js` and
-  `test/brawl-audio.test.js` are deliberate exceptions on the same grounds:
-  neither other seam can observe presentation at all, and both layers fail
-  *silently* — a flourish can vanish and a cue can name a recipe that doesn't
-  exist without anything throwing. Both test pure functions only: no canvas, no
-  images, no audio device, and never the order layers draw or play in.
-  `test/backup-retention.test.js` is a third exception on the same grounds: it
-  covers the only code in the repo that deletes durable data, and an over-eager
+- **`npm test` is Node's built-in `node:test`, zero new dependencies.**
+  Tests call pure functions and the DB through a scratch `DB_PATH`.
+  `test/backup-retention.test.js` covers the only code in the repo that deletes durable data, and an over-eager
   policy throws nothing — it shows up the day a snapshot someone needs is gone.
   It calls `selectExpired` and nothing else: no S3, and the clock is an
   argument, so the suite cannot behave differently depending on when it runs.
@@ -466,7 +249,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   `backups/latest.db.gz` — that key doesn't match the `backups/db-` prefix, so
   the one the restore recipe names is structurally out of reach of a policy
   bug. Reading and gzipping are async on purpose: the sync versions were a
-  shrug once a day and drop GlizzyBrawl's 30Hz ticks at 48 times a day.
+  shrug once a day and a real event-loop stall at 48 times a day.
   See `docs/adr/0004-backups-live-in-object-storage.md` — including why
   Railway's own volume backups are not the answer, so it isn't re-litigated.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
@@ -508,7 +291,6 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 | `ARCHIVE_CHANNEL_ID` | Right-click channel in Discord (Developer Mode on) → Copy Channel ID |
 | `ARCHIVE_ANNOUNCE_CHANNEL_ID` | Optional, falls back to `ARCHIVE_CHANNEL_ID` |
 | `DIGEST_CHANNEL_ID` | Optional, falls back to `ARCHIVE_ANNOUNCE_CHANNEL_ID` |
-| `BRAWL_ANNOUNCE_CHANNEL_ID` | Optional, for GlizzyBrawl join announcements. Falls back to `ARCHIVE_ANNOUNCE_CHANNEL_ID` then `ARCHIVE_CHANNEL_ID`. Unset + no fallback = feature is silently off. |
 
 **DO Spaces (for attachments + avatars + DB backups)**
 
@@ -525,7 +307,6 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 | Var | Notes |
 |---|---|
 | `DB_PATH` | Defaults to `/database/data.db`. Override to `./hotdog-data.db` for local testing. |
-| `BRAWL_TEST_MODE` | Local/test only. `=1` drops the GlizzyBrawl AFK despawn from 60s to 2s so the rule is testable and demoable. **Never set in prod.** |
 | `GLIZZY_TEST_MODE` | Local only. `=1` makes golden glizzies spawn every 6–14s and drops the claim floor so the feature is demoable in seconds. **Never set in prod.** See `docs/golden-glizzy.md`. |
 | `NIXPACKS_NODE_VERSION` | Pin to `22` (also in `package.json:engines.node`) |
 | `NPM_CONFIG_OMIT=dev` + `NPM_CONFIG_PRODUCTION=` (empty) | Cosmetic — silences the npm deprecation warning during deploy |
@@ -580,10 +361,6 @@ of the production database the owner downloaded for testing. There's also a
 - `railway.json` also sets `drainingSeconds: 30` — Railway's default grace
   between SIGTERM and SIGKILL is **0 seconds**. The 20s force-exit failsafe in
   `app.js` must stay below it.
-- `stopBrawl()` must `terminate()` sockets, not `close()` them — a close
-  handshake waits up to 30s for a peer that may never reply (backgrounded
-  tab), holding `server.close()` and the deploy open. Pinned by
-  `test/brawl-shutdown.test.js`.
 - **better-sqlite3 is pinned to ^12.x** because ^8.x has no Node 22 prebuilds.
   v12 returns integer columns as JS `Number` (not `BigInt`), so existing code
   still works.
@@ -631,7 +408,9 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: protests now actually
+and this doc should be updated. Last meaningful update: GlizzyBrawl (`/brawl`)
+removed entirely — unused; its `brawl_stats` table is left in the DB, just
+unreferenced; before that, protests now actually
 take the dogs back — `computeBonuses` nets the day instead of summing positive
 rows, and the single-sitting record is capped by its day's net
 (`cappedSittings` in `stats.js`, `test/protest-accounting.test.js`); before
@@ -639,7 +418,7 @@ that, backups moved to a
 30-minute cadence with a retention policy — `selectExpired`/`pruneBackups` in
 `backup.js`, `listObjects`/`deleteObjects` in `do-spaces.js`, and
 `test/backup-retention.test.js`; reading and gzipping went async so 48
-backups a day don't drop GlizzyBrawl ticks. Prompted by a Railway volume that
+backups a day don't stall the event loop. Prompted by a Railway volume that
 hung in uninterruptible `D` state on 2026-08-10 and took the app down with
 `SQLITE_BUSY` (a symptom of the unkillable process holding the file lock, not
 a code bug), and by Railway's own volume backups being Pro-only; before
@@ -655,20 +434,12 @@ the hero), 12 building icons, and a ~67-icon emoji replacement set
 per-surface fallback to the old SVGs/emoji, `docs/clicker-art.md`); before
 that, the per-deploy crash
 alert diagnosed and fixed — `railway.json` (startCommand `node app.js` +
-`drainingSeconds: 30`) so SIGTERM actually reaches node, `stopBrawl()`
-terminating sockets instead of close-handshaking, and
-`test/brawl-shutdown.test.js`; before that, golden-glizzy click
+`drainingSeconds: 30`) so SIGTERM actually reaches node; before that, golden-glizzy click
 buffs (Tap Frenzy ×6/60 s, DEMON DOG ×666/15 s) — the table's first
 player-interaction-only rewards — plus the mega rate moving from 1/1000 to
 1/100, the clamp-window fix in `validateAndClampSave`, GlizzyClicker's first
 tests (`test/glizzy-golden.test.js`) and a `### GlizzyClicker` section in
-`CONTEXT.md`; before that, GlizzyBrawl sound
-(`brawl-audio.js`, `/brawl/audio.js`) — fully synthesised, no audio assets,
-impacts from server events and movement from state transitions; before that,
-GlizzyBrawl Fighter animation — every action a clip driven by
-sim state, with contact pinned to the hitbox
-(`brawl-art.js`, `scripts/brawl-import-sprites.mjs`); before that, GlizzyBrawl
-(`brawl-sim.js` / `brawl.js` / `brawl-page.js`, `/brawl`) + the repo's first
+`CONTEXT.md`; before that, GlizzyBrawl (since removed) + the repo's first
 test suite (`npm test`); before that, the By the Numbers
 page (`numbers.js`, `/numbers`) + `CONTEXT.md` glossary; before that, golden-buff
 eclipse/queue stacking (no more downgrades) + out-of-order save-response guard;

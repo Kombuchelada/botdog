@@ -1,7 +1,6 @@
 // GlizzyClicker golden-glizzy tests.
 //
-// The first non-brawl tests in the repo, and they exist for the reason the
-// brawl audio tests do: everything here fails *silently*. A clamp that eats a
+// These exist because everything here fails *silently*. A clamp that eats a
 // reward doesn't throw, doesn't log anything a player sees, and surfaces weeks
 // later as one person saying "my mega didn't do anything".
 //

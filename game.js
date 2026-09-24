@@ -1872,8 +1872,7 @@ ${NAV}
 }
 
 export function registerGame(app) {
-  // GlizzyClicker's pixel art. Whitelisted by name shape (same rule as
-  // /brawl/art) so the route can never serve anything else out of the repo.
+  // GlizzyClicker's pixel art. Whitelisted by name shape so the route can never serve anything else out of the repo.
   app.get("/game/art/:file", (req, res) => {
     if (!/^[a-z0-9_]+\.png$/.test(req.params.file)) return res.status(404).end();
     res.type("image/png");

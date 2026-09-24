@@ -33,7 +33,7 @@ Anything else shears the pixels unevenly — visibly.
 
 ## Regenerating art
 
-PixelLab access (the same account that made the GlizzyBrawl art):
+PixelLab access:
 
 - REST v1 (`https://api.pixellab.ai/v1`, bearer token from the `pixellab`
   MCP server config): `generate-image-pixflux` is synchronous, 1 generation
@@ -65,7 +65,6 @@ transparent corners, content ≥20% of canvas), copies verbatim, and rewrites
 `manifest.json`. A new emoji icon needs its character added to `EMOJI_NAMES`
 first — the importer refuses names it doesn't know.
 
-Art gates live in the importer, not `npm test`, same reasoning as the
-GlizzyBrawl stage: a bad asset can only arrive via an import, so that's where
-it should fail. A *missing* asset isn't a failure at all — it's the fallback
+Art gates live in the importer, not `npm test`: a bad asset can only arrive
+via an import, so that's where it should fail. A *missing* asset isn't a failure at all — it's the fallback
 working as designed.

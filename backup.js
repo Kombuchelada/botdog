@@ -51,10 +51,9 @@ export async function runBackup() {
     await db.backup(tmpPath);
     // Both of these are async on purpose. The sync versions block the event
     // loop for the whole read + compress, which was a shrug once a day and is
-    // not at 48 times a day: GlizzyBrawl's Arena steps at 30Hz, so a stall
-    // drops ticks for everyone connected. Async zlib runs on libuv's
-    // threadpool, so level 9 costs the event loop nothing and we keep the
-    // smaller object.
+    // not at 48 times a day: a stall blocks every request in flight. Async
+    // zlib runs on libuv's threadpool, so level 9 costs the event loop nothing
+    // and we keep the smaller object.
     const raw = await readFile(tmpPath);
     const gz = await gzipAsync(raw, { level: 9 });
     const ts = new Date().toISOString().replace(/[:.]/g, "-").replace("Z", "").slice(0, 19) + "Z";

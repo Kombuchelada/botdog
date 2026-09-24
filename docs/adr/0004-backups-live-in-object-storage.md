@@ -56,8 +56,8 @@ its retention load-bearing rather than housekeeping.
   the pruner's reach by construction: it does not match the `backups/db-`
   prefix the policy lists. A retention bug cannot take the restore path with it.
 - Reading and gzipping are async. Synchronous versions were tolerable once a
-  day and are not at 48 times a day, because GlizzyBrawl's Arena steps at 30Hz
-  and a blocked event loop drops ticks for everyone connected.
+  day and are not at 48 times a day, because a blocked event loop stalls every
+  request in flight.
 - Restoring means uploading over `/database/data.db` — see the recipe at
   `/admin/backup`. Blank `DO_SPACES_KEY` first: the backup worker fires 30s
   after boot and will otherwise overwrite `latest.db.gz` with whatever empty
