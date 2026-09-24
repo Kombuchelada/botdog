@@ -4,6 +4,7 @@ import {
   getAllEventsStmt,
   getAverageAmountPerEventStmt,
 } from "./database.js";
+import { seasonNow } from "./season.js";
 
 export function getLeaderboard() {
   const rows = getLeaderboardStmt.all();
@@ -21,7 +22,7 @@ export function getLeaderboard() {
           currentRank = index + 1;
         }
         const dates = userDates.get(row.user_id) ?? new Set();
-        const numDaysInStreak = getCurrentStreak(dates);
+        const numDaysInStreak = getCurrentStreak(dates, seasonNow());
         const longestStreak = getLongestStreakEver(dates);
         const maxInADay = userMaxDaily.get(row.user_id) ?? 0;
         return `${currentRank}. <@${row.user_id}> - ${row.total_count} hot dogs, Current streak: ${numDaysInStreak} day(s), Longest streak: ${longestStreak} day(s), Most in a day: ${maxInADay} dog(s)`;
@@ -88,7 +89,7 @@ export function getCurrentStreakLeaderboard() {
   const entries = rows
     .map((row) => ({
       userId: row.user_id,
-      value: getCurrentStreak(userDates.get(row.user_id) ?? new Set()),
+      value: getCurrentStreak(userDates.get(row.user_id) ?? new Set(), seasonNow()),
     }))
     .sort((a, b) => b.value - a.value);
   return formatRankedList(entries, (v) => `${v} day(s)`);
@@ -123,7 +124,7 @@ function getDogsPerDay() {
   let dogsPerDay = 0;
   if (allEvents.length > 0) {
     const firstEventTime = new Date(allEvents[allEvents.length - 1].timestamp);
-    const now = new Date();
+    const now = seasonNow();
     const daysElapsed =
       (now.getTime() - firstEventTime.getTime()) / (1000 * 60 * 60 * 24);
     dogsPerDay = (totalDogsConsumed / daysElapsed).toFixed(2);
@@ -135,7 +136,7 @@ function getDogsPerMonth() {
   const totalDogsConsumed = getTotalHotdogsStmt.get().total_hotdogs || 0;
   const daysInAMonth = 30.4;
   const startDate = new Date(1767254400000); // 1/1/2026 at midnight
-  const today = new Date();
+  const today = seasonNow();
   const millisecondsDifference = today - startDate;
   const dayDifference = millisecondsDifference / (1000 * 3600 * 24);
   const monthsElapsed = dayDifference / daysInAMonth;
@@ -248,8 +249,7 @@ export function getLongestStreakEver(dates) {
   return maxStreak;
 }
 
-export function getCurrentStreak(dates) {
-  const now = new Date();
+export function getCurrentStreak(dates, now = new Date()) {
   const todayKey = toPacificDateKey(now);
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayKey = toPacificDateKey(yesterday);
@@ -281,7 +281,7 @@ function getLongestDailyStreak() {
   const streaksByUser = new Map();
 
   for (const [userId, dates] of userDates.entries()) {
-    const streak = getCurrentStreak(dates);
+    const streak = getCurrentStreak(dates, seasonNow());
     streaksByUser.set(userId, streak);
     if (streak > maxDays) {
       maxDays = streak;

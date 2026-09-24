@@ -1,4 +1,5 @@
 import path from "node:path";
+import { seasonNow } from "./season.js";
 import { fileURLToPath } from "node:url";
 import { createCanvas, GlobalFonts, loadImage } from "@napi-rs/canvas";
 import { Chart, registerables } from "chart.js";
@@ -211,14 +212,14 @@ function shiftDays(date, days) {
 
 // Fixed lower bound for the heatmap — Year of the Glizzy began here.
 const HEATMAP_START_ISO = "2025-12-31";
-const HEATMAP_MAX_WEEKS = 52;
+const HEATMAP_MAX_WEEKS = 53; // the whole season: Sun 2025-12-28 through Sat 2027-01-02
 
 /**
  * Compute the heatmap window: starts at the Sunday on/before HEATMAP_START_ISO,
  * ends at the Saturday of this week, capped to HEATMAP_MAX_WEEKS columns
  * (sliding forward once we accumulate more history than the cap allows).
  */
-function computeHeatmapWindow(now = new Date()) {
+function computeHeatmapWindow(now = seasonNow()) {
   const todayPacificKey = toPacificDateKey(now);
 
   const lowerBound = new Date(HEATMAP_START_ISO + "T12:00:00Z");
@@ -227,7 +228,7 @@ function computeHeatmapWindow(now = new Date()) {
   const endAnchor = new Date(todayPacificKey + "T12:00:00Z");
   endAnchor.setUTCDate(endAnchor.getUTCDate() + (6 - endAnchor.getUTCDay()));
 
-  // Start no earlier than (endAnchor - 52 weeks + 1 day): keeps the column count <= 52.
+  // Start no earlier than (endAnchor - HEATMAP_MAX_WEEKS weeks + 1 day): keeps the column count <= HEATMAP_MAX_WEEKS.
   const maxBackStart = new Date(endAnchor);
   maxBackStart.setUTCDate(maxBackStart.getUTCDate() - (HEATMAP_MAX_WEEKS * 7 - 1));
 
@@ -364,7 +365,7 @@ export function renderTimeline({ userId } = {}) {
   }
 
   const startDate = new Date(keys[0] + "T12:00:00Z");
-  const endDate = new Date(toPacificDateKey(new Date()) + "T12:00:00Z");
+  const endDate = new Date(toPacificDateKey(seasonNow()) + "T12:00:00Z");
   const series = [];
   let cumulative = 0;
   let cursor = new Date(startDate);
@@ -709,7 +710,7 @@ export async function renderStatCard({ userId }) {
   const total = userEvents.reduce((s, e) => s + e.amount, 0);
   const datesMap = buildUserDatesMap(events);
   const dates = datesMap.get(userId) || new Set();
-  const currentStreak = getCurrentStreak(dates);
+  const currentStreak = getCurrentStreak(dates, seasonNow());
   const longestStreak = getLongestStreakEver(dates);
 
   const maxDailyMap = buildUserMaxDailyMap(events);
@@ -791,7 +792,7 @@ export async function renderStatCard({ userId }) {
   const miniStride = miniCell + miniGap;
   const miniTop = 130;
 
-  const now = new Date();
+  const now = seasonNow();
   const todayKey = toPacificDateKey(now);
   const miniLowerBound = new Date(HEATMAP_START_ISO + "T12:00:00Z");
   miniLowerBound.setUTCDate(miniLowerBound.getUTCDate() - miniLowerBound.getUTCDay());

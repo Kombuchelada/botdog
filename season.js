@@ -38,3 +38,13 @@ export const SEASON_LAST_DAY_KEY = new Date(SEASON_END.getTime() - 1)
 export function isSeasonOver(now = new Date()) {
   return now.getTime() >= SEASON_END.getTime();
 }
+
+// "Now", as far as the competition is concerned: the real clock during the
+// season, then pinned to its final instant forever. Anything that counts back
+// from today — current streaks, heatmap windows, per-day averages, the pace —
+// reads this, so in 2027 the site shows how 2026 *ended* rather than drifting
+// into empty weeks and streaks that all read zero. GlizzyClicker uses the real
+// clock; it has no end.
+export function seasonNow(now = new Date()) {
+  return isSeasonOver(now) ? new Date(SEASON_END.getTime() - 1) : now;
+}

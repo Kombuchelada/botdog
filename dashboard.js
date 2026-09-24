@@ -1,4 +1,5 @@
 import express from "express";
+import { seasonNow } from "./season.js";
 import {
   db,
   getAllEventsStmt,
@@ -110,7 +111,7 @@ function dailyTimelineSeries(dailyMap) {
   const keys = Array.from(dailyMap.keys()).sort();
   if (keys.length === 0) return { points: [], total: 0 };
   const start = new Date(keys[0] + "T12:00:00Z");
-  const end = new Date(toPacificDateKey(new Date()) + "T12:00:00Z");
+  const end = new Date(toPacificDateKey(seasonNow()) + "T12:00:00Z");
   const points = [];
   let cumulative = 0;
   let cursor = new Date(start);
@@ -126,10 +127,10 @@ function dailyTimelineSeries(dailyMap) {
 
 // Fixed lower bound for the heatmap — Year of the Glizzy began here.
 const HEATMAP_START_ISO = "2025-12-31";
-const HEATMAP_MAX_WEEKS = 52;
+const HEATMAP_MAX_WEEKS = 53; // the whole season: Sun 2025-12-28 through Sat 2027-01-02
 
 function heatmapSeries(dailyMap) {
-  const now = new Date();
+  const now = seasonNow();
   const todayKey = toPacificDateKey(now);
 
   // Lower bound: Sunday on/before HEATMAP_START_ISO.
@@ -303,7 +304,7 @@ function buildUserDetail(userId) {
   const heatmap = heatmapSeries(dailyMap);
   const datesMap = buildUserDatesMap(events);
   const dates = datesMap.get(userId) || new Set();
-  const currentStreak = getCurrentStreak(dates);
+  const currentStreak = getCurrentStreak(dates, seasonNow());
   const longestStreak = getLongestStreakEver(dates);
   const maxDailyMap = buildUserMaxDailyMap(events);
   const maxInADay = maxDailyMap.get(userId) || 0;
@@ -362,7 +363,7 @@ function buildCompare(userIds) {
       user_id: id,
       name: getDisplayName(id),
       total,
-      currentStreak: getCurrentStreak(userDates),
+      currentStreak: getCurrentStreak(userDates, seasonNow()),
       longestStreak: getLongestStreakEver(userDates),
       maxInADay: maxDailyMap.get(id) || 0,
       activeDays: userDates.size,
