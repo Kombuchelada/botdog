@@ -107,7 +107,7 @@ function looksLikeHeic(buf, url) {
  * "2026-05-12 23:45 Pacific" so Claude reasons about day boundaries the same
  * way the rest of the bot does.
  */
-function toPacificDateTimeString(input) {
+export function toPacificDateTimeString(input) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return String(input);
   const date = d.toLocaleDateString("en-CA", {
@@ -220,3 +220,83 @@ export function isAnthropicConfigured() {
 }
 
 export const ANTHROPIC_MODEL = MODEL_ID;
+
+// ============================================================================
+// Year in Review — the one story written after the season ends (finale.js).
+// ============================================================================
+
+// One call, once, so the strongest writer is worth it: roughly 25k tokens in.
+// Claude Opus 5.5 rejects the forced tool call proposeStories uses, so this
+// asks for JSON through structured output instead, and thinking is always on —
+// effort is the dial. `fallbacks: "default"` reruns a classifier refusal on
+// another model server-side rather than failing a story that only happens once.
+const YEAR_IN_REVIEW_MODEL = "claude-opus-5-5";
+
+const YEAR_IN_REVIEW_SYSTEM = `You are the editor of "Year of the Glizzy", a Discord community of friends who spent 2026 logging every hot dog they ate with a bot. The year is over. Write the definitive Year in Review for the public archive.
+
+You get the final standings, the year-end awards, month-by-month totals, every story the archive published during the year, and the raw channel messages posted after the newest story (nothing has covered those yet, so they're the only record of the year's last stretch). The stories are the primary source; the recent messages are raw chat — use them for what happened, not as quotes to reproduce at length. Those are your only sources: don't invent events, quotes, places or people that aren't in them.
+
+WRITING:
+- A warm, specific magazine feature — the arc of the year from January to December, not a list of results.
+- Crown the champion and weave the awards into the story where they belong, rather than reciting them.
+- Name the moments: the places, the food, the people, the records.
+- 8 to 12 paragraphs of plain text, separated by blank lines. No markdown, no headings, no bullet points.
+- Refer to people by their display names exactly as given.
+- No clichés like "In a remarkable display of…". Don't over-hype.
+
+HIGHLIGHTS: pick 6 to 12 story ids — the moments that defined the year — in chronological order. Their photos become the story's carousel. The first id you list is the cover photo, so make it the best one.
+
+TAGS: 3 short lowercase tags, e.g. "year-in-review", "champion", "records".`;
+
+const YEAR_IN_REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    title: { type: "string", description: "Headline, max ~80 characters." },
+    body: { type: "string", description: "8-12 paragraphs, plain text, separated by blank lines." },
+    highlight_story_ids: { type: "array", items: { type: "integer" } },
+    tags: { type: "array", items: { type: "string" } },
+  },
+  required: ["title", "body", "highlight_story_ids", "tags"],
+  additionalProperties: false,
+};
+
+/**
+ * @param {object} params
+ * @param {string} params.briefing - the standings, awards, totals and every
+ *   story of the year, already rendered as text (finale.js builds it).
+ * @returns {Promise<{title, body, highlight_story_ids, tags, modelId}>}
+ */
+export async function writeYearInReview({ briefing }) {
+  if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not set");
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, maxRetries: 5 });
+  // Streamed: thinking counts toward max_tokens, and a non-streaming request
+  // this size risks the SDK's HTTP timeout.
+  const message = await anthropic.beta.messages
+    .stream({
+      model: YEAR_IN_REVIEW_MODEL,
+      max_tokens: 32000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: {
+        effort: "high",
+        format: { type: "json_schema", schema: YEAR_IN_REVIEW_SCHEMA },
+      },
+      system: YEAR_IN_REVIEW_SYSTEM,
+      messages: [{ role: "user", content: briefing }],
+    })
+    .finalMessage();
+
+  if (message.stop_reason === "refusal") {
+    throw new Error(`Year in Review refused (${message.stop_details?.category ?? "no category"})`);
+  }
+  if (message.stop_reason === "max_tokens") {
+    throw new Error("Year in Review hit max_tokens before finishing");
+  }
+  const text = message.content
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("");
+  const story = JSON.parse(text);
+  // The model that actually served it — a fallback may have run.
+  return { ...story, modelId: message.model };
+}

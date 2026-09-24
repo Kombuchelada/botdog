@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { SEASON_END_SQL } from "./season.js";
 
 // Initialize SQLite database for persistent hotdog tracking
 const db = new Database(process.env.DB_PATH || "/database/data.db");
@@ -27,23 +28,55 @@ db.prepare(
 export const insertHotdogEventStmt = db.prepare(
   "INSERT INTO hotdog_events (user_id, username, amount) VALUES (?, ?, ?)",
 );
-export const getUserTotalStmt = db.prepare(
-  "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?",
+
+// Season-scoped: every row logged before the Year of the Glizzy ended (see
+// season.js). These carry the plain names because the competition is what
+// almost everything reads — leaderboards, dashboard, charts, /stats, digest.
+// Each one takes no arguments beyond its own; the season end is bound here.
+const IN_SEASON = "datetime(timestamp) < datetime(@seasonEnd)";
+function seasonStmt(sql) {
+  const stmt = db.prepare(sql);
+  const bind = (args) => [{ seasonEnd: SEASON_END_SQL }, ...args];
+  return {
+    get: (...args) => stmt.get(...bind(args)),
+    all: (...args) => stmt.all(...bind(args)),
+  };
+}
+export const getUserTotalStmt = seasonStmt(
+  `SELECT user_id, username, SUM(amount) AS total_count FROM hotdog_events
+   WHERE user_id = ? AND ${IN_SEASON} GROUP BY user_id`,
 );
-export const getLeaderboardStmt = db.prepare(
-  "SELECT user_id, username, total_count FROM hotdog_totals ORDER BY total_count DESC",
+export const getLeaderboardStmt = seasonStmt(
+  `SELECT user_id, username, SUM(amount) AS total_count FROM hotdog_events
+   WHERE ${IN_SEASON} GROUP BY user_id ORDER BY total_count DESC`,
 );
-export const getTotalHotdogsStmt = db.prepare(
-  "SELECT SUM(total_count) as total_hotdogs FROM hotdog_totals",
+export const getTotalHotdogsStmt = seasonStmt(
+  `SELECT SUM(amount) AS total_hotdogs FROM hotdog_events WHERE ${IN_SEASON}`,
 );
-export const getAllEventsStmt = db.prepare(
-  "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
+export const getAllEventsStmt = seasonStmt(
+  `SELECT * FROM hotdog_events WHERE ${IN_SEASON} ORDER BY timestamp DESC`,
 );
 // No MAX(amount) statement lives here on purpose: a raw row maximum is the
 // single-sitting record *before* protests, and it can't see the day net that
 // decides whether the meal happened. stats.js owns that rule (cappedSittings).
-export const getAverageAmountPerEventStmt = db.prepare(
-  "SELECT AVG(amount) as average_amount FROM hotdog_events",
+export const getAverageAmountPerEventStmt = seasonStmt(
+  `SELECT AVG(amount) AS average_amount FROM hotdog_events WHERE ${IN_SEASON}`,
+);
+
+// Lifetime: every row ever, season or not. GlizzyClicker runs in perpetuity and
+// its bonuses keep paying for dogs eaten after the season — a Breakfast Boon in
+// 2027 is still a Breakfast Boon. Reach for these only for the game and for
+// the bot's own replies to a submission.
+export const getLifetimeUserTotalStmt = db.prepare(
+  "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?",
+);
+export const getLifetimeEventsStmt = db.prepare(
+  "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
+);
+// /hotdog and /protest replies also read lifetime: during the season it's the
+// same number, and afterwards it's the one that still moves.
+export const getLifetimeTotalHotdogsStmt = db.prepare(
+  "SELECT SUM(amount) AS total_hotdogs FROM hotdog_events",
 );
 
 // ============================================================================

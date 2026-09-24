@@ -8,6 +8,7 @@
 // server. Full design rationale: docs/by-the-numbers.md.
 
 import { getAllEventsStmt } from "./database.js";
+import { seasonNow, isSeasonOver } from "./season.js";
 import { renderNav } from "./nav.js";
 import { toPacificDateKey, parseUtcTimestamp } from "./stats.js";
 
@@ -225,7 +226,7 @@ function netSince(events, now, days) {
 
 export function computeNumbers() {
   const events = getAllEventsStmt.all();
-  const now = new Date();
+  const now = seasonNow();
   const todayKey = toPacificDateKey(now);
 
   // --- totals & the cumulative daily series (Pacific day buckets) ---
@@ -296,6 +297,7 @@ export function computeNumbers() {
   const co2Kg = beefKg * CO2_KG_PER_KG_BEEF;
 
   return {
+    final: isSeasonOver(),
     todayKey,
     daysElapsed,
     daysRemaining,
@@ -530,22 +532,40 @@ function renderNumbersPage(n) {
     { text: `per glizzy: ${fmt(GLIZZY.kcal)} kcal, ${GLIZZY.proteinG.toFixed(1)} g protein, ${GLIZZY.satfatG.toFixed(1)} g sat fat, ${fmt(GLIZZY.sodiumMg)} mg sodium, ${GLIZZY.cholMg.toFixed(0)} mg cholesterol`, source: SRC.fdcBun },
   ];
 
+  // Once the season is over there is nothing left to project: the pace, the
+  // fan and "see you at ~N" all become the number the year actually ended on.
+  const finalTally = `
+      <div class="num-subline reveal">
+        final tally, December 31: <span class="text-slate-100 font-semibold">${fmt(n.netTotal)}</span>
+      </div>
+      <div class="reveal">${workPanel({
+        formula: [
+          `final = Σ dogs logged − Σ dogs protested, through Dec 31 Pacific`,
+          `${fmt(n.netTotal)} ÷ ${n.daysElapsed} days = ${n.pace.ytd.toFixed(2)}/day`,
+        ],
+        constants: [
+          { text: `net total counts protests as negative — the community self-polices` },
+          { text: `dogs logged after the season are kept, but don't count toward 2026` },
+        ],
+        assumptions: ["All day boundaries are Pacific time, like everything else on this site."],
+      })}</div>`;
+
   const hero = `
   <section class="num-section" id="hero">
     <div class="num-inner">
       <div class="num-kicker reveal">Year of the Glizzy · by the numbers</div>
       <div class="num-headline num-headline-xl reveal">${S(n.netTotal)}</div>
       <div class="num-subline reveal">
-        hot dogs eaten by ${fmt(n.participants)} people since January 1
-        · <span class="text-accent-soft">${n.pace.p28.toFixed(1)}/day</span> pace
+        hot dogs eaten by ${fmt(n.participants)} people ${n.final ? "in 2026" : "since January 1"}
+        · <span class="text-accent-soft">${(n.final ? n.pace.ytd : n.pace.p28).toFixed(1)}/day</span> ${n.final ? "for the year" : "pace"}
       </div>
       <div class="num-visual reveal">
         <div class="chart-wrap card p-4 sm:p-6">
-          <div class="stat-label mb-3">The year so far — and where it's headed</div>
+          <div class="stat-label mb-3">${n.final ? "The whole year, day by day" : "The year so far — and where it's headed"}</div>
           <div style="position:relative;height:290px;"><canvas id="heroChart"></canvas></div>
         </div>
       </div>
-      <div class="num-subline reveal">
+      ${n.final ? finalTally : `<div class="num-subline reveal">
         projected year-end: <span class="text-slate-100 font-semibold">~${fmt(n.projection.mid)}</span>
         <span class="ladder-dim">(range ${fmt(n.projection.low)} – ${fmt(n.projection.high)})</span>
       </div>
@@ -562,7 +582,7 @@ function renderNumbersPage(n) {
           "All day boundaries are Pacific time, like everything else on this site.",
           "The projection assumes tomorrow resembles the last four weeks. Rally, and the number climbs.",
         ],
-      })}</div>
+      })}</div>`}
       <div class="scroll-hint reveal">scroll ↓</div>
     </div>
   </section>`;
@@ -767,8 +787,10 @@ function renderNumbersPage(n) {
   const outro = `
   <section class="num-section" id="outro">
     <div class="num-inner text-center">
-      <div class="num-kicker reveal">the year is ${Math.round((n.daysElapsed / 365) * 100)}% over</div>
-      <div class="num-subline reveal">and the glizzies are ${Math.round((n.netTotal / n.projection.mid) * 100)}% eaten. See you at ~${fmt(n.projection.mid)}.</div>
+      <div class="num-kicker reveal">${n.final ? "the year is over" : `the year is ${Math.round((n.daysElapsed / 365) * 100)}% over`}</div>
+      <div class="num-subline reveal">${n.final
+        ? `and every glizzy is eaten: ${fmt(n.netTotal)} of them. Thanks for playing.`
+        : `and the glizzies are ${Math.round((n.netTotal / n.projection.mid) * 100)}% eaten. See you at ~${fmt(n.projection.mid)}.`}</div>
       <div class="reveal mt-6"><a href="/" class="text-accent hover:text-accent-soft">← back to the dashboard</a></div>
     </div>
   </section>`;
@@ -779,6 +801,7 @@ function renderNumbersPage(n) {
     todayKey: n.todayKey,
     daysElapsed: n.daysElapsed,
     projection: n.projection,
+    final: n.final,
   };
   const dataJson = JSON.stringify(pageData).replace(/</g, "\\u003c");
 
@@ -939,11 +962,11 @@ ${renderNav("numbers")}
       var pt = mActual.data[todayIdx];
       if (pt) {
         ctx.fillStyle = '#ff6b35';
-        ctx.fillText('today: ' + D.netTotal.toLocaleString(), pt.x - 6, pt.y - 8);
+        ctx.fillText((D.final ? 'final: ' : 'today: ') + D.netTotal.toLocaleString(), pt.x - 6, pt.y - 8);
       }
       var mMid = chart.getDatasetMeta(1);
       var end = mMid.data[mMid.data.length - 1];
-      if (end) {
+      if (end && !D.final) {
         ctx.fillStyle = '#ffa07a';
         ctx.fillText('~' + D.projection.mid.toLocaleString() + ' by Dec 31', end.x, end.y - 10);
       }

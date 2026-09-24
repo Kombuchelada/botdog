@@ -52,6 +52,9 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `game.js` | GlizzyClicker UI. Self-contained game page with PixelLab pixel art (hero mascot, golden glizzy, building icons, emoji icon set — `assets/clicker/` via `manifest.json`, served at `/game/art/*`; the hand-drawn SVGs and raw emoji remain as per-surface fallbacks), vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `scripts/clicker-import-art.mjs` | Imports GlizzyClicker's pixel art from a staging dir into `assets/clicker/` + `manifest.json`. Gates: exact size per kind (hero/golden 120×90, buildings 40×40, emoji 32×32 — never resamples), transparent corners, content ≥20% of canvas. Owns `EMOJI_NAMES`, the emoji-character → icon-name table. Recipe: `docs/clicker-art.md`. |
 | `scripts/lib/pixel-art.mjs` | Image ops for art importers: flood-fill de-background, chroma key, alpha bounding box. |
+| `season.js` | The Year of the Glizzy's end: 2027-01-01 00:00 Pacific. `SEASON_END`, `isSeasonOver()`, and `seasonNow()` (the real clock, then pinned to the season's last instant). Imports nothing so `database.js` can bind it into the season-scoped statements. |
+| `awards.js` | `computeAwards(events)` — pure: final standings (ties share a place), the year-end awards, group totals. Every award nets protests. The one source the finale's embed, the memorial and the Year in Review all read. |
+| `finale.js` | What happens once at 12:01 AM Pacific on New Year's Day: results embed, the last partial week's stories, the Claude Opus 5.5 Year in Review (`writeYearInReview` in `claude.js`). `buildResults()` also feeds the memorial front page. |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)
@@ -77,9 +80,36 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 - **Heatmap color palette is `plasma`** (purple → magenta → orange → yellow),
   not red/green. Owner is colorblind. Same palette used everywhere (web SVG +
   Discord PNG + stat-card mini-heatmap).
-- **Heatmaps start no earlier than 2025-12-31** and cap at 52 weeks. Constants
-  in both `charts.js` (`HEATMAP_START_ISO`, `HEATMAP_MAX_WEEKS`) and
-  `dashboard.js` — kept in sync manually.
+- **Heatmaps start no earlier than 2025-12-31** and cap at 53 weeks — the
+  whole season, Sun 2025-12-28 through Sat 2027-01-02. Constants in both
+  `charts.js` (`HEATMAP_START_ISO`, `HEATMAP_MAX_WEEKS`) and `dashboard.js` —
+  kept in sync manually.
+- **The competition ends; the game doesn't.** The Year of the Glizzy is a
+  season ending 2027-01-01 00:00 Pacific (`season.js`). Every statement that
+  feeds a leaderboard, the dashboard, a chart, `/stats` or the digest reads
+  only rows logged before it — that's why `getAllEventsStmt`,
+  `getLeaderboardStmt`, `getTotalHotdogsStmt`, `getUserTotalStmt` keep their
+  plain names. GlizzyClicker reads `getLifetime*` instead and keeps paying
+  bonuses for dogs eaten in 2027 and beyond, forever. `/hotdog` keeps logging
+  after the season (its reply reads lifetime and adds a "2026 is closed" line).
+  There is deliberately no season *start*. Anything that counts back from
+  "today" on a competition surface reads `seasonNow()`, which pins to the
+  season's last instant once it's over — otherwise streaks zero out and
+  heatmaps drift into empty 2027 weeks. `getCurrentStreak` takes the clock as
+  an argument for this reason; the game passes the real one.
+- **The finale runs once, at 12:01 AM Pacific on New Year's Day** (`finale.js`):
+  results embed, stories for the season's last partial week, then the Year in
+  Review. Each step records itself in `archive_state` and fails independently,
+  so a restart can't double-post and a Discord outage can't cost the story.
+  It's a once-a-minute check, not a timer — `setTimeout` overflows past ~24.8
+  days. The Year in Review gets three attempts, then waits for a human. The
+  weekly story job and the daily digest stop at the season end. Every finale
+  surface reads `computeAwards` (`awards.js`), so the embed, the memorial
+  front page and the story can't disagree about who won; every award nets
+  protests like everything else here. Preview it against a real DB with
+  `scripts/finale-preview.mjs` (`--write` drafts the Year in Review for ~$0.25
+  without saving or posting). Tests: `test/season.test.js`,
+  `test/awards.test.js`, `test/finale.test.js`.
 - **Discord bot is HTTP-only** (interactions endpoint), no gateway/WS
   connection. Archive ingest polls via REST.
 - **Commits are fine; pushing to `main` is not, without explicit confirmation.**
@@ -307,6 +337,7 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
 | Var | Notes |
 |---|---|
 | `DB_PATH` | Defaults to `/database/data.db`. Override to `./hotdog-data.db` for local testing. |
+| `SEASON_END_OVERRIDE` | Local only. An ISO timestamp that moves the season's end, so the post-season site (memorial, frozen stats, finale) can be previewed now against a real DB. **Never set in prod** — it moves the finish line. |
 | `GLIZZY_TEST_MODE` | Local only. `=1` makes golden glizzies spawn every 6–14s and drops the claim floor so the feature is demoable in seconds. **Never set in prod.** See `docs/golden-glizzy.md`. |
 | `NIXPACKS_NODE_VERSION` | Pin to `22` (also in `package.json:engines.node`) |
 | `NPM_CONFIG_OMIT=dev` + `NPM_CONFIG_PRODUCTION=` (empty) | Cosmetic — silences the npm deprecation warning during deploy |
@@ -408,7 +439,12 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: GlizzyBrawl (`/brawl`)
+and this doc should be updated. Last meaningful update: the Year of the
+Glizzy got an ending — `season.js` bounds the competition at 2027-01-01
+00:00 Pacific while GlizzyClicker reads lifetime, `awards.js` computes the
+trophies, `finale.js` posts the results and has Claude Opus 5.5 write the
+Year in Review at 12:01 AM, and the front page becomes a memorial; before
+that, GlizzyBrawl (`/brawl`)
 removed entirely — unused; `database.js` drops its `brawl_stats` table on
 boot; before that, protests now actually
 take the dogs back — `computeBonuses` nets the day instead of summing positive

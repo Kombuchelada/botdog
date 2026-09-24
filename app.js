@@ -6,6 +6,7 @@ import { registerAdmin } from "./admin.js";
 import { registerDashboard } from "./dashboard.js";
 import { startArchive } from "./archive.js";
 import { startBackups } from "./backup.js";
+import { startFinale } from "./finale.js";
 import { db } from "./database.js";
 import { registerOAuth } from "./oauth.js";
 import { registerGame } from "./game.js";
@@ -35,6 +36,11 @@ const server = app.listen(PORT, () => {
     startBackups();
   } catch (err) {
     console.error("Failed to start backup worker:", err);
+  }
+  try {
+    startFinale();
+  } catch (err) {
+    console.error("Failed to start finale worker:", err);
   }
 });
 

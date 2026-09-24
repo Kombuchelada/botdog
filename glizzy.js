@@ -1,7 +1,7 @@
 import {
   db,
-  getAllEventsStmt,
-  getUserTotalStmt,
+  getLifetimeEventsStmt,
+  getLifetimeUserTotalStmt,
   upsertGameStateStmt,
   getGameStateStmt,
   topByLifetimeStmt,
@@ -11,6 +11,7 @@ import {
   getCurrentStreak,
   toPacificDateKey,
   parseUtcTimestamp,
+  pacificHour,
 } from "./stats.js";
 
 // ============================================================================
@@ -712,18 +713,6 @@ export function claimGoldenGlizzy(userId) {
 // Bonus computation from hotdog_events
 // ============================================================================
 
-const PACIFIC_HOUR = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  hour: "numeric",
-  hour12: false,
-});
-
-function pacificHour(date) {
-  const parts = PACIFIC_HOUR.formatToParts(date);
-  let h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-  if (h === 24) h = 0;
-  return h;
-}
 
 function yesterdayPacificKey(now = new Date()) {
   const todayKey = toPacificDateKey(now);
@@ -733,7 +722,7 @@ function yesterdayPacificKey(now = new Date()) {
 }
 
 export function computeBonuses(userId, ctx) {
-  const allEvents = ctx?.allEvents || getAllEventsStmt.all();
+  const allEvents = ctx?.allEvents || getLifetimeEventsStmt.all();
   const userEvents = allEvents.filter((e) => e.user_id === userId);
   const yesterday = yesterdayPacificKey();
   const yesterdayEvents = userEvents.filter(
@@ -754,7 +743,7 @@ export function computeBonuses(userId, ctx) {
   const datesMap = ctx?.datesMap || buildUserDatesMap(allEvents);
   const streak = getCurrentStreak(datesMap.get(userId) || new Set());
 
-  const userTotal = getUserTotalStmt.get(userId)?.total_count || 0;
+  const userTotal = getLifetimeUserTotalStmt.get(userId)?.total_count || 0;
 
   const active = [];
 
@@ -1170,7 +1159,7 @@ export function getLeaderboardRows(limit = 50) {
   const rows = topByLifetimeStmt.all(limit);
   // Shared context so we scan the events table once for the whole board,
   // not once per user. Production includes each user's live bonuses.
-  const allEvents = getAllEventsStmt.all();
+  const allEvents = getLifetimeEventsStmt.all();
   const datesMap = buildUserDatesMap(allEvents);
   return rows.map((row) => {
     let state = {};

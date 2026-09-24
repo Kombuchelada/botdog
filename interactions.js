@@ -31,9 +31,12 @@ import {
 } from "./stats.js";
 import {
   insertHotdogEventStmt,
+  getLifetimeUserTotalStmt,
+  getLifetimeTotalHotdogsStmt,
   getUserTotalStmt,
   getTotalHotdogsStmt,
 } from "./database.js";
+import { isSeasonOver } from "./season.js";
 import { detectAchievements, formatAchievementsForResponse } from "./achievements.js";
 
 // To keep track of active protests waiting for a second (still in memory)
@@ -137,7 +140,7 @@ async function handleSecondProtest(res, req, protestId) {
   insertHotdogEventStmt.run(targetId, `<@${targetId}>`, -amount);
 
   // Get the target's updated total from the view
-  const targetRow = getUserTotalStmt.get(targetId);
+  const targetRow = getLifetimeUserTotalStmt.get(targetId);
   const newCount = targetRow ? targetRow.total_count : 0;
 
   // respond to the seconder and update the original message
@@ -223,7 +226,7 @@ function handleProtestCommand(res, req, id) {
   }
 
   // Check if protest would make target's count go negative
-  const targetRow = getUserTotalStmt.get(targetId);
+  const targetRow = getLifetimeUserTotalStmt.get(targetId);
   const currentCount = targetRow ? targetRow.total_count : 0;
   if (currentCount - amount < 0) {
     return res.send({
@@ -420,6 +423,17 @@ function handleStatsCommand(res) {
 }
 
 /**
+ * After the season, a dog still gets logged — it counts toward GlizzyClicker
+ * forever — but the 2026 standings are frozen, so the reply says so rather
+ * than letting someone think they just moved the leaderboard.
+ */
+function seasonOverNote(userId) {
+  if (!isSeasonOver()) return "";
+  const final = getUserTotalStmt.get(userId)?.total_count || 0;
+  return `\n-# The Year of the Glizzy is over — your 2026 finished at ${final}. Dogs still count in Glizzy Clicker.`;
+}
+
+/**
  * this function handles the hotdog command.
  * It expects a positive integer, and creates a new hotdog_event record
  * with the user's id, username, amount, and timestamp. Returns the user's
@@ -474,9 +488,9 @@ function handleHotDogCommand(res, req, id) {
   insertHotdogEventStmt.run(userId, username, amount);
 
   // Get current total from the view
-  const row = getUserTotalStmt.get(userId);
+  const row = getLifetimeUserTotalStmt.get(userId);
   const newCount = row ? row.total_count : 0;
-  const serverTotal = getTotalHotdogsStmt.get().total_hotdogs || 0;
+  const serverTotal = getLifetimeTotalHotdogsStmt.get().total_hotdogs || 0;
 
   let achievementText = "";
   try {
@@ -499,7 +513,7 @@ function handleHotDogCommand(res, req, id) {
       components: [
         {
           type: MessageComponentTypes.TEXT_DISPLAY,
-          content: `You now have ${newCount} hot dogs, ${username}! 🌭${achievementText}`,
+          content: `You now have ${newCount} hot dogs, ${username}! 🌭${achievementText}${seasonOverNote(userId)}`,
         },
       ],
     },
