@@ -19,12 +19,15 @@ import {
   insertArchiveStoryStmt,
   listPublishedStoriesStmt,
   getArchiveAttachmentByIdStmt,
+  getArchiveMessagesInRangeStmt,
+  getArchiveAttachmentsForMessageStmt,
+  getUserProfileStmt,
 } from "./database.js";
 import { computeAwards } from "./awards.js";
 import { isSeasonOver, SEASON_END, SEASON_LAST_DAY_KEY } from "./season.js";
 import { getDisplayName } from "./profiles.js";
 import { toPacificDateKey, parseUtcTimestamp } from "./stats.js";
-import { writeYearInReview, isAnthropicConfigured } from "./claude.js";
+import { writeYearInReview, isAnthropicConfigured, toPacificDateTimeString } from "./claude.js";
 import { announceStory, generateStoriesForWindow, STATE_LAST_WEEKLY } from "./archive.js";
 import { DiscordRequest } from "./utils.js";
 
@@ -166,7 +169,25 @@ async function coverFinalWeek() {
 // 3. The Year in Review
 // ============================================================================
 
-export function buildBriefing(results, stories) {
+// Messages posted after the newest story: the stretch no story has covered
+// yet. The final-week job runs first at the finale, so this is usually short —
+// but a week the weekly job judged not worth a story still happened, and the
+// Year in Review shouldn't go quiet about the year's last days. Capped so a
+// long gap can't blow up the prompt; the newest messages are the ones kept.
+const MAX_RECENT_MESSAGES = 1000;
+
+export function recentMessages(stories) {
+  const newestStoryEnd = stories.reduce(
+    (latest, s) => (s.period_end > latest ? s.period_end : latest),
+    "2026-01-01T08:00:00.000Z",
+  );
+  return getArchiveMessagesInRangeStmt
+    .all(newestStoryEnd, SEASON_END.toISOString())
+    .slice(-MAX_RECENT_MESSAGES)
+    .map((m) => ({ ...m, hasMedia: getArchiveAttachmentsForMessageStmt.all(m.id).length > 0 }));
+}
+
+export function buildBriefing(results, stories, messages = []) {
   const standings = results.standings.map((row) => `${row.rank}. ${row.name} — ${row.total}`).join("\n");
   const awards = results.awards
     .map((a) => `${a.emoji} ${a.name} (${a.blurb}): ${a.winners.map((w) => w.name).join(", ")} — ${plural(a.value, a.unit)}`)
@@ -181,6 +202,15 @@ export function buildBriefing(results, stories) {
       return `[story ${s.id}] week ending ${date}${tags.length ? ` · ${tags.join(", ")}` : ""}\n${s.title}\n${s.body}`;
     })
     .join("\n\n");
+  const messageText = messages
+    .map((m) => {
+      const text = m.content && m.content.trim() ? m.content.trim() : "";
+      const media = m.hasMedia ? " [photo/video]" : "";
+      const profile = getUserProfileStmt.get(m.author_id);
+      const name = profile?.global_name || profile?.username || m.author_name;
+      return `[${toPacificDateTimeString(m.created_at)}] ${name}: ${text}${media}`;
+    })
+    .join("\n");
   const { group } = results;
   return [
     `THE YEAR: January 1 – ${SEASON_LAST_DAY_KEY}, Pacific time.`,
@@ -190,6 +220,9 @@ export function buildBriefing(results, stories) {
     `\nAWARDS\n${awards}`,
     `\nDOGS PER MONTH\n${months}`,
     `\nEVERY ARCHIVE STORY OF THE YEAR (${stories.length}), oldest first\n\n${storyText}`,
+    messages.length
+      ? `\nRECENT MESSAGES — posted after the newest story, not yet covered by any (${messages.length}), oldest first\n\n${messageText}`
+      : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -229,7 +262,9 @@ async function publishYearInReview() {
   const results = buildResults();
   log(`writing the Year in Review from ${stories.length} stories (attempt ${attempts + 1}/${MAX_REVIEW_ATTEMPTS})`);
 
-  const review = await writeYearInReview({ briefing: buildBriefing(results, stories) });
+  const review = await writeYearInReview({
+    briefing: buildBriefing(results, stories, recentMessages(stories)),
+  });
   const { messageIds, hero } = highlightSources(review.highlight_story_ids || [], storiesById);
   const tags = (review.tags || []).map((t) => String(t).toLowerCase().trim()).filter(Boolean);
   const insert = insertArchiveStoryStmt.run(

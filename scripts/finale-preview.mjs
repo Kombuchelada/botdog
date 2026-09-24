@@ -9,7 +9,7 @@
 
 import "dotenv/config";
 
-import { buildResults, buildResultsMessage, buildBriefing } from "../finale.js";
+import { buildResults, buildResultsMessage, buildBriefing, recentMessages } from "../finale.js";
 import { listPublishedStoriesStmt } from "../database.js";
 import { writeYearInReview } from "../claude.js";
 
@@ -18,8 +18,9 @@ console.log("=== Discord results message ===");
 console.log(JSON.stringify(buildResultsMessage(results), null, 2));
 
 const stories = listPublishedStoriesStmt.all();
-const briefing = buildBriefing(results, stories);
-console.log(`\n=== Year in Review briefing: ${stories.length} stories, ~${Math.round(briefing.length / 4).toLocaleString()} tokens ===`);
+const messages = recentMessages(stories);
+const briefing = buildBriefing(results, stories, messages);
+console.log(`\n=== Year in Review briefing: ${stories.length} stories + ${messages.length} recent messages, ~${Math.round(briefing.length / 4).toLocaleString()} tokens ===`);
 console.log(briefing.slice(0, 3000));
 console.log(briefing.length > 3000 ? `\n… (${(briefing.length - 3000).toLocaleString()} more characters)` : "");
 

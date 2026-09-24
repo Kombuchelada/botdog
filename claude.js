@@ -107,7 +107,7 @@ function looksLikeHeic(buf, url) {
  * "2026-05-12 23:45 Pacific" so Claude reasons about day boundaries the same
  * way the rest of the bot does.
  */
-function toPacificDateTimeString(input) {
+export function toPacificDateTimeString(input) {
   const d = input instanceof Date ? input : new Date(input);
   if (isNaN(d.getTime())) return String(input);
   const date = d.toLocaleDateString("en-CA", {
@@ -234,7 +234,7 @@ const YEAR_IN_REVIEW_MODEL = "claude-opus-5-5";
 
 const YEAR_IN_REVIEW_SYSTEM = `You are the editor of "Year of the Glizzy", a Discord community of friends who spent 2026 logging every hot dog they ate with a bot. The year is over. Write the definitive Year in Review for the public archive.
 
-You get the final standings, the year-end awards, month-by-month totals, and every story the archive published during the year. Those are your only sources: don't invent events, quotes, places or people that aren't in them.
+You get the final standings, the year-end awards, month-by-month totals, every story the archive published during the year, and the raw channel messages posted after the newest story (nothing has covered those yet, so they're the only record of the year's last stretch). The stories are the primary source; the recent messages are raw chat — use them for what happened, not as quotes to reproduce at length. Those are your only sources: don't invent events, quotes, places or people that aren't in them.
 
 WRITING:
 - A warm, specific magazine feature — the arc of the year from January to December, not a list of results.
