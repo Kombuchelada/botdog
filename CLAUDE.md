@@ -409,8 +409,8 @@ of the production database the owner downloaded for testing. There's also a
 
 If anything here drifts from the actual code, the code is the source of truth
 and this doc should be updated. Last meaningful update: GlizzyBrawl (`/brawl`)
-removed entirely — unused; its `brawl_stats` table is left in the DB, just
-unreferenced; before that, protests now actually
+removed entirely — unused; `database.js` drops its `brawl_stats` table on
+boot; before that, protests now actually
 take the dogs back — `computeBonuses` nets the day instead of summing positive
 rows, and the single-sitting record is capped by its day's net
 (`cappedSittings` in `stats.js`, `test/protest-accounting.test.js`); before

@@ -128,6 +128,9 @@ export const topByLifetimeStmt = db.prepare(
   "SELECT user_id, state, lifetime_glizzies, updated_at FROM glizzy_game ORDER BY lifetime_glizzies DESC LIMIT ?",
 );
 
+// GlizzyBrawl was removed; its ledger goes with it. Idempotent.
+db.prepare(`DROP TABLE IF EXISTS brawl_stats`).run();
+
 db.prepare(
   `CREATE TABLE IF NOT EXISTS user_profiles (
     user_id TEXT PRIMARY KEY,
