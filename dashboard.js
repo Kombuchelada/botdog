@@ -13,6 +13,7 @@ import {
 } from "./database.js";
 import { getLeaderboardRows as getGlizzyLeaderboardRows, fmtCompact } from "./game.js";
 import { renderNav } from "./nav.js";
+import { getDisplayName } from "./profiles.js";
 import {
   buildUserDatesMap,
   getCurrentStreak,
@@ -27,20 +28,6 @@ import {
 // Data helpers
 // ============================================================================
 
-const getUserDisplayNameStmt = db.prepare(
-  "SELECT username FROM hotdog_events WHERE user_id = ? AND username NOT LIKE '<@%' ORDER BY timestamp DESC LIMIT 1",
-);
-
-function getDisplayName(userId) {
-  // Prefer the up-to-date Discord profile name when we have it cached.
-  const profile = getUserProfileStmt.get(userId);
-  if (profile && (profile.global_name || profile.username)) {
-    return profile.global_name || profile.username;
-  }
-  const row = getUserDisplayNameStmt.get(userId);
-  if (row && row.username) return row.username;
-  return `User ${String(userId).slice(-4)}`;
-}
 
 function getAvatarUrl(userId) {
   const profile = getUserProfileStmt.get(userId);

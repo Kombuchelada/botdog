@@ -14,6 +14,7 @@ import {
   pacificHour,
 } from "./stats.js";
 import { DiscordRequest } from "./utils.js";
+import { isSeasonOver } from "./season.js";
 
 const STATE_LAST_DIGEST_DATE = "last_digest_date";
 const POST_HOUR_PACIFIC = 9; // post at/after 9 AM Pacific each day
@@ -130,6 +131,9 @@ export async function runDigestIfDue() {
   if (!isDigestConfigured()) return { sent: false, reason: "not_configured" };
 
   const now = new Date();
+  // The finale's announcement is the last word; a Jan 1 digest of Dec 31 would
+  // land nine hours after it.
+  if (isSeasonOver(now)) return { sent: false, reason: "season_over" };
   const todayKey = toPacificDateKey(now);
   const lastDigestKey = getArchiveState(STATE_LAST_DIGEST_DATE);
   if (lastDigestKey === todayKey) return { sent: false, reason: "already_sent_today" };

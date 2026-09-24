@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import {
+  db,
   upsertUserProfileStmt,
   getUserProfileStmt,
   listDistinctEventUserIdsStmt,
@@ -11,6 +12,21 @@ import { uploadObject, isSpacesConfigured } from "./do-spaces.js";
 const STATE_LAST_PROFILES_REFRESH = "last_profiles_refresh";
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const AVATAR_SIZE = 256;
+
+const getUserDisplayNameStmt = db.prepare(
+  "SELECT username FROM hotdog_events WHERE user_id = ? AND username NOT LIKE '<@%' ORDER BY timestamp DESC LIMIT 1",
+);
+
+/** A user's current display name: cached Discord profile, then their last /hotdog name. */
+export function getDisplayName(userId) {
+  const profile = getUserProfileStmt.get(userId);
+  if (profile && (profile.global_name || profile.username)) {
+    return profile.global_name || profile.username;
+  }
+  const row = getUserDisplayNameStmt.get(userId);
+  if (row && row.username) return row.username;
+  return `User ${String(userId).slice(-4)}`;
+}
 
 function log(...args) { console.log("[profiles]", ...args); }
 function warn(...args) { console.warn("[profiles]", ...args); }

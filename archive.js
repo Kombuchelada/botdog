@@ -20,6 +20,7 @@ import { DiscordRequest } from "./utils.js";
 import heicConvert from "heic-convert";
 import { runDigestIfDue } from "./digest.js";
 import { refreshProfilesIfDue } from "./profiles.js";
+import { isSeasonOver } from "./season.js";
 
 const POLL_INTERVAL_MS = 60 * 60 * 1000;     // 1 hour
 const WEEKLY_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,7 +29,7 @@ const FETCH_BATCH_SIZE = 100;
 
 const STATE_BACKFILL_DONE = "backfill_complete_at";
 const STATE_BACKFILL_STORIES_DONE = "backfill_stories_complete_at";
-const STATE_LAST_WEEKLY = "last_weekly_run_at";
+export const STATE_LAST_WEEKLY = "last_weekly_run_at";
 
 function log(...args) {
   console.log("[archive]", ...args);
@@ -260,7 +261,7 @@ function excerpt(text, max) {
   return s.slice(0, cut > 0 ? cut : max) + "…";
 }
 
-async function announceStory(storyId, story) {
+export async function announceStory(storyId, story, content = "🌭 New archive story") {
   const channelId = process.env.ARCHIVE_ANNOUNCE_CHANNEL_ID || chanId();
   const baseUrl = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   if (!channelId || !baseUrl) {
@@ -283,7 +284,7 @@ async function announceStory(storyId, story) {
   try {
     await DiscordRequest(`channels/${channelId}/messages`, {
       method: "POST",
-      body: { content: "🌭 New archive story", embeds: [embed] },
+      body: { content, embeds: [embed] },
     });
     log(`announced story ${storyId} in channel ${channelId}`);
   } catch (err) {
@@ -300,7 +301,7 @@ function attachmentsForMessages(messageIds) {
   return map;
 }
 
-async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
+export async function generateStoriesForWindow(periodStartIso, periodEndIso, label) {
   // Idempotency: if we already have stories covering this exact window (from a
   // previous successful run), don't waste a Claude call generating duplicates.
   const existing = countStoriesForPeriodStmt.get(periodStartIso, periodEndIso).c;
@@ -406,6 +407,9 @@ async function generateBackfillStories() {
 
 async function runWeeklyJobIfDue() {
   if (!getArchiveState(STATE_BACKFILL_STORIES_DONE)) return; // still warming up
+  // The season's last partial week and the Year in Review are the finale's
+  // job (finale.js). Ingest keeps running so the channel's history stays whole.
+  if (isSeasonOver()) return;
   const last = getArchiveState(STATE_LAST_WEEKLY);
   const now = Date.now();
   if (last && now - new Date(last).getTime() < WEEKLY_INTERVAL_MS) return;
