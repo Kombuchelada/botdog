@@ -1,5 +1,3 @@
-import "dotenv/config";
-
 // Preview the finale against a real database without posting anything.
 //
 //   DB_PATH=./hotdog-data.db node scripts/finale-preview.mjs           # embed + briefing
@@ -8,6 +6,8 @@ import "dotenv/config";
 // --write makes one real Claude Opus 5.5 call (needs ANTHROPIC_API_KEY, costs
 // roughly $0.25) and prints the draft. Nothing is saved or announced — the
 // draft is exactly what finale.js would publish, minus the insert.
+
+import "dotenv/config";
 
 import { buildResults, buildResultsMessage, buildBriefing } from "../finale.js";
 import { listPublishedStoriesStmt } from "../database.js";
