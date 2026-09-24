@@ -65,12 +65,18 @@ export const getAverageAmountPerEventStmt = seasonStmt(
 
 // Lifetime: every row ever, season or not. GlizzyClicker runs in perpetuity and
 // its bonuses keep paying for dogs eaten after the season — a Breakfast Boon in
-// 2027 is still a Breakfast Boon. Reach for these only for the game.
+// 2027 is still a Breakfast Boon. Reach for these only for the game and for
+// the bot's own replies to a submission.
 export const getLifetimeUserTotalStmt = db.prepare(
   "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?",
 );
 export const getLifetimeEventsStmt = db.prepare(
   "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
+);
+// /hotdog and /protest replies also read lifetime: during the season it's the
+// same number, and afterwards it's the one that still moves.
+export const getLifetimeTotalHotdogsStmt = db.prepare(
+  "SELECT SUM(amount) AS total_hotdogs FROM hotdog_events",
 );
 
 // ============================================================================
