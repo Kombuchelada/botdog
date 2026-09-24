@@ -11,6 +11,7 @@ import {
   getCurrentStreak,
   toPacificDateKey,
   parseUtcTimestamp,
+  pacificHour,
 } from "./stats.js";
 import { DiscordRequest } from "./utils.js";
 
@@ -22,17 +23,6 @@ function log(...args) {
 }
 function warn(...args) {
   console.warn("[digest]", ...args);
-}
-
-function pacificHour(date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    hour: "numeric",
-    hour12: false,
-  }).formatToParts(date);
-  let h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-  if (h === 24) h = 0;
-  return h;
 }
 
 function shiftDayKey(key, deltaDays) {

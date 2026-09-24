@@ -11,6 +11,7 @@ import {
   getCurrentStreak,
   toPacificDateKey,
   parseUtcTimestamp,
+  pacificHour,
 } from "./stats.js";
 
 // ============================================================================
@@ -712,18 +713,6 @@ export function claimGoldenGlizzy(userId) {
 // Bonus computation from hotdog_events
 // ============================================================================
 
-const PACIFIC_HOUR = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  hour: "numeric",
-  hour12: false,
-});
-
-function pacificHour(date) {
-  const parts = PACIFIC_HOUR.formatToParts(date);
-  let h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
-  if (h === 24) h = 0;
-  return h;
-}
 
 function yesterdayPacificKey(now = new Date()) {
   const todayKey = toPacificDateKey(now);

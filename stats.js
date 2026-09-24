@@ -315,6 +315,20 @@ export function toPacificDateKey(date) {
   return `${year}-${month}-${day}`;
 }
 
+const PACIFIC_HOUR = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  hour: "numeric",
+  hour12: false,
+});
+
+/** Hour of day (0–23) in Pacific time. */
+export function pacificHour(date) {
+  const parts = PACIFIC_HOUR.formatToParts(date);
+  let h = parseInt(parts.find((p) => p.type === "hour")?.value || "0", 10);
+  if (h === 24) h = 0;
+  return h;
+}
+
 export function parseUtcTimestamp(timestamp) {
   if (!timestamp) {
     return new Date(NaN);
