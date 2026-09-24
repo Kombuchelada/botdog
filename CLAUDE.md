@@ -45,7 +45,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `claude.js` | Anthropic SDK wrapper. `proposeStories({messages, attachmentsByMessageId, periodStart, periodEnd})` uses Sonnet 4.6 with a forced tool-call (`publish_stories`) for structured output. Resizes images via sharp, base64-encodes them (avoids URL fetch rate limits). HEIC→JPEG via `heic-convert`. |
 | `digest.js` | Daily digest job. Fires once per Pacific day at/after 9 AM PT, posts an embed with yesterday's totals, top eaters, and active streaks. |
 | `profiles.js` | Discord avatar mirror. Daily worker refreshes everyone in `hotdog_events`; OAuth login mirrors the logging-in user. Resizes to 256×256 PNG, uploads to `avatars/{user_id}-{hash}.png` in Spaces. |
-| `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` returns the public CDN URL. `deletePrefix(prefix)` for bulk cleanup. |
+| `do-spaces.js` | S3 client pointed at DO Spaces (signed with region from endpoint, force-path-style off). `uploadObject(key, body, contentType)` uploads public-read and returns the public CDN URL (attachments, avatars). `uploadPrivateObject` is for anything that mustn't be public — the DB backups — with `no-store` caching; `getObject` reads one back with the bucket's credentials. `deletePrefix(prefix)` for bulk cleanup. |
 | `backup.js` | Hot-safe SQLite snapshot via `db.backup()`, gzip level 9, dual-upload as `backups/db-{ISO}.db.gz` + `backups/latest.db.gz`. Every 30 min on `setInterval`, plus manual button in admin. `selectExpired` is the pure retention decision; `pruneBackups` applies it after each successful upload. |
 | `oauth.js` | Discord OAuth2 (`identify` scope only). HMAC-signed cookie session. Dev-bypass mode when `DISCORD_CLIENT_SECRET` is unset — logs in as the latest hotdog_events user so the game is playable locally. |
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
@@ -282,6 +282,18 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   shrug once a day and a real event-loop stall at 48 times a day.
   See `docs/adr/0004-backups-live-in-object-storage.md` — including why
   Railway's own volume backups are not the answer, so it isn't re-litigated.
+- **Backups are private, and the bucket's default is public — don't route a
+  backup through `uploadObject`.** Until 2026-09 every snapshot was uploaded
+  public-read with a year-long immutable cache header, so the whole database
+  (saves, archived messages) sat at `…/backups/latest.db.gz` for anyone to
+  guess, and the CDN kept a copy. Bucket *listing* was always denied; guessable
+  keys were the hole. Snapshots now go up via `uploadPrivateObject`, and the
+  admin page streams downloads through the app. The download route takes the
+  key from the query string, so `isBackupKey` is what keeps it from reading any
+  object in the bucket (`test/backup-download.test.js`). Flipping the ACL
+  doesn't reach the CDN: the one-off repair
+  (`/admin/backup` → **Make all backups private**) must be followed by a CDN
+  purge of `backups/*` in the DigitalOcean dashboard.
 - **Archive stories ingest *everything***, even before-deploy history. Re-runs
   are idempotent (per-window story count check). The "Reset archive" admin
   button also wipes the `attachments/` prefix in Spaces.
@@ -400,10 +412,11 @@ of the production database the owner downloaded for testing. There's also a
 
 ## Operational notes
 
-- **DB backups**: daily at boot+30s, weekly cron-style after that, plus a
-  manual "Back up now" button at `/admin/backup`. Restore is documented in
-  the recipe at `/admin/backup`: download `backups/latest.db.gz`, gunzip,
-  `mv` over `/database/data.db` from a Railway shell, restart.
+- **DB backups**: boot+30s, then every 30 minutes, plus a manual "Back up
+  now" button at `/admin/backup`. They're private objects: download one from
+  the list at `/admin/backup` (streamed through the app, behind admin auth) or
+  from the DO console, gunzip, `mv` over `/database/data.db` from a Railway
+  shell, restart.
 - **Archive reset**: `/admin/archive` → **Reset archive (DB + Spaces) and
   re-backfill** is destructive but bounded — wipes the `attachments/` prefix
   in Spaces and the four `archive_*` tables, then triggers a fresh tick.

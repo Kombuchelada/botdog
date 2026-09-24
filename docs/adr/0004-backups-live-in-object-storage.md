@@ -62,3 +62,9 @@ its retention load-bearing rather than housekeeping.
   `/admin/backup`. Blank `DO_SPACES_KEY` first: the backup worker fires 30s
   after boot and will otherwise overwrite `latest.db.gz` with whatever empty
   database the app just created.
+- Object storage is only as private as each object's ACL, and this bucket's
+  uploader defaulted to public-read (it serves attachments and avatars to
+  browsers). Backups went through that uploader for months, so the whole
+  database sat at a guessable URL. They're private now (`uploadPrivateObject`),
+  downloaded through `/admin/backup` or the DO console; the older ones were
+  flipped in place, and the CDN's cached copies have to be purged separately.

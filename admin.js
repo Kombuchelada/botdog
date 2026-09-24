@@ -15,7 +15,14 @@ import {
   getArchiveAttachmentsForMessageStmt,
 } from "./database.js";
 import { reviseStory, triggerArchiveTick } from "./archive.js";
-import { runBackup, getLastBackupResult } from "./backup.js";
+import {
+  runBackup,
+  getLastBackupResult,
+  listBackups,
+  openBackup,
+  isBackupKey,
+  makeExistingBackupsPrivate,
+} from "./backup.js";
 import { isSpacesConfigured, deletePrefix } from "./do-spaces.js";
 import { runDigestNow, isDigestConfigured } from "./digest.js";
 import { refreshAllKnownProfiles } from "./profiles.js";
@@ -600,7 +607,7 @@ export function registerAdmin(app) {
 
   // ===== Database backups =====
 
-  router.get("/backup", requireAuth, (req, res) => {
+  router.get("/backup", requireAuth, async (req, res) => {
     const last = getLastBackupResult();
     const flash = req.query.flash ? `<div class="alert alert-success">${esc(req.query.flash)}</div>` : "";
     const error = req.query.error ? `<div class="alert alert-danger">${esc(req.query.error)}</div>` : "";
@@ -610,10 +617,38 @@ export function registerAdmin(app) {
           <dt class="col-sm-3">Last backup</dt><dd class="col-sm-9"><code>${esc(last.timestamp)}</code></dd>
           <dt class="col-sm-3">Size</dt><dd class="col-sm-9">${esc(last.compressed_bytes.toLocaleString())} bytes gzipped <span class="text-muted">(from ${esc(last.original_bytes.toLocaleString())} bytes, ${esc((last.compressed_bytes/last.original_bytes*100).toFixed(1))}%)</span></dd>
           <dt class="col-sm-3">Duration</dt><dd class="col-sm-9">${esc(last.elapsed_ms)} ms</dd>
-          <dt class="col-sm-3">Timestamped URL</dt><dd class="col-sm-9"><a class="small text-break" href="${esc(last.timestamped_url)}" target="_blank">${esc(last.timestamped_url)}</a></dd>
-          <dt class="col-sm-3">Latest URL</dt><dd class="col-sm-9"><a class="small text-break" href="${esc(last.latest_url)}" target="_blank">${esc(last.latest_url)}</a></dd>
+          <dt class="col-sm-3">Written to</dt><dd class="col-sm-9"><code class="small">${esc(last.timestamped_key)}</code> and <code class="small">${esc(last.latest_key)}</code></dd>
          </dl>`
-      : `<p class="text-muted mb-0">No backup has run in this process yet. The scheduled job fires 30 seconds after boot and then every 24 hours; you can also trigger one manually below.</p>`;
+      : `<p class="text-muted mb-0">No backup has run in this process yet. The scheduled job fires 30 seconds after boot and then every 30 minutes; you can also trigger one manually below.</p>`;
+
+    // Backups are private objects, so the only way to fetch one from a browser
+    // is through the app, behind this page's auth.
+    let snapshots = [];
+    let listError = "";
+    if (configured) {
+      try {
+        snapshots = await listBackups();
+      } catch (err) {
+        listError = err.message;
+      }
+    }
+    const snapshotRows = snapshots
+      .map((o) => `
+        <tr>
+          <td><a href="/admin/backup/download?key=${encodeURIComponent(o.key)}"><code class="small">${esc(o.key)}</code></a></td>
+          <td class="text-muted small">${esc(new Date(o.lastModified).toISOString().replace("T", " ").slice(0, 19))} UTC</td>
+          <td class="text-muted small text-end">${esc(Number(o.size).toLocaleString())} bytes</td>
+        </tr>`)
+      .join("");
+    const snapshotsCard = configured
+      ? `<div class="card mb-3"><div class="card-body">
+          <h6 class="card-subtitle text-muted mb-2">Download a snapshot</h6>
+          ${listError ? `<div class="alert alert-danger small">Couldn't list backups: ${esc(listError)}</div>` : ""}
+          ${snapshotRows
+            ? `<table class="table table-sm mb-0"><tbody>${snapshotRows}</tbody></table>`
+            : `<p class="text-muted small mb-0">No snapshots yet.</p>`}
+        </div></div>`
+      : "";
 
     const body = `
       <h3 class="mb-3">Database backups</h3>
@@ -630,8 +665,49 @@ export function registerAdmin(app) {
           <button class="btn btn-primary" type="submit" ${configured ? "" : "disabled"}>Back up now</button>
         </form>
       </div></div>
-      <p class="text-muted small mt-3">Restore manually by downloading <code>backups/latest.db.gz</code> from the DO console, gunzipping, and replacing the live <code>data.db</code> file on Railway. Retention: nothing is auto-pruned; old backups stay until you delete them in DO.</p>`;
+      ${snapshotsCard}
+      <div class="card"><div class="card-body">
+        <h6 class="card-subtitle text-muted mb-2">Make older backups private</h6>
+        <p class="text-muted small">Backups used to be uploaded public-read, so anyone who guessed a URL could download the whole database. New ones are private. This flips every object already under <code>backups/</code> to private too. It's safe to run more than once.</p>
+        <p class="text-muted small">It can't reach the CDN: purge <code>backups/*</code> from the Spaces CDN cache in the DigitalOcean dashboard afterwards, or cached copies stay public until they expire.</p>
+        <form method="post" action="/admin/backup/make-private" onsubmit="return confirm('Make every object under backups/ in DO Spaces private? Downloads will then only work from this page or the DO console.');">
+          <button class="btn btn-outline-danger" type="submit" ${configured ? "" : "disabled"}>Make all backups private</button>
+        </form>
+      </div></div>
+      <p class="text-muted small mt-3">To restore: download <code>backups/latest.db.gz</code> above (or from the DO console), gunzip it, and replace the live <code>data.db</code> on Railway. Retention: every snapshot for 7 days, then the first of each UTC day, forever.</p>`;
     res.send(renderLayout("Backups", body));
+  });
+
+  router.get("/backup/download", requireAuth, async (req, res) => {
+    const key = String(req.query.key || "");
+    if (!isBackupKey(key)) return res.status(400).send("Not a backup key");
+    try {
+      const { body, contentLength } = await openBackup(key);
+      res.set({
+        "Content-Type": "application/gzip",
+        "Content-Disposition": `attachment; filename="${key.slice("backups/".length)}"`,
+        "Cache-Control": "private, no-store",
+      });
+      if (contentLength) res.set("Content-Length", String(contentLength));
+      body.on("error", (err) => {
+        console.error("backup download stream failed:", err);
+        res.destroy(err);
+      });
+      body.pipe(res);
+    } catch (err) {
+      console.error("backup download failed:", err);
+      res.status(502).send(`Couldn't fetch ${key}: ${err.message}`);
+    }
+  });
+
+  router.post("/backup/make-private", requireAuth, async (req, res) => {
+    try {
+      const count = await makeExistingBackupsPrivate();
+      res.redirect(`/admin/backup?flash=${encodeURIComponent(`Made ${count} backup object(s) private. Now purge backups/* from the CDN cache in DigitalOcean.`)}`);
+    } catch (err) {
+      console.error("make-private failed:", err);
+      res.redirect(`/admin/backup?error=${encodeURIComponent(err.message)}`);
+    }
   });
 
   router.post("/backup", requireAuth, async (req, res) => {

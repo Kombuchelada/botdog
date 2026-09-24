@@ -1,6 +1,8 @@
 import {
   S3Client,
   PutObjectCommand,
+  PutObjectAclCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
 } from "@aws-sdk/client-s3";
@@ -57,6 +59,38 @@ export async function uploadObject(key, body, contentType) {
     }),
   );
   return `${publicBase()}/${encodeURI(key)}`;
+}
+
+/**
+ * Upload an object nobody can fetch without the bucket's credentials. For the
+ * DB backups: the whole database — every player's saves, every archived
+ * message — sat at a guessable public URL for months because they went through
+ * uploadObject above. `no-store` matters as much as the ACL: `latest.db.gz` is
+ * overwritten every 30 minutes, and the public uploader's year-long immutable
+ * cache header let the CDN keep serving an old copy regardless.
+ */
+export async function uploadPrivateObject(key, body, contentType) {
+  await client().send(
+    new PutObjectCommand({
+      Bucket: bucket(),
+      Key: key,
+      Body: body,
+      ContentType: contentType || "application/octet-stream",
+      ACL: "private",
+      CacheControl: "private, no-store",
+    }),
+  );
+}
+
+/** Make an existing object private. Idempotent. */
+export async function makeObjectPrivate(key) {
+  await client().send(new PutObjectAclCommand({ Bucket: bucket(), Key: key, ACL: "private" }));
+}
+
+/** Read an object with the bucket's credentials: `{ body, contentLength }`, body a Node stream. */
+export async function getObject(key) {
+  const out = await client().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+  return { body: out.Body, contentLength: out.ContentLength };
 }
 
 /**
