@@ -6,7 +6,9 @@ import path from "node:path";
 import os from "node:os";
 import { db } from "./database.js";
 import {
-  uploadObject,
+  uploadPrivateObject,
+  makeObjectPrivate,
+  getObject,
   listObjects,
   deleteObjects,
   isSpacesConfigured,
@@ -59,16 +61,17 @@ export async function runBackup() {
     const ts = new Date().toISOString().replace(/[:.]/g, "-").replace("Z", "").slice(0, 19) + "Z";
     const tsKey = `backups/db-${ts}.db.gz`;
     const latestKey = `backups/latest.db.gz`;
-    const [tsUrl, latestUrl] = await Promise.all([
-      uploadObject(tsKey, gz, "application/gzip"),
-      uploadObject(latestKey, gz, "application/gzip"),
+    // Private: this is the whole database. See uploadPrivateObject.
+    await Promise.all([
+      uploadPrivateObject(tsKey, gz, "application/gzip"),
+      uploadPrivateObject(latestKey, gz, "application/gzip"),
     ]);
     const elapsedMs = Date.now() - startedAt;
     const result = {
       ok: true,
       timestamp: ts,
-      timestamped_url: tsUrl,
-      latest_url: latestUrl,
+      timestamped_key: tsKey,
+      latest_key: latestKey,
       original_bytes: raw.length,
       compressed_bytes: gz.length,
       elapsed_ms: elapsedMs,
@@ -137,6 +140,50 @@ export function selectExpired(objects, now) {
     }
   }
   return doomed;
+}
+
+/**
+ * One-off repair: flip every snapshot already under `backups/` to private.
+ * Until this ran, each one had been uploaded public-read, and `latest` sat at
+ * a trivially guessable URL. Idempotent, so a re-run (or a run that stopped
+ * halfway) is harmless. Sequential and small-batched rather than one burst of
+ * several hundred ACL writes. Returns how many objects it touched.
+ *
+ * This doesn't reach the CDN: a copy it has already cached keeps being served
+ * until its cache is purged in the DigitalOcean dashboard.
+ */
+export async function makeExistingBackupsPrivate() {
+  const objects = await listObjects("backups/");
+  const BATCH = 10;
+  for (let i = 0; i < objects.length; i += BATCH) {
+    await Promise.all(objects.slice(i, i + BATCH).map((o) => makeObjectPrivate(o.key)));
+  }
+  return objects.length;
+}
+
+/** The keys a backup download may name: a snapshot or latest, nothing else. */
+export function isBackupKey(key) {
+  // No "/" after the prefix, so nothing outside backups/ can be named.
+  return /^backups\/(latest|db-[\w.:-]+)\.db\.gz$/.test(String(key));
+}
+
+/**
+ * Stream a backup through the app, for the admin page's download links. Only
+ * backup keys pass — the route takes a key from the query string, and without
+ * the check it would read any object in the bucket.
+ */
+export async function openBackup(key) {
+  if (!isBackupKey(key)) throw new Error(`not a backup key: ${key}`);
+  return getObject(key);
+}
+
+/** The snapshots available to download, newest first. */
+export async function listBackups(limit = 20) {
+  const objects = await listObjects("backups/");
+  return objects
+    .filter((o) => isBackupKey(o.key))
+    .sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified))
+    .slice(0, limit);
 }
 
 export function getLastBackupResult() {
