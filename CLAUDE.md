@@ -131,7 +131,9 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   suspended tab, a second tab) is dropped and the client resyncs.
 - **Offline production is credited server-side** in `loadGameForUser`, not by
   the client on dismissing the welcome-back modal. The modal is display-only;
-  adding the amount client-side too would double-credit.
+  adding the amount client-side too would double-credit. **There is no idle
+  cap** — a 4-hour one shipped with the game unnoticed until a player saw a
+  week away pay the same as a day (`test/glizzy-offline.test.js`).
 - **The game's lists are patched in place, never re-`innerHTML`'d on a timer.**
   Replacing an element between `pointerdown` and `pointerup` means no `click`
   event fires at all, which ate taps on mobile. Buildings patch text/classes;

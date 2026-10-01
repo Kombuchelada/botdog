@@ -294,7 +294,6 @@ export function computeGoldenModifiers(state) {
 }
 
 const MAX_CLICKS_PER_SECOND = 25;
-const OFFLINE_CAP_SECONDS = 4 * 60 * 60;
 const CLAMP_OVERAGE_FACTOR = 1.2;
 
 // ============================================================================
@@ -916,8 +915,8 @@ function computeOfflineEarned(state, perSecond) {
   if (!state.last_seen_at) return 0;
   const elapsedMs = Date.now() - new Date(state.last_seen_at).getTime();
   if (!Number.isFinite(elapsedMs) || elapsedMs <= 0) return 0;
-  const elapsedSec = Math.min(elapsedMs / 1000, OFFLINE_CAP_SECONDS);
-  return Math.floor(perSecond * elapsedSec);
+  // No idle cap, deliberately — see test/glizzy-offline.test.js.
+  return Math.floor(perSecond * (elapsedMs / 1000));
 }
 
 // ============================================================================
@@ -1081,7 +1080,7 @@ export function validateAndClampSave(userId, incoming) {
     perSecond: Math.min(ratesAtStart.perSecond, ratesAtEnd.perSecond),
   };
   const maxEarnedSincePrev = Math.ceil(
-    ratesCeil.perSecond * Math.min(elapsedSec, OFFLINE_CAP_SECONDS) +
+    ratesCeil.perSecond * elapsedSec +
       clickDelta * ratesCeil.perClick * 1.5,
   );
   const budget = prevGlizzies + maxEarnedSincePrev * CLAMP_OVERAGE_FACTOR;
@@ -1123,7 +1122,7 @@ export function validateAndClampSave(userId, incoming) {
   //             report a lower bank than the buildings already generated.
   let incomingGlizzies = isNonNegFinite(incoming?.glizzies) ? incoming.glizzies : previous.glizzies;
   const glizzyCeiling = Math.max(0, budget - finalSpending);
-  const passiveEarned = ratesFloor.perSecond * Math.min(trueElapsedSec, OFFLINE_CAP_SECONDS);
+  const passiveEarned = ratesFloor.perSecond * trueElapsedSec;
   const glizzyFloor = Math.max(0, Math.min(glizzyCeiling, prevGlizzies + passiveEarned - finalSpending));
   if (incomingGlizzies > glizzyCeiling) {
     console.warn(`[glizzy] clamping glizzies for ${userId}: claimed ${incomingGlizzies}, ceiling ${Math.floor(glizzyCeiling)}`);
