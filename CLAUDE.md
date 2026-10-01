@@ -51,6 +51,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `glizzy.js` | GlizzyClicker game logic. Static `BUILDINGS`, `UPGRADES`, `ALL_BONUSES`. `computeBonuses(userId)` derives active modifiers from real hot dog stats. `validateAndClampSave` is server-authoritative anti-cheat (and anti-regression — see `save_seq` below). `loadGameForUser` credits offline production itself. `GOLDEN_BONUSES` + `claimGoldenGlizzy(userId)` is the golden-glizzy reward roll (server-authoritative; timed buffs live in `state.golden_effects`, weights sum to 1000 and each mega is weight 10 = 1/100). |
 | `game.js` | GlizzyClicker UI. Self-contained game page with PixelLab pixel art (hero mascot, golden glizzy, building icons, emoji icon set — `assets/clicker/` via `manifest.json`, served at `/game/art/*`; the hand-drawn SVGs and raw emoji remain as per-surface fallbacks), vanilla JS game loop, save-every-5s + `sendBeacon` on hide/unload, ×1/×10/×100 buy quantity. Golden glizzy spawns client-side and claims via `POST /api/game/golden`. Public leaderboard at `/game/leaderboard`, plus an in-page peek modal (🏆 button / `L` key) fed by `/api/game/leaderboard`. Also hosts **the Oracle** — a Konami-code-gated purchase optimizer (`docs/oracle.md`). |
 | `scripts/clicker-import-art.mjs` | Imports GlizzyClicker's pixel art from a staging dir into `assets/clicker/` + `manifest.json`. Gates: exact size per kind (hero/golden 120×90, buildings 40×40, emoji 32×32 — never resamples), transparent corners, content ≥20% of canvas. Owns `EMOJI_NAMES`, the emoji-character → icon-name table. Recipe: `docs/clicker-art.md`. |
+| `scripts/glizzy-pacing.mjs` | How long the upgrade catalog lasts a given player. Replays a saved state forward under four bots (observed → worst allowed) and prints upgrades owned per New Year. Run against a fresh backup before retuning prices. Math in `scripts/lib/glizzy-pacing.mjs` (`goldenK` Monte Carlo + `simulate`); write-up in `docs/glizzy-pacing.md`. |
 | `scripts/lib/pixel-art.mjs` | Image ops for art importers: flood-fill de-background, chroma key, alpha bounding box. |
 | `season.js` | The Year of the Glizzy's end: 2027-01-01 00:00 Pacific. `SEASON_END`, `isSeasonOver()`, and `seasonNow()` (the real clock, then pinned to the season's last instant). Imports nothing so `database.js` can bind it into the season-scoped statements. |
 | `awards.js` | `computeAwards(events)` — pure: final standings (ties share a place), the year-end awards, group totals. Every award nets protests. The one source the finale's embed, the memorial and the Year in Review all read. |
@@ -255,6 +256,22 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   silently dropped `building_synergy` — anyone owning a synergy upgrade saw an
   understated /s until the next page load quietly corrected it. When you add an
   effect type, add it in both places.
+- **Upgrade prices come from a simulation, not a guess.** The first 99 were
+  priced on "nobody will own all of these" and one player owned 98 in two
+  months (autoclicker + buy-on-sight script, both allowed). Once upgrades run
+  out, buildings (×1.15/unit) grow income only like `log t`, so the upgrade
+  list *is* the growth curve, and costs must rise faster per step than the
+  multipliers they hand out or the ladder runs away. `BEYOND_UPGRADES` (the
+  second hundred) is `10^(20 + 0.045·i)` plus a steep tail. It's tuned so the
+  observed bot buys one every couple of weeks through 2030 and the worst bot
+  the rules allow can't finish before 2040. Golden glizzies are most of
+  income at the top (~49× base production, measured from backups), and K is
+  steeply sensitive to claim cadence, so **new upgrades must not touch golden
+  frequency/duration**. Golden *payout* is out too: instant grants pay idlers
+  as much as clickers, and three of them cut clicking's edge from +48% to
+  +22%. Production multipliers can't erode clicking (a click pays a fixed
+  share of /s). Re-run `scripts/glizzy-pacing.mjs` before retuning;
+  `test/glizzy-beyond.test.js` pins both bounds. See `docs/glizzy-pacing.md`.
 - **Leaderboard numbers use `fmtCompact`, not `toLocaleString`.** Top players
   sit on 19-digit lifetime totals; printing those in full broke every layout
   they touched. Full value goes in a `title` attribute.
@@ -454,7 +471,11 @@ of the production database the owner downloaded for testing. There's also a
   `#ff6b35` (orange), Inter font.
 
 If anything here drifts from the actual code, the code is the source of truth
-and this doc should be updated. Last meaningful update: the Year of the
+and this doc should be updated. Last meaningful update: GlizzyClicker
+got its second hundred upgrades — `BEYOND_UPGRADES` in `glizzy.js`,
+priced by `scripts/glizzy-pacing.mjs` (a simulator calibrated against the top
+player's backups) so they last past 2030, `docs/glizzy-pacing.md`,
+`test/glizzy-beyond.test.js`; before that, the Year of the
 Glizzy got an ending — `season.js` bounds the competition at 2027-01-01
 00:00 Pacific while GlizzyClicker reads lifetime, `awards.js` computes the
 trophies, `finale.js` posts the results and has Claude Opus 5.5 write the
