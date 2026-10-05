@@ -2,6 +2,7 @@ import {
   db,
   getLifetimeEventsStmt,
   getLifetimeUserTotalStmt,
+  getHotdogEventsVersionStmt,
   upsertGameStateStmt,
   getGameStateStmt,
   topByLifetimeStmt,
@@ -1052,10 +1053,43 @@ function yesterdayPacificKey(now = new Date()) {
   return toPacificDateKey(d);
 }
 
-export function computeBonuses(userId, ctx) {
-  const allEvents = ctx?.allEvents || getLifetimeEventsStmt.all();
+// Bonuses depend on nothing but the hot dog log and today's Pacific date, yet
+// deriving them scans every event ever logged — ~65 ms, on every save (every
+// 5 s per player), every load and every golden claim. On one shared event loop
+// that backed requests up for seconds at a time, and a /hotdog caught behind
+// them missed Discord's 3 s deadline: the row saved, the user saw "did not
+// respond", retried, and the meal counted twice (2026-10-03). So they're
+// cached per user and dropped whenever the log changes (a trigger-maintained
+// version, see database.js) or the Pacific day rolls over. The scan itself is
+// shared too, so the leaderboard's cold pass over every player reads it once.
+const bonusCache = new Map();
+let bonusCacheStamp = null;
+let bonusEvents = null; // { allEvents, datesMap } for the current stamp
+
+export function computeBonuses(userId) {
+  const now = new Date();
+  const stamp = `${getHotdogEventsVersionStmt.get().version}|${toPacificDateKey(now)}`;
+  if (stamp !== bonusCacheStamp) {
+    bonusCache.clear();
+    bonusCacheStamp = stamp;
+    bonusEvents = null;
+  }
+  let bonuses = bonusCache.get(userId);
+  if (!bonuses) {
+    if (!bonusEvents) {
+      const allEvents = getLifetimeEventsStmt.all();
+      bonusEvents = { allEvents, datesMap: buildUserDatesMap(allEvents) };
+    }
+    bonuses = deriveBonuses(userId, bonusEvents, now);
+    bonusCache.set(userId, bonuses);
+  }
+  // Callers get their own copies; the cached ones are shared.
+  return bonuses.map((b) => ({ ...b, effect: { ...b.effect } }));
+}
+
+function deriveBonuses(userId, { allEvents, datesMap }, now) {
   const userEvents = allEvents.filter((e) => e.user_id === userId);
-  const yesterday = yesterdayPacificKey();
+  const yesterday = yesterdayPacificKey(now);
   const yesterdayEvents = userEvents.filter(
     (e) => toPacificDateKey(parseUtcTimestamp(e.timestamp)) === yesterday,
   );
@@ -1071,8 +1105,7 @@ export function computeBonuses(userId, ctx) {
   const hadEarlyDog = ateYesterday && yesterdayEvents.some((e) => atHour(e, (h) => h < 8));
   const hadLateDog = ateYesterday && yesterdayEvents.some((e) => atHour(e, (h) => h >= 22));
 
-  const datesMap = ctx?.datesMap || buildUserDatesMap(allEvents);
-  const streak = getCurrentStreak(datesMap.get(userId) || new Set());
+  const streak = getCurrentStreak(datesMap.get(userId) || new Set(), now);
 
   const userTotal = getLifetimeUserTotalStmt.get(userId)?.total_count || 0;
 
@@ -1488,14 +1521,11 @@ export function validateAndClampSave(userId, incoming) {
 
 export function getLeaderboardRows(limit = 50) {
   const rows = topByLifetimeStmt.all(limit);
-  // Shared context so we scan the events table once for the whole board,
-  // not once per user. Production includes each user's live bonuses.
-  const allEvents = getLifetimeEventsStmt.all();
-  const datesMap = buildUserDatesMap(allEvents);
+  // Production includes each user's live bonuses (cached; see computeBonuses).
   return rows.map((row) => {
     let state = {};
     try { state = JSON.parse(row.state); } catch {}
-    const bonuses = computeBonuses(row.user_id, { allEvents, datesMap });
+    const bonuses = computeBonuses(row.user_id);
     const rates = computeEffectiveRates(state, bonuses);
     return {
       user_id: row.user_id,

@@ -136,6 +136,16 @@ ALTER migration (idempotent — checks `PRAGMA table_info`).
   adding the amount client-side too would double-credit. **There is no idle
   cap** — a 4-hour one shipped with the game unnoticed until a player saw a
   week away pay the same as a day (`test/glizzy-offline.test.js`).
+- **GlizzyClicker shares the bot's event loop, so game requests must be
+  cheap.** Bonuses derive from the whole hot dog log; computed fresh, that was
+  ~65 ms on every save (every 5 s per player), load and golden claim, and on
+  2026-10-03 it backed requests up for 8–17 s — a `/hotdog` caught behind them
+  missed Discord's 3 s deadline, saved anyway, and the retry double-counted.
+  `computeBonuses` is now cached per user, keyed on `hotdog_events_version` (a
+  counter SQLite triggers bump on any insert/update/delete, whoever writes) plus
+  the Pacific date. Warm save ≈1 ms, cold ≈7 ms. A separate Railway service
+  was considered and rejected: the SQLite volume attaches to one service only.
+  If stalls come back, a worker thread in the same service is the next step.
 - **The game's lists are patched in place, never re-`innerHTML`'d on a timer.**
   Replacing an element between `pointerdown` and `pointerup` means no `click`
   event fires at all, which ate taps on mobile. Buildings patch text/classes;

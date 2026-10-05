@@ -24,6 +24,27 @@ db.prepare(
    GROUP BY user_id`,
 ).run();
 
+// A counter bumped by trigger on every change to hotdog_events, so a cache of
+// anything derived from the log (GlizzyClicker's bonuses) knows when it's stale
+// no matter who wrote — /hotdog, a protest, an admin edit, a Railway shell.
+db.prepare(
+  `CREATE TABLE IF NOT EXISTS hotdog_events_version (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version INTEGER NOT NULL
+  )`,
+).run();
+db.prepare("INSERT OR IGNORE INTO hotdog_events_version (id, version) VALUES (1, 0)").run();
+for (const op of ["INSERT", "UPDATE", "DELETE"]) {
+  db.prepare(
+    `CREATE TRIGGER IF NOT EXISTS hotdog_events_version_${op.toLowerCase()}
+     AFTER ${op} ON hotdog_events
+     BEGIN UPDATE hotdog_events_version SET version = version + 1; END`,
+  ).run();
+}
+export const getHotdogEventsVersionStmt = db.prepare(
+  "SELECT version FROM hotdog_events_version WHERE id = 1",
+);
+
 // Prepared statements
 export const insertHotdogEventStmt = db.prepare(
   "INSERT INTO hotdog_events (user_id, username, amount) VALUES (?, ?, ?)",
