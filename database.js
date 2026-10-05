@@ -70,6 +70,9 @@ export const getAverageAmountPerEventStmt = seasonStmt(
 export const getLifetimeUserTotalStmt = db.prepare(
   "SELECT user_id, username, total_count FROM hotdog_totals WHERE user_id = ?",
 );
+export const getLatestUserEventStmt = db.prepare(
+  "SELECT id, amount, timestamp FROM hotdog_events WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+);
 export const getLifetimeEventsStmt = db.prepare(
   "SELECT * FROM hotdog_events ORDER BY timestamp DESC",
 );
