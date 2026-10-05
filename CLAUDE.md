@@ -56,6 +56,7 @@ Anthropic API for story curation. Discord OAuth for game player identity.
 | `season.js` | The Year of the Glizzy's end: 2027-01-01 00:00 Pacific. `SEASON_END`, `isSeasonOver()`, and `seasonNow()` (the real clock, then pinned to the season's last instant). Imports nothing so `database.js` can bind it into the season-scoped statements. |
 | `awards.js` | `computeAwards(events)` — pure: final standings (ties share a place), the year-end awards, group totals. Every award nets protests. The one source the finale's embed, the memorial and the Year in Review all read. |
 | `finale.js` | What happens once at 12:01 AM Pacific on New Year's Day: results embed, the last partial week's stories, the Claude Opus 5.5 Year in Review (`writeYearInReview` in `claude.js`). `buildResults()` also feeds the memorial front page. |
+| `hotdog-guard.js` | `findRecentDuplicate` — `/hotdog` with the same amount within 2 min of the user's last log asks (ephemeral, "Log N more" / "No") instead of inserting. Slow replies make Discord say "did not respond" *after* the row is saved, and the retry double-counts (Randy, 2026-10-03). The confirm button carries the previous row id, so it's single-use. |
 | `achievements.js` | One-off pop-ups appended to `/hotdog` responses when a user crosses a milestone (10/25/.../1000 lifetime, 5/10/15/20 single sitting, 3/7/14/30/60/100/365 streak). |
 
 ### Schema (all in `database.js`, additive `CREATE TABLE IF NOT EXISTS`)

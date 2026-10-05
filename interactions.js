@@ -35,7 +35,10 @@ import {
   getLifetimeTotalHotdogsStmt,
   getUserTotalStmt,
   getTotalHotdogsStmt,
+  getLatestUserEventStmt,
 } from "./database.js";
+import { findRecentDuplicate } from "./hotdog-guard.js";
+import { parseUtcTimestamp } from "./stats.js";
 import { isSeasonOver } from "./season.js";
 import { detectAchievements, formatAchievementsForResponse } from "./achievements.js";
 
@@ -189,6 +192,22 @@ async function handleMessageComponent(res, req, data) {
   if (componentId.startsWith("second_protest_")) {
     const protestId = componentId.replace("second_protest_", "");
     return await handleSecondProtest(res, req, protestId);
+  }
+  if (componentId.startsWith("hotdog_again_")) {
+    return handleHotdogAgain(res, req, componentId);
+  }
+  if (componentId === "hotdog_cancel") {
+    return res.send({
+      type: InteractionResponseType.UPDATE_MESSAGE,
+      data: {
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: "Got it — not logged again. 🌭",
+          },
+        ],
+      },
+    });
   }
 }
 
@@ -484,7 +503,76 @@ function handleHotDogCommand(res, req, id) {
       },
     });
   }
-  // Insert new event into hotdog_events table
+  const duplicate = findRecentDuplicate(getLatestUserEventStmt.get(userId), amount);
+  if (duplicate) return sendDuplicatePrompt(res, duplicate, amount);
+
+  return recordHotdogs(res, userId, username, amount);
+}
+
+function sendDuplicatePrompt(res, previous, amount) {
+  const seconds = Math.max(
+    1,
+    Math.round((Date.now() - parseUtcTimestamp(previous.timestamp).getTime()) / 1000),
+  );
+  return res.send({
+    type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+    data: {
+      flags:
+        InteractionResponseFlags.EPHEMERAL |
+        InteractionResponseFlags.IS_COMPONENTS_V2,
+      components: [
+        {
+          type: MessageComponentTypes.TEXT_DISPLAY,
+          content: `You logged **${amount}** ${seconds}s ago, and it counted — even if Discord said the app didn't respond. Log another ${amount}?`,
+        },
+        {
+          type: MessageComponentTypes.ACTION_ROW,
+          components: [
+            {
+              type: MessageComponentTypes.BUTTON,
+              // The previous row's id makes the button single-use: once
+              // anything else is logged, it's stale.
+              custom_id: `hotdog_again_${previous.id}_${amount}`,
+              label: `Log ${amount} more`,
+              style: ButtonStyleTypes.PRIMARY,
+            },
+            {
+              type: MessageComponentTypes.BUTTON,
+              custom_id: "hotdog_cancel",
+              label: "No, that was it",
+              style: ButtonStyleTypes.SECONDARY,
+            },
+          ],
+        },
+      ],
+    },
+  });
+}
+
+function handleHotdogAgain(res, req, componentId) {
+  const [previousId, amount] = componentId
+    .replace("hotdog_again_", "")
+    .split("_")
+    .map((n) => parseInt(n, 10));
+  const user = req.body.context === 0 ? req.body.member.user : req.body.user;
+  const latest = getLatestUserEventStmt.get(user.id);
+  if (!latest || latest.id !== previousId) {
+    return res.send({
+      type: InteractionResponseType.UPDATE_MESSAGE,
+      data: {
+        components: [
+          {
+            type: MessageComponentTypes.TEXT_DISPLAY,
+            content: "Already handled — nothing new logged.",
+          },
+        ],
+      },
+    });
+  }
+  return recordHotdogs(res, user.id, user.global_name || user.username, amount);
+}
+
+function recordHotdogs(res, userId, username, amount) {
   insertHotdogEventStmt.run(userId, username, amount);
 
   // Get current total from the view
