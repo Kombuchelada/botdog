@@ -302,16 +302,18 @@ function getLongestDailyStreak() {
   return { userIds, days: maxDays };
 }
 
+// One formatter, reused: toLocaleString builds a new one per call, and this
+// runs once per event in every scan of the log.
+const PACIFIC_DATE = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
 export function toPacificDateKey(date) {
-  // Convert UTC date to Pacific Time
-  const pacificDateString = date.toLocaleString("en-US", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
   // Format is MM/DD/YYYY, convert to YYYY-MM-DD
-  const [month, day, year] = pacificDateString.split("/");
+  const [month, day, year] = PACIFIC_DATE.format(date).split("/");
   return `${year}-${month}-${day}`;
 }
 
