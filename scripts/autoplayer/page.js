@@ -167,6 +167,7 @@ function snapshot() {
     purchases,
     goldensClaimed,
     startedAt,
+    userId: window.GAME.userId,
   };
 }
 

@@ -1,3 +1,5 @@
+import { standings } from "./leaderboard.mjs";
+
 // The Autoplayer's live terminal view. Plain ANSI, no dependencies: an
 // alternate screen redrawn in place once a second, with the newest log lines
 // filling whatever height is left. Colours stay off red/green (the owner is
@@ -34,6 +36,34 @@ export function income(snap) {
   return snap.perSecond + snap.cps * snap.perClick;
 }
 
+// Bank and lifetime run a few seconds past the snapshot so the numbers keep
+// moving between polls, but not on indefinitely if the page stops answering.
+export function live(snap, now = Date.now()) {
+  const earned = income(snap) * Math.min(Math.max(0, (now - snap.at) / 1000), 5);
+  return { bank: snap.bank + earned, lifetime: snap.lifetime + earned };
+}
+
+const LEADERBOARD_MAX = 10;
+
+function leaderboardLines(rows, snap, now, room) {
+  const { list, passIn, myRank } = standings(rows, { userId: snap.userId, lifetime: live(snap, now).lifetime, income: income(snap) }, now);
+  const n = Math.max(3, Math.min(LEADERBOARD_MAX, room));
+  const mine = list.findIndex((r) => r.me);
+  // Always show my own line: past the top n, the tail becomes ⋯ / the
+  // player above me / me.
+  const shown = mine < n ? list.slice(0, n) : [...list.slice(0, n - 3), null, list[mine - 1], list[mine]];
+  return shown.map((r) => {
+    if (!r) return c.dim("    ⋯");
+    const line = (r.me && myRank == null ? ">50" : String(r.rank)).padStart(4) + "  " + r.name.slice(0, 18).padEnd(18) + fmt(r.lifetime).padStart(10) +
+      ("  " + fmt(r.perSecond) + "/s").padEnd(14) + (r.active && !r.me ? "●" : " ");
+    if (r.me) return c.accent(c.bold(line));
+    if (list[mine - 1] === r && passIn != null) {
+      return line + c.purple("  ← pass in " + (Number.isFinite(passIn) ? fmtDur(passIn) : "never at this rate"));
+    }
+    return r.rank <= 3 ? line : c.dim(line);
+  });
+}
+
 // One line per thing worth knowing, for the log file and non-TTY output.
 export function statusLine(snap) {
   const t = snap.target;
@@ -54,6 +84,7 @@ export function createTui({ title }) {
   const events = [];
   let snap = null;
   let health = "";
+  let board = null; // leaderboard API rows
   let active = true;
 
   out.write(ESC + "?1049h" + ESC + "?25l"); // alternate screen, hide cursor
@@ -77,12 +108,9 @@ export function createTui({ title }) {
     if (!snap) {
       L.push("  waiting for the game page…");
     } else {
-      const age = Math.max(0, (now - snap.at) / 1000);
-      // Extrapolated a few seconds past the snapshot so the number keeps
-      // moving between polls, but not on indefinitely if the page stops answering.
-      const bank = snap.bank + income(snap) * Math.min(age, 5);
+      const { bank, lifetime } = live(snap, now);
       const kv = (k, v) => "  " + c.dim(k.padEnd(12)) + v;
-      L.push(kv("Bank", c.bold(fmt(bank))) + c.dim("    lifetime " + fmt(snap.lifetime)));
+      L.push(kv("Bank", c.bold(fmt(bank))) + c.dim("    lifetime " + fmt(lifetime)));
       L.push(kv("Production", c.accent(fmt(snap.perSecond) + "/s")));
       L.push(kv("Per click", c.accent(fmt(snap.perClick))) + c.dim("  × " + snap.cps + "/s = " + fmt(snap.cps * snap.perClick) + "/s"));
       L.push(kv("Income", c.bold(fmt(income(snap)) + "/s")));
@@ -99,6 +127,11 @@ export function createTui({ title }) {
       L.push(c.bold("  Bonuses") + c.dim("  from your hot dog stats"));
       if (snap.bonuses.length) for (const b of snap.bonuses) L.push("    " + b.emoji + " " + b.name + c.dim(" — " + b.description));
       else L.push(c.dim("    none today"));
+      if (board) {
+        L.push(c.bold("  Leaderboard") + c.dim("  lifetime · ● playing now"));
+        // Leave the event pane at least 6 lines.
+        L.push(...leaderboardLines(board, snap, now, rows - L.length - 8));
+      }
     }
     L.push(rule);
     const room = Math.max(0, rows - L.length - 1);
@@ -132,6 +165,7 @@ export function createTui({ title }) {
       draw();
     },
     update(s) { snap = s; },
+    setLeaderboard(rows) { board = rows; },
     setHealth(h) { health = h; },
     close: restore,
   };

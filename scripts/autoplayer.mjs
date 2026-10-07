@@ -17,7 +17,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { openLog } from "./autoplayer/logfile.mjs";
-import { createTui, statusLine, fmtDur } from "./autoplayer/tui.mjs";
+import { createTui, statusLine, fmtDur, income, live } from "./autoplayer/tui.mjs";
+import { standings } from "./autoplayer/leaderboard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SESSION_COOKIE = "glizzy_session"; // oauth.js
@@ -25,6 +26,7 @@ const STALE_MS = 60_000;                 // no successful save for this long →
 const MAX_BACKOFF_MS = 30 * 60_000;
 const POLL_MS = 1000;
 const STATUS_EVERY_MS = 60_000;          // status line in the log file
+const LEADERBOARD_EVERY_MS = 10_000;     // same cadence as the game's leaderboard modal
 
 const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
@@ -149,6 +151,23 @@ async function run() {
   let lastStatus = "no save yet";
   let lastStatusLine = 0;
 
+  // The leaderboard API is public, so it's fetched from here rather than the
+  // page and keeps working while the page reloads.
+  let board = null;
+  let myRank = null;
+  async function fetchLeaderboard() {
+    try {
+      const res = await fetch(BASE + "/api/game/leaderboard");
+      if (res.ok) {
+        board = await res.json();
+        tui?.setLeaderboard(board);
+      }
+    } catch {}
+  }
+  fetchLeaderboard();
+  const boardTimer = setInterval(fetchLeaderboard, LEADERBOARD_EVERY_MS);
+  boardTimer.unref();
+
   while (!closing) {
     await sleep(POLL_MS);
     let r = null;
@@ -172,6 +191,18 @@ async function run() {
       lastStatus = save ? "HTTP " + save.status : "no save yet";
       if (r.snapshot) {
         tui?.update(r.snapshot);
+        if (board) {
+          const snap = r.snapshot;
+          const st = standings(board, { userId: snap.userId, lifetime: live(snap).lifetime, income: income(snap) });
+          if (myRank != null && st.myRank != null && st.myRank < myRank) {
+            const passed = st.list.slice(st.myRank, myRank).map((p) => p.name).join(", ");
+            log(`leaderboard: up to #${st.myRank}, passing ${passed}`);
+          } else if (myRank != null && st.myRank != null && st.myRank > myRank) {
+            const by = st.list.slice(myRank - 1, st.myRank - 1).map((p) => p.name).join(", ");
+            log(`leaderboard: down to #${st.myRank}, passed by ${by}`);
+          }
+          if (st.myRank != null) myRank = st.myRank;
+        }
         if (Date.now() - lastStatusLine >= STATUS_EVERY_MS) {
           lastStatusLine = Date.now();
           log(statusLine(r.snapshot), { screen: !tui });
