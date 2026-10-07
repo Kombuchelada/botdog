@@ -3,39 +3,60 @@
 // and reloads the page when saves stop landing. See docs/autoplayer.md.
 //
 //   node scripts/autoplayer.mjs login              # once; Discord login in a visible Chromium
-//   node scripts/autoplayer.mjs run                # Safari on macOS, headless Chromium elsewhere
-//   node scripts/autoplayer.mjs run --browser chromium --headed
+//   node scripts/autoplayer.mjs run                # headless Chromium
+//   node scripts/autoplayer.mjs run --headed       # watch it play
 //
 // Options: --url (default https://yearoftheglizzy.com), --profile (default
-// ~/.glizzy-autoplayer/profile), --browser safari|chromium, --headed.
+// ~/.glizzy-autoplayer/profile), --headed,
+// --log-dir (default ~/.glizzy-autoplayer/logs), --plain (no TUI; one line
+// per event on stdout, which is also what you get when stdout isn't a terminal).
 
 import { readFileSync } from "node:fs";
-import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { openLog } from "./autoplayer/logfile.mjs";
+import { createTui, statusLine, fmtDur } from "./autoplayer/tui.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SESSION_COOKIE = "glizzy_session"; // oauth.js
 const STALE_MS = 60_000;                 // no successful save for this long → reload
 const MAX_BACKOFF_MS = 30 * 60_000;
 const POLL_MS = 1000;
+const STATUS_EVERY_MS = 60_000;          // status line in the log file
 
 const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     url: { type: "string", default: "https://yearoftheglizzy.com" },
     profile: { type: "string", default: join(homedir(), ".glizzy-autoplayer", "profile") },
-    browser: { type: "string", default: process.platform === "darwin" ? "safari" : "chromium" },
     headed: { type: "boolean", default: false },
+    "log-dir": { type: "string", default: join(homedir(), ".glizzy-autoplayer", "logs") },
+    plain: { type: "boolean", default: false },
   },
 });
 const BASE = opts.url.replace(/\/+$/, "");
 const GAME_URL = BASE + "/game";
 
-const log = (s) => console.log(new Date().toLocaleTimeString("en-GB") + "  " + s);
-const die = (s) => { log(s); process.exit(1); };
+// Every line goes to the log file; on screen it's either the TUI's event pane
+// or plain stdout. Both are set up by `run`; `login` just prints.
+let logFile = null;
+let tui = null;
+function log(s, { screen = true } = {}) {
+  const now = new Date();
+  logFile?.write(now.toISOString() + "  " + s);
+  if (!screen) return;
+  const line = now.toLocaleTimeString("en-GB") + "  " + s;
+  if (tui) tui.event(line);
+  else console.log(line);
+}
+function die(s) {
+  tui?.close();
+  tui = null;
+  log(s);
+  process.exit(1);
+}
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // rank.js is an ES module so the tests can import it; in the page it's just
@@ -61,9 +82,9 @@ async function sessionCookie(context) {
   return (await context.cookies(BASE)).find((c) => c.name === SESSION_COOKIE);
 }
 
-// ----- drivers: goto / evaluate(expression) / close -----
+// ----- the browser: goto / evaluate(expression) / close -----
 
-async function chromiumDriver() {
+async function openGame() {
   const chromium = await loadPlaywright();
   const context = await openProfile(chromium, !opts.headed);
   if (!(await sessionCookie(context))) {
@@ -75,62 +96,6 @@ async function chromiumDriver() {
     goto: (url) => page.goto(url),
     evaluate: (expr) => page.evaluate(expr),
     close: () => context.close(),
-  };
-}
-
-// Safari has no Playwright; it's driven over plain WebDriver HTTP against
-// safaridriver. Automation sessions start with an empty cookie jar, so the
-// session cookie is copied over from the Chromium login profile.
-async function safariDriver() {
-  const chromium = await loadPlaywright();
-  const context = await openProfile(chromium, true);
-  const cookie = await sessionCookie(context);
-  await context.close();
-  if (!cookie) die("Not logged in. Run: node scripts/autoplayer.mjs login");
-
-  const port = 4444 + Math.floor(Math.random() * 1000);
-  const proc = spawn("safaridriver", ["-p", String(port)], { stdio: "ignore" });
-  proc.on("error", (e) => die("Couldn't start safaridriver: " + e.message));
-  const root = "http://127.0.0.1:" + port;
-  async function wd(method, path, body) {
-    const res = await fetch(root + path, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((json.value && json.value.message) || "WebDriver HTTP " + res.status);
-    return json.value;
-  }
-  for (let i = 0; ; i++) {
-    try { await wd("GET", "/status"); break; } catch { if (i > 50) die("safaridriver never came up"); await sleep(100); }
-  }
-  let session;
-  try {
-    session = (await wd("POST", "/session", { capabilities: { alwaysMatch: { browserName: "safari" } } })).sessionId;
-  } catch (e) {
-    proc.kill();
-    die("Safari refused the automation session (" + e.message + "). Enable it once: " +
-      "Safari ▸ Settings ▸ Advanced ▸ Show features for web developers, then Develop ▸ Allow Remote Automation, " +
-      "and run `sudo safaridriver --enable`.");
-  }
-  const s = "/session/" + session;
-  // A cookie can only be set for the page's current origin.
-  await wd("POST", s + "/url", { url: BASE + "/" });
-  await wd("POST", s + "/cookie", {
-    cookie: {
-      name: cookie.name,
-      value: cookie.value,
-      path: "/",
-      secure: cookie.secure,
-      httpOnly: cookie.httpOnly,
-      ...(cookie.expires > 0 ? { expiry: Math.floor(cookie.expires) } : {}),
-    },
-  });
-  return {
-    goto: (url) => wd("POST", s + "/url", { url }),
-    evaluate: (expr) => wd("POST", s + "/execute/sync", { script: "return (" + expr + ");", args: [] }),
-    close: async () => { await wd("DELETE", s).catch(() => {}); proc.kill(); },
   };
 }
 
@@ -154,26 +119,35 @@ async function login() {
   die("Gave up waiting for the login.");
 }
 
+const sinceSave = (at) => "last save " + fmtDur((Date.now() - at) / 1000) + " ago";
+
 async function run() {
-  const driver = opts.browser === "safari" ? await safariDriver() : await chromiumDriver();
+  logFile = openLog(opts["log-dir"]);
+  const title = (opts.headed ? "chromium" : "chromium (headless)") + " · " + BASE.replace(/^https?:\/\//, "");
+  if (process.stdout.isTTY && !opts.plain) tui = createTui({ title });
+  const driver = await openGame();
   let closing = false;
   const shutdown = async () => {
     if (closing) return;
     closing = true;
+    tui?.close();
+    tui = null;
     log("stopping");
     await driver.close().catch(() => {});
+    await logFile.flush();
     process.exit(0);
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 
-  log(`Autoplayer · ${opts.browser}${opts.browser === "chromium" && !opts.headed ? " (headless)" : ""} · ${GAME_URL}`);
+  log(`Autoplayer · ${title} · log: ${logFile.path}`);
   await driver.goto(GAME_URL);
 
   let healthyAt = Date.now(); // last successful save, or the last (re)load
   let lastReload = 0;
   let failures = 0;
   let lastStatus = "no save yet";
+  let lastStatusLine = 0;
 
   while (!closing) {
     await sleep(POLL_MS);
@@ -196,7 +170,15 @@ async function run() {
         failures = 0;
       }
       lastStatus = save ? "HTTP " + save.status : "no save yet";
+      if (r.snapshot) {
+        tui?.update(r.snapshot);
+        if (Date.now() - lastStatusLine >= STATUS_EVERY_MS) {
+          lastStatusLine = Date.now();
+          log(statusLine(r.snapshot), { screen: !tui });
+        }
+      }
     }
+    tui?.setHealth(sinceSave(healthyAt));
 
     // Runs whether or not the page answered: a browser error page (server
     // down mid-deploy) never will, and that's exactly when this matters.
@@ -217,4 +199,4 @@ async function run() {
 const cmd = positionals[0];
 if (cmd === "login") await login();
 else if (cmd === "run") await run();
-else die("usage: node scripts/autoplayer.mjs login | run [--browser safari|chromium] [--headed] [--url URL]");
+else die("usage: node scripts/autoplayer.mjs login | run [--headed] [--plain] [--url URL]");

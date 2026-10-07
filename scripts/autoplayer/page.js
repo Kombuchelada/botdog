@@ -9,7 +9,7 @@
 
 const CPS = 25;             // MAX_CLICKS_PER_SECOND in glizzy.js
 const TICK_MS = 40;         // one click per tick at 25/s
-const STATUS_EVERY_MS = 60_000;
+const MAX_BUYS_PER_PASS = 50;
 
 if (window.__autoplayer) return;
 // Mid-load, window.GAME can exist before game.js's script has defined the
@@ -38,13 +38,6 @@ function fmt(n) {
   if (tier >= SCALES.length) return n.toExponential(2);
   return (n / Math.pow(1000, tier)).toFixed(2) + SCALES[tier];
 }
-function fmtDur(s) {
-  if (!Number.isFinite(s)) return "never";
-  if (s < 60) return Math.ceil(s) + "s";
-  if (s < 3600) return Math.floor(s / 60) + "m" + Math.round(s % 60) + "s";
-  if (s < 86400) return Math.floor(s / 3600) + "h" + Math.round((s % 3600) / 60) + "m";
-  return Math.floor(s / 86400) + "d" + Math.round((s % 86400) / 3600) + "h";
-}
 
 // ----- clicking -----
 // Paced off the clock rather than the timer count, so a late tick catches up
@@ -71,12 +64,14 @@ setInterval(() => {
 // ----- golden glizzies -----
 const goldenEl = document.getElementById("golden-glizzy");
 let seenGolden = g.lastGolden;
+let goldensClaimed = 0;
 setInterval(() => {
   if (goldenEl && goldenEl.classList.contains("show")) goldenEl.click();
   const lg = g.lastGolden;
   if (lg && lg !== seenGolden) {
     seenGolden = lg;
     const d = lg.data;
+    if (d && d.ok) goldensClaimed++;
     say(d && d.ok
       ? "golden: " + (d.mega ? "MEGA " : "") + d.name + (d.message ? " — " + d.message : "")
       : "golden: claim failed (" + (d ? d.reason : "HTTP " + lg.status) + ")");
@@ -86,7 +81,8 @@ setInterval(() => {
 // ----- buying -----
 const catalog = { buildings: g.buildings, upgrades: g.upgrades };
 let target = null;
-let pending = null; // { key, at } — a click we're waiting to see land
+let pending = null; // { at } — a click we're waiting to see land
+let purchases = 0;
 setInterval(() => {
   // The ranking prices buildings ×1; a ×10 setting would make a card tap buy
   // ten of something priced as one.
@@ -94,60 +90,96 @@ setInterval(() => {
     document.querySelector('#buy-qty .qty-btn[data-qty="1"]')?.click();
     return;
   }
-  const state = g.state;
   if (pending && Date.now() - pending.at < 2000) return;
   pending = null;
 
-  const d = decide({
-    state,
-    catalog,
-    ratesFor: g.computeRatesFor,
-    nextCost: (id) => g.buildingCost(id, 1),
-    cps: CPS,
-  });
-  if (!d) { target = null; return; }
-  if (d.wait) { target = d.wait; return; }
+  // Keep buying until it's time to save up: a big bank (offline earnings, a
+  // Lucky!) can cover hundreds of purchases, and one per pass would spend
+  // minutes on them. Capped so a pass can't hog the page's thread.
+  for (let n = 0; n < MAX_BUYS_PER_PASS; n++) {
+    const state = g.state;
+    const d = decide({
+      state,
+      catalog,
+      ratesFor: g.computeRatesFor,
+      nextCost: (id) => g.buildingCost(id, 1),
+      cps: CPS,
+    });
+    if (!d) { target = null; return; }
+    if (d.wait) { target = d.wait; return; }
 
-  const c = d.buy;
-  const el = document.querySelector(c.kind === "building" ? '[data-buy="' + c.id + '"]' : '[data-upgrade="' + c.id + '"]');
-  if (!el) return; // upgrade list not rendered yet; next pass
-  const before = c.kind === "building" ? state.buildings[c.id] || 0 : null;
-  el.click();
-  const now = g.state;
-  const landed = c.kind === "building" ? (now.buildings[c.id] || 0) > before : now.upgrades_owned.includes(c.id);
-  if (landed) {
+    const c = d.buy;
+    const el = document.querySelector(c.kind === "building" ? '[data-buy="' + c.id + '"]' : '[data-upgrade="' + c.id + '"]');
+    if (!el) return; // upgrade list not rendered yet; next pass
+    const before = c.kind === "building" ? state.buildings[c.id] || 0 : null;
+    el.click();
+    const now = g.state;
+    const landed = c.kind === "building" ? (now.buildings[c.id] || 0) > before : now.upgrades_owned.includes(c.id);
+    if (!landed) { pending = { at: Date.now() }; return; }
     say("bought " + c.name + " for " + fmt(c.cost));
+    purchases++;
     target = null;
-  } else {
-    pending = { at: Date.now() };
   }
 }, 250);
 
-// ----- status -----
-let lastStatus = Date.now();
-let wasHidden = false;
-function status() {
+// ----- snapshot -----
+// Raw numbers for the launcher's TUI, status line and log; formatting
+// happens there.
+
+// Same-group golden buffs eclipse (only the strongest running one applies);
+// mirrors buffGroupKey in game.js.
+function buffGroup(e) {
+  if (e.kind === "building_mult") return "building:" + e.building;
+  if (e.kind === "click_mult") return "click";
+  return "prod";
+}
+function buffs(now) {
+  const live = (g.state.golden_effects || []).filter((e) => e && Date.parse(e.expires_at) > now);
+  const running = (e) => !e.starts_at || Date.parse(e.starts_at) <= now;
+  const best = {};
+  for (const e of live.filter(running)) {
+    const k = buffGroup(e);
+    if (!best[k] || e.mult > best[k].mult) best[k] = e;
+  }
+  return live.map((e) => ({
+    kind: e.kind,
+    mult: e.mult,
+    building: e.building ? (g.buildings.find((b) => b.id === e.building) || {}).name || e.building : null,
+    mode: !running(e) ? "queued" : best[buffGroup(e)] === e ? "on" : "eclipsed",
+    startsAt: e.starts_at ? Date.parse(e.starts_at) : null,
+    expiresAt: Date.parse(e.expires_at),
+  }));
+}
+function snapshot() {
+  const now = Date.now();
   const s = g.state, r = g.rates;
-  const next = target
-    ? target.name + " in " + fmtDur(Math.max(0, target.cost - s.glizzies) / Math.max(r.perSecond + CPS * r.perClick, 1e-9))
-    : "—";
-  return fmt(r.perSecond) + "/s · " + fmt(r.perClick) + "/click · bank " + fmt(s.glizzies) + " · next: " + next;
+  return {
+    at: now,
+    bank: s.glizzies,
+    lifetime: s.lifetime,
+    perSecond: r.perSecond,
+    perClick: r.perClick,
+    cps: CPS,
+    buffs: buffs(now),
+    bonuses: (g.bonuses || window.GAME.bonuses || []).map((b) => ({ emoji: b.emoji, name: b.name, description: b.description })),
+    target: target ? { name: target.name, cost: target.cost } : null,
+    hidden: document.hidden,
+    purchases,
+    goldensClaimed,
+    startedAt,
+  };
 }
 
+let wasHidden = false;
 window.__autoplayer = {
   drain() {
-    const now = Date.now();
     if (document.hidden !== wasHidden) {
       wasHidden = document.hidden;
       say(wasHidden
         ? "WARNING: page hidden — golden glizzies paused and timers throttled. Keep the window visible."
         : "page visible again");
     }
-    if (now - lastStatus >= STATUS_EVERY_MS) {
-      lastStatus = now;
-      say(status());
-    }
-    return { lines: lines.splice(0), lastSave: g.lastSave, startedAt };
+    return { lines: lines.splice(0), lastSave: g.lastSave, snapshot: snapshot() };
   },
 };
-say("started · " + status());
+say("started");

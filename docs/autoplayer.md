@@ -18,27 +18,37 @@ node scripts/autoplayer.mjs login        # a Chromium window opens; log in with 
 (`--profile` to move it). The session lasts 30 days. When it expires the
 Autoplayer stops with "Session expired". Run `login` again.
 
-**Safari (macOS)**, once: Safari ▸ Settings ▸ Advanced ▸ *Show features for web
-developers*, then Develop ▸ *Allow Remote Automation*, then
-`sudo safaridriver --enable`.
+It's headless Chromium on every platform (macOS and Linux alike). Safari
+support was built first and dropped: an automation session can't share your
+Safari login, locks the window, and stops golden glizzies whenever the window
+is covered.
 
 ## Running
 
 ```bash
-node scripts/autoplayer.mjs run                       # Safari on macOS, headless Chromium elsewhere
-node scripts/autoplayer.mjs run --browser chromium --headed
+node scripts/autoplayer.mjs run                       # headless, live TUI
+node scripts/autoplayer.mjs run --headed              # watch it play in a window
+node scripts/autoplayer.mjs run --plain               # one line per event, no TUI
 node scripts/autoplayer.mjs run --url http://localhost:3000
 ```
 
-It runs until Ctrl-C. Output is one line per purchase, golden glizzy and
-reload, plus a status line every minute.
+It runs until Ctrl-C.
 
-**Safari must stay visible.** The game only spawns golden glizzies while
-`document.hidden` is false, and Safari throttles timers in hidden windows. If
-the window is minimised, on another Space or fully covered, the Autoplayer logs
-a warning and carries on. It does not pull the window to the front.
-Safari also locks an automation window against your input. Headless Chromium
-always counts as visible.
+**The TUI** redraws once a second. It shows bank, production, per click (and
+what 25/s of it earns), the next purchase with its ETA, running golden buffs
+(running ▶, queued, or outranked by a stronger buff in the same group), your
+hot dog bonuses, and the newest events below. If stdout isn't a terminal
+(piped, `nohup`), it falls back to `--plain` output.
+
+**The log file** is `~/.glizzy-autoplayer/logs/autoplayer.log` (`--log-dir` to
+move it). It holds every event, plus a status line every minute. It rolls over
+at 10 MB or when the local date changes. Each rolled file is gzipped as
+`autoplayer-<timestamp>.log.gz`, and the newest 30 are kept
+(`scripts/autoplayer/logfile.mjs`, `test/autoplayer-logfile.test.js`).
+
+The game only spawns golden glizzies while `document.hidden` is false.
+Headless Chromium always counts as visible. A `--headed` window that's
+minimised doesn't, so the Autoplayer warns when that happens.
 
 **Don't play the same account elsewhere while it runs.** The `save_seq` guard
 drops whichever tab's save is out of date. Two sessions keep resyncing each
@@ -50,7 +60,7 @@ other and both lose work.
 |---|---|
 | Clicking | 25 clicks/s, which is `MAX_CLICKS_PER_SECOND`. Clicks are paced off the clock, so a late tick catches up. A backlog of more than a second (throttled tab) is dropped rather than burst. |
 | Golden glizzies | Clicked within 200 ms of appearing. The reward is logged. |
-| Buying | Buy quantity is forced to ×1. An affordable golden upgrade is bought first. Otherwise it buys the ranking's #1 the moment it's affordable, and buys nothing cheaper while saving for it. |
+| Buying | Buy quantity is forced to ×1. An affordable golden upgrade is bought first. Otherwise it buys the ranking's #1 the moment it's affordable, and buys nothing cheaper while saving for it. Each pass (every 250 ms) keeps buying until it has to save, up to 50, so a big bank gets spent in seconds. |
 
 ### The ranking
 
@@ -72,13 +82,16 @@ read-only `window.__glizzy` hook, so it always matches whatever is deployed.
 
 | File | Role |
 |---|---|
-| `game.js` → `window.__glizzy` | Read-only getters for state, rates and buy quantity, plus the last save and golden-claim outcomes, `computeRatesFor` and `buildingCost`. Grants nothing. The Autoplayer acts only by clicking the DOM. |
+| `game.js` → `window.__glizzy` | Read-only getters for state, rates, bonuses and buy quantity, plus the last save and golden-claim outcomes, `computeRatesFor` and `buildingCost`. Grants nothing. The Autoplayer acts only by clicking the DOM. |
 | `scripts/autoplayer/rank.js` | The purchase decision. |
 | `scripts/autoplayer/page.js` | The in-page loop. It has a top-level `return`, because the launcher wraps it in a function, prepends `rank.js` with its `export`s stripped, and injects the result. |
-| `scripts/autoplayer.mjs` | The launcher. Chromium is driven through Playwright. Safari is driven through plain WebDriver HTTP against `safaridriver`. Automation sessions start with no cookies, so the session cookie is copied over from the Chromium profile. |
+| `scripts/autoplayer/tui.mjs` | The live terminal view: plain ANSI on the alternate screen, no dependencies. |
+| `scripts/autoplayer/logfile.mjs` | The rolling, gzipping log file. |
+| `scripts/autoplayer.mjs` | The launcher. Drives Chromium through Playwright. |
 
 The launcher polls the page every second. If the page has no Autoplayer (a
-fresh load), it injects one. Otherwise it drains the page's log.
+fresh load), it injects one. Otherwise it drains the page's events and a
+snapshot of the numbers the TUI shows.
 
 **Watchdog.** If there has been no successful save for 60 s, the launcher
 navigates back to `/game`. Repeated failures back off exponentially, capped at

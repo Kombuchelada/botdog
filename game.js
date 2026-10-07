@@ -1685,6 +1685,7 @@ const GAME_CLIENT_JS = `
     get state() { return state; },
     get rates() { return rates; },
     get buyQty() { return buyQty; },
+    get bonuses() { return bonuses; },
     get lastSave() { return lastSave; },
     get lastGolden() { return lastGolden; },
     buildings: BUILDINGS,
