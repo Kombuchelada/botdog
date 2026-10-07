@@ -795,6 +795,10 @@ const GAME_CLIENT_JS = `
 
   let dirty = false;
   let savePromise = null;
+  // Last save / golden-claim outcomes, read by the Autoplayer's watchdog and
+  // log through window.__glizzy (docs/autoplayer.md).
+  let lastSave = null;
+  let lastGolden = null;
   let showAllUpgrades = false;
   let showOwnedUpgrades = false;
 
@@ -1441,6 +1445,7 @@ const GAME_CLIENT_JS = `
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(sent),
         });
+        lastSave = { at: Date.now(), ok: res.ok, status: res.status };
         if (res.ok) {
           const data = await res.json();
           bonuses = data.bonuses;
@@ -1452,6 +1457,7 @@ const GAME_CLIENT_JS = `
         }
       } catch (e) {
         console.warn('save failed', e);
+        lastSave = { at: Date.now(), ok: false, status: 0 };
         dirty = true;  // retry next tick
       }
     })();
@@ -1598,6 +1604,7 @@ const GAME_CLIENT_JS = `
       };
       const res = await fetch('/api/game/golden', { method: 'POST' });
       const data = res.ok ? await res.json() : null;
+      lastGolden = { at: Date.now(), status: res.status, data };
       // A click must never just swallow the glizzy silently — that reads as a
       // broken game. Say what happened, and if the server is still cooling down
       // re-spawn as soon as it isn't rather than burning the whole interval.
@@ -1667,6 +1674,24 @@ const GAME_CLIENT_JS = `
     scheduleGolden();
     window.__spawnGolden = spawnGolden;  // manual trigger for testing from the console
   }
+
+  // ----- read-only hook for the Autoplayer -----
+  // The Autoplayer (scripts/autoplayer/) ranks purchases with this page's own
+  // computeRatesFor, so it always matches whatever is deployed instead of
+  // carrying a third copy. It acts only through the DOM, like a player would;
+  // nothing here grants anything. Getters, because these are reassigned on
+  // every save. See docs/autoplayer.md.
+  window.__glizzy = Object.freeze({
+    get state() { return state; },
+    get rates() { return rates; },
+    get buyQty() { return buyQty; },
+    get lastSave() { return lastSave; },
+    get lastGolden() { return lastGolden; },
+    buildings: BUILDINGS,
+    upgrades: UPGRADES,
+    computeRatesFor,
+    buildingCost,
+  });
 
   // ----- leaderboard peek -----
   // Navigating to /game/leaderboard costs a save round-trip and drops you out
