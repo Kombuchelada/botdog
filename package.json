@@ -13,7 +13,8 @@
     "test": "node --test test/*.test.js",
     "register": "node commands.js",
     "dev": "nodemon app.js",
-    "postinstall": "npm run register"
+    "postinstall": "npm run register",
+    "autoplayer": "node scripts/autoplayer.mjs"
   },
   "author": "Shay DeWael",
   "license": "MIT",
@@ -33,6 +34,7 @@
     "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "nodemon": "^3.0.0"
+    "nodemon": "^3.0.0",
+    "playwright": "^1.63.0"
   }
 }

@@ -78,3 +78,11 @@ What a single click yields, after click upgrades, click buffs and global
 multipliers. Distinct from production, which accrues on its own — a reward
 that raises Click Power pays nothing to a player who does not click.
 _Avoid_: click value, tap damage, CPC
+
+**Autoplayer**:
+A program that plays GlizzyClicker for a player through the real game page:
+it clicks, claims Golden Glizzies and buys, all within the limits the server
+enforces on everyone. Allowed. An Autoplayer is still the player: its
+glizzies are theirs, and the leaderboard does not tell the two apart.
+_Avoid_: cheat, hack (those get around the server's limits; an Autoplayer
+stays inside them), bot (ambiguous with the Discord bot)
