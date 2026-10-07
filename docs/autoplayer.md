@@ -37,7 +37,15 @@ It runs until Ctrl-C.
 **The TUI** redraws once a second. It shows bank, production, per click (and
 what 25/s of it earns), the next purchase with its ETA, running golden buffs
 (running ▶, queued, or outranked by a stronger buff in the same group), your
-hot dog bonuses, and the newest events below. If stdout isn't a terminal
+hot dog bonuses, the leaderboard, and the newest events below.
+
+The leaderboard is `/api/game/leaderboard` (public, top 50), fetched every 10 s
+by the launcher, with your own line replaced by your live numbers. Everyone
+else is shown as stored, the same as on the site. ● marks a player who saved
+in the last two minutes. The row above yours shows how long until you pass
+them. That counts their /s only if they're playing, because a stored total
+stands still until its player comes back. Rank changes are logged
+(`scripts/autoplayer/leaderboard.mjs`, `test/autoplayer-leaderboard.test.js`). If stdout isn't a terminal
 (piped, `nohup`), it falls back to `--plain` output.
 
 **The log file** is `~/.glizzy-autoplayer/logs/autoplayer.log` (`--log-dir` to
@@ -86,6 +94,7 @@ read-only `window.__glizzy` hook, so it always matches whatever is deployed.
 | `scripts/autoplayer/rank.js` | The purchase decision. |
 | `scripts/autoplayer/page.js` | The in-page loop. It has a top-level `return`, because the launcher wraps it in a function, prepends `rank.js` with its `export`s stripped, and injects the result. |
 | `scripts/autoplayer/tui.mjs` | The live terminal view: plain ANSI on the alternate screen, no dependencies. |
+| `scripts/autoplayer/leaderboard.mjs` | Ranks the leaderboard with your live line and works out the pass ETA. |
 | `scripts/autoplayer/logfile.mjs` | The rolling, gzipping log file. |
 | `scripts/autoplayer.mjs` | The launcher. Drives Chromium through Playwright. |
 
