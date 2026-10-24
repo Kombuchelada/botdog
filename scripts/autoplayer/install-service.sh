@@ -63,4 +63,4 @@ systemctl --user enable --now glizzy-autoplayer.service
 loginctl show-user "$USER" -p Linger | grep -q yes \
   || echo "note: run 'sudo loginctl enable-linger $USER' so it starts at boot with nobody logged in"
 [ -f "$ENV_FILE" ] || echo "note: no $ENV_FILE, so no push notifications"
-systemctl --user --no-pager --lines=0 status glizzy-autoplayer.service
+echo "glizzy-autoplayer: $(systemctl --user is-active glizzy-autoplayer.service)"
