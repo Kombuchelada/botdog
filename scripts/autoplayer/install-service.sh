@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Install the Autoplayer as a systemd user service on a Linux box, running
+# headless from this checkout. See docs/autoplayer.md, "As a service".
+#
+# Log the profile in first (`login` on a machine with a screen, then
+# `export-session | ssh … import-session`). Idempotent; re-run after moving the
+# checkout or changing Node.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+NODE="$(command -v node)" || { echo "node isn't on PATH" >&2; exit 1; }
+UNIT_DIR="$HOME/.config/systemd/user"
+UNIT="$UNIT_DIR/glizzy-autoplayer.service"
+
+mkdir -p "$UNIT_DIR"
+cat > "$UNIT" <<EOF
+# Managed by $REPO/scripts/autoplayer/install-service.sh
+[Unit]
+Description=GlizzyClicker Autoplayer (headless Chromium)
+After=network-online.target
+
+[Service]
+WorkingDirectory=$REPO
+ExecStart=$NODE scripts/autoplayer.mjs run --plain
+# Exit 3 is "a human has to act" (session expired, game hook not deployed):
+# restarting can't fix it. Anything else — a Chromium crash, the OOM kill
+# below — restarts.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=3
+# A page left clicking for weeks is the textbook place for a slow leak.
+MemoryMax=2G
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user enable --now glizzy-autoplayer.service
+# Without lingering the service only runs while you're logged in.
+loginctl show-user "$USER" -p Linger | grep -q yes \
+  || echo "note: run 'sudo loginctl enable-linger $USER' so it starts at boot with nobody logged in"
+systemctl --user --no-pager status glizzy-autoplayer.service | head -n 5
