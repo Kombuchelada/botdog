@@ -5,11 +5,15 @@
 //   node scripts/autoplayer.mjs login              # once; Discord login in a visible Chromium
 //   node scripts/autoplayer.mjs run                # headless Chromium
 //   node scripts/autoplayer.mjs run --headed       # watch it play
+//   node scripts/autoplayer.mjs export-session | ssh host 'node scripts/autoplayer.mjs import-session'
 //
 // Options: --url (default https://yearoftheglizzy.com), --profile (default
 // ~/.glizzy-autoplayer/profile), --headed,
 // --log-dir (default ~/.glizzy-autoplayer/logs), --plain (no TUI; one line
 // per event on stdout, which is also what you get when stdout isn't a terminal).
+// NTFY_URL (a topic URL, e.g. https://ntfy.sh/<topic>) and optional NTFY_TOKEN
+// in the environment send a push when the session is about to expire or saves
+// stop landing. The systemd unit's OnFailure covers "it stopped".
 
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -27,6 +31,11 @@ const MAX_BACKOFF_MS = 30 * 60_000;
 const POLL_MS = 1000;
 const STATUS_EVERY_MS = 60_000;          // status line in the log file
 const LEADERBOARD_EVERY_MS = 10_000;     // same cadence as the game's leaderboard modal
+// Exit status for "a human has to do something" (log in again, wait for a
+// deploy). The systemd unit won't restart on it; every other failure restarts.
+const EXIT_NEEDS_HUMAN = 3;
+const EXPIRY_WARN_S = 3 * 86400;         // push once a day inside this
+const STALLED_PUSH_AT = 4;               // watchdog reloads (≈15 min without a save)
 
 const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
@@ -53,11 +62,20 @@ function log(s, { screen = true } = {}) {
   if (tui) tui.event(line);
   else console.log(line);
 }
-function die(s) {
+function die(s, code = 1) {
   tui?.close();
   tui = null;
   log(s);
-  process.exit(1);
+  process.exit(code);
+}
+// Fire-and-forget: a push that fails must never take the Autoplayer down.
+function notify(message, { title = "Glizzy Autoplayer", priority = "default", tags = "hotdog" } = {}) {
+  const url = process.env.NTFY_URL;
+  if (!url) return;
+  const headers = { Title: title, Priority: priority, Tags: tags };
+  if (process.env.NTFY_TOKEN) headers.Authorization = "Bearer " + process.env.NTFY_TOKEN;
+  fetch(url, { method: "POST", body: message, headers })
+    .catch((e) => log("ntfy failed: " + e.message, { screen: false }));
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -91,10 +109,13 @@ async function openGame() {
   const context = await openProfile(chromium, !opts.headed);
   if (!(await sessionCookie(context))) {
     await context.close();
-    die("Not logged in. Run: node scripts/autoplayer.mjs login");
+    die("Not logged in. Run: node scripts/autoplayer.mjs login", EXIT_NEEDS_HUMAN);
   }
+  const cookie = await sessionCookie(context);
+  if (cookie.expires > 0) log("session expires in " + fmtDur(cookie.expires - Date.now() / 1000) + " — then log in again");
   const page = context.pages()[0] || (await context.newPage());
   return {
+    sessionExpires: cookie.expires,
     goto: (url) => page.goto(url),
     evaluate: (expr) => page.evaluate(expr),
     close: () => context.close(),
@@ -119,6 +140,29 @@ async function login() {
   }
   await context.close();
   die("Gave up waiting for the login.");
+}
+
+// The session cookie, moved between profiles: log in where there's a screen,
+// then carry it to a headless box. Neither works while `run` holds the profile.
+async function exportSession() {
+  const chromium = await loadPlaywright();
+  const context = await openProfile(chromium, true);
+  const cookie = await sessionCookie(context);
+  await context.close();
+  if (!cookie) die("Not logged in. Run: node scripts/autoplayer.mjs login", EXIT_NEEDS_HUMAN);
+  process.stdout.write(JSON.stringify(cookie) + "\n");
+}
+
+async function importSession() {
+  let input = "";
+  for await (const chunk of process.stdin) input += chunk;
+  const cookie = JSON.parse(input);
+  if (cookie.name !== SESSION_COOKIE) die("stdin isn't an export-session cookie");
+  const chromium = await loadPlaywright();
+  const context = await openProfile(chromium, true);
+  await context.addCookies([cookie]);
+  await context.close();
+  log("Session imported into " + opts.profile + "; expires in " + fmtDur(cookie.expires - Date.now() / 1000));
 }
 
 const sinceSave = (at) => "last save " + fmtDur((Date.now() - at) / 1000) + " ago";
@@ -150,6 +194,9 @@ async function run() {
   let failures = 0;
   let lastStatus = "no save yet";
   let lastStatusLine = 0;
+  let expiryWarnedOn = null;
+  let stalledPushed = false;
+  let savedAt = Date.now(); // healthyAt also moves on reloads; this doesn't
 
   // The leaderboard API is public, so it's fetched from here rather than the
   // page and keeps working while the page reloads.
@@ -179,14 +226,18 @@ async function run() {
     }
 
     if (r) {
-      if (r.error === "logged-out") { await driver.close(); die("Session expired. Run: node scripts/autoplayer.mjs login"); }
-      if (r.error === "no-hook") { await driver.close(); die("The deployed game has no window.__glizzy hook — the game.js change isn't deployed yet."); }
+      if (r.error === "logged-out") { await driver.close(); die("Session expired. Run: node scripts/autoplayer.mjs login", EXIT_NEEDS_HUMAN); }
+      if (r.error === "no-hook") { await driver.close(); die("The deployed game has no window.__glizzy hook — the game.js change isn't deployed yet.", EXIT_NEEDS_HUMAN); }
       for (const line of r.lines) log(line);
       const save = r.lastSave;
-      if (save && save.status === 401) { await driver.close(); die("Session expired. Run: node scripts/autoplayer.mjs login"); }
+      if (save && save.status === 401) { await driver.close(); die("Session expired. Run: node scripts/autoplayer.mjs login", EXIT_NEEDS_HUMAN); }
       if (save && save.ok && save.at > healthyAt) {
-        healthyAt = save.at;
+        healthyAt = savedAt = save.at;
         failures = 0;
+        if (stalledPushed) {
+          stalledPushed = false;
+          notify("Saving again.", { tags: "white_check_mark" });
+        }
       }
       lastStatus = save ? "HTTP " + save.status : "no save yet";
       if (r.snapshot) {
@@ -211,12 +262,23 @@ async function run() {
     }
     tui?.setHealth(sinceSave(healthyAt));
 
+    const left = driver.sessionExpires - Date.now() / 1000;
+    const today = new Date().toDateString();
+    if (driver.sessionExpires > 0 && left < EXPIRY_WARN_S && expiryWarnedOn !== today) {
+      expiryWarnedOn = today;
+      notify(`Session expires in ${fmtDur(left)}. Log in again: login → export-session → import-session.`, { priority: "high", tags: "key" });
+    }
+
     // Runs whether or not the page answered: a browser error page (server
     // down mid-deploy) never will, and that's exactly when this matters.
     const now = Date.now();
     const backoff = failures ? Math.min(STALE_MS * 2 ** failures, MAX_BACKOFF_MS) : 0;
     if (now - healthyAt > STALE_MS && now - lastReload > backoff) {
       failures++;
+      if (failures === STALLED_PUSH_AT) {
+        stalledPushed = true;
+        notify(`No successful save for ${fmtDur((now - savedAt) / 1000)} (last: ${lastStatus}). Still retrying.`, { priority: "high", tags: "warning" });
+      }
       lastReload = now;
       healthyAt = now;
       log(`no successful save for ${Math.round(STALE_MS / 1000)}s (last: ${lastStatus}) — reloading (attempt ${failures})`);
@@ -230,4 +292,6 @@ async function run() {
 const cmd = positionals[0];
 if (cmd === "login") await login();
 else if (cmd === "run") await run();
-else die("usage: node scripts/autoplayer.mjs login | run [--headed] [--plain] [--url URL]");
+else if (cmd === "export-session") await exportSession();
+else if (cmd === "import-session") await importSession();
+else die("usage: node scripts/autoplayer.mjs login | run [--headed] [--plain] [--url URL] | export-session | import-session");

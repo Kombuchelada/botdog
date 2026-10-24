@@ -62,6 +62,48 @@ minimised doesn't, so the Autoplayer warns when that happens.
 drops whichever tab's save is out of date. Two sessions keep resyncing each
 other and both lose work.
 
+## As a service (Linux)
+
+To run it headless on an always-on box, log in on a machine with a screen and
+carry the session over. Stop the local `run` first: both commands need the
+profile, and two Autoplayers on one account fight over `save_seq`.
+
+```bash
+# on the box, in a checkout of this repo
+npm install --ignore-scripts && npx playwright install chromium
+
+# on the machine you logged in on
+node scripts/autoplayer.mjs export-session | ssh box 'cd botdog && node scripts/autoplayer.mjs import-session'
+
+# on the box
+scripts/autoplayer/install-service.sh
+journalctl --user -fu glizzy-autoplayer          # or tail ~/.glizzy-autoplayer/logs/autoplayer.log
+```
+
+The unit is a systemd user service (`glizzy-autoplayer`), so it starts at boot
+only if lingering is on (`sudo loginctl enable-linger $USER`). There's no TUI;
+it runs `--plain`. A crash or the 2 GB memory cap restarts it after 30 s.
+"Session expired" and "no hook" exit with status 3, which doesn't restart,
+since only a person can fix those. `run` logs how long the session has left
+when it starts. When it runs out, repeat `login` → `export-session` →
+`import-session`, then `systemctl --user restart glizzy-autoplayer`.
+
+**Push notifications** go through [ntfy](https://ntfy.sh). Put a topic URL in
+`~/.glizzy-autoplayer/ntfy.env` and re-run the installer (or restart):
+
+```bash
+NTFY_URL=https://ntfy.sh/<an-unguessable-topic>
+NTFY_TOKEN=tk_…        # only for a topic that needs auth
+```
+
+| Push | When |
+|---|---|
+| Session expires in … | Under 3 days left, once a day. |
+| No successful save for … | The watchdog's 4th reload, about 15 minutes in. "Saving again" follows when it recovers. |
+| Autoplayer stopped | It's down for good: an exit 3, or ten crashes inside an hour. Sent by the unit's `OnFailure=` (`scripts/autoplayer/notify-stopped.sh`), with the last log line as the reason. |
+
+`run` sends the first two whenever `NTFY_URL` is set, service or not.
+
 ## What it does
 
 | | |
@@ -97,6 +139,8 @@ read-only `window.__glizzy` hook, so it always matches whatever is deployed.
 | `scripts/autoplayer/leaderboard.mjs` | Ranks the leaderboard with your live line and works out the pass ETA. |
 | `scripts/autoplayer/logfile.mjs` | The rolling, gzipping log file. |
 | `scripts/autoplayer.mjs` | The launcher. Drives Chromium through Playwright. |
+| `scripts/autoplayer/install-service.sh` | Writes and starts the systemd user unit and its `OnFailure=` push. |
+| `scripts/autoplayer/notify-stopped.sh` | That push. |
 
 The launcher polls the page every second. If the page has no Autoplayer (a
 fresh load), it injects one. Otherwise it drains the page's events and a
